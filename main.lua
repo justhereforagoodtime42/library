@@ -2593,13 +2593,13 @@ function Library.new(config: WindowConfig)
 			Idx: string?,
 			--[[ Filter option rows while the list is open (search box at top of dropdown). ]]
 			Searchable: boolean?,
-			--[[ Max option rows visible before scrolling (default 8; clamped 3–24). ]]
+			--[[ Max option rows visible before scrolling (default 5; clamped 3–24). ]]
 			MaxVisibleItems: number?,
 		})
 			local allowNull = o.AllowNull == true
 			local searchable = o.Searchable == true
 			local maxVisibleItems = math.clamp(
-				if typeof(o.MaxVisibleItems) == "number" then math.floor(o.MaxVisibleItems :: number) else 8,
+				if typeof(o.MaxVisibleItems) == "number" then math.floor(o.MaxVisibleItems :: number) else 5,
 				3,
 				24
 			)
