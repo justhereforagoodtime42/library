@@ -1686,8 +1686,7 @@ function Library.new(config: WindowConfig)
 		strip.BackgroundColor3 = Theme.Background
 		strip.BackgroundTransparency = 0.35
 		strip.BorderSizePixel = 0
-		strip.Size = UDim2.new(1, 0, 0, 0)
-		strip.AutomaticSize = Enum.AutomaticSize.Y
+		strip.Size = UDim2.new(1, 0, 0, 30)
 		strip.LayoutOrder = nextLo
 		nextLo += 1
 		strip:SetAttribute("AcidBg", "Background")
@@ -1700,19 +1699,15 @@ function Library.new(config: WindowConfig)
 		stripPad.PaddingBottom = UDim.new(0, 4)
 		stripPad.Parent = strip
 
-		local rowsHost = Instance.new("Frame")
-		rowsHost.Name = "TabboxRowsHost"
-		rowsHost.BackgroundTransparency = 1
-		rowsHost.BorderSizePixel = 0
-		rowsHost.Size = UDim2.new(1, 0, 0, 0)
-		rowsHost.AutomaticSize = Enum.AutomaticSize.Y
-		rowsHost.Parent = strip
-
-		local vRows = Instance.new("UIListLayout")
-		vRows.FillDirection = Enum.FillDirection.Vertical
-		vRows.SortOrder = Enum.SortOrder.LayoutOrder
-		vRows.Padding = UDim.new(0, 4)
-		vRows.Parent = rowsHost
+		local hList = Instance.new("UIListLayout")
+		hList.FillDirection = Enum.FillDirection.Horizontal
+		hList.SortOrder = Enum.SortOrder.LayoutOrder
+		hList.Padding = UDim.new(0, 4)
+		hList.VerticalAlignment = Enum.VerticalAlignment.Stretch
+		hList.Parent = strip
+		pcall(function()
+			hList.HorizontalFlex = Enum.UIFlexAlignment.Fill
+		end)
 
 		local contentHost = Instance.new("Frame")
 		contentHost.Name = "TabboxContent"
@@ -1732,67 +1727,13 @@ function Library.new(config: WindowConfig)
 		local activeSub = 1
 
 		local function paintStrip(sel: number)
-			local T = Library.Theme
 			for i, e in entries do
 				local on = i == sel
 				e.btn.BackgroundTransparency = if on then 0.08 else 0.55
-				e.btn.BackgroundColor3 = if on then T.Elevated else T.Background
-				e.btn.TextColor3 = if on then T.Text else T.TextDim
+				e.btn.BackgroundColor3 = if on then Theme.Elevated else Theme.Background
+				e.btn.TextColor3 = if on then Theme.Text else Theme.TextDim
 				e.btn:SetAttribute("AcidBg", if on then "Elevated" else "Background")
 				e.btn:SetAttribute("AcidText", if on then "Text" else "TextDim")
-			end
-		end
-
-		local function reflowStrip()
-			local n = #entries
-			for _, ch in rowsHost:GetChildren() do
-				if ch:IsA("Frame") and string.sub(ch.Name, 1, 11) == "TabboxRow_" then
-					ch:Destroy()
-				end
-			end
-			if n == 0 then
-				return
-			end
-			local padX = stripPad.PaddingLeft.Offset + stripPad.PaddingRight.Offset
-			local w = strip.AbsoluteSize.X
-			if w < padX + 40 then
-				w = 260
-			end
-			local innerW = math.max(w - padX, 72)
-			local approxMinTab = 50
-			local maxCols = math.max(2, math.floor(innerW / approxMinTab))
-			local tabsPerRow = math.min(n, maxCols)
-			local rowCount = math.ceil(n / tabsPerRow)
-			for r = 1, rowCount do
-				local row = Instance.new("Frame")
-				row.Name = "TabboxRow_" .. r
-				row.BackgroundTransparency = 1
-				row.BorderSizePixel = 0
-				row.Size = UDim2.new(1, 0, 0, 24)
-				row.LayoutOrder = r
-				row.Parent = rowsHost
-				local hList = Instance.new("UIListLayout")
-				hList.FillDirection = Enum.FillDirection.Horizontal
-				hList.SortOrder = Enum.SortOrder.LayoutOrder
-				hList.Padding = UDim.new(0, 4)
-				hList.Parent = row
-				pcall(function()
-					hList.HorizontalFlex = Enum.UIFlexAlignment.Fill
-				end)
-				local startI = (r - 1) * tabsPerRow + 1
-				local endI = math.min(r * tabsPerRow, n)
-				for i = startI, endI do
-					local e = entries[i]
-					e.btn.Parent = row
-					e.btn.LayoutOrder = i - startI + 1
-					e.btn.Size = UDim2.new(0, 0, 1, 0)
-					if e.btn:FindFirstChildWhichIsA("UIFlexItem") == nil then
-						local flexTab = Instance.new("UIFlexItem")
-						flexTab.FlexMode = Enum.UIFlexMode.Grow
-						flexTab.GrowRatio = 1
-						flexTab.Parent = e.btn
-					end
-				end
 			end
 		end
 
@@ -1807,32 +1748,32 @@ function Library.new(config: WindowConfig)
 			paintStrip(i)
 		end
 
-		strip:GetPropertyChangedSignal("AbsoluteSize"):Connect(function()
-			task.defer(reflowStrip)
-		end)
-
 		local box = {}
 		function box:AddTab(name: string)
 			local idx = #entries + 1
 			local btn = Instance.new("TextButton")
 			btn.Name = "SubTab_" .. name
 			btn.AutoButtonColor = false
-			btn.Size = UDim2.new(0, 0, 0, 24)
+			btn.Size = UDim2.new(0, 0, 1, 0)
 			btn.AutomaticSize = Enum.AutomaticSize.None
 			btn.Font = Enum.Font.GothamMedium
 			btn.TextSize = 12
 			btn.Text = name
 			btn.TextXAlignment = Enum.TextXAlignment.Center
 			btn.TextTruncate = Enum.TextTruncate.AtEnd
-			btn.BackgroundColor3 = Library.Theme.Background
+			btn.BackgroundColor3 = Theme.Background
 			btn.BackgroundTransparency = 0.55
-			btn.TextColor3 = Library.Theme.TextDim
+			btn.TextColor3 = Theme.TextDim
 			btn.LayoutOrder = idx
 			btn:SetAttribute("AcidBg", "Background")
 			btn:SetAttribute("AcidText", "TextDim")
-			btn.Parent = nil
+			btn.Parent = strip
 			corner(Theme.CornerSm).Parent = btn
 			pad(6).Parent = btn
+			local flexTab = Instance.new("UIFlexItem")
+			flexTab.FlexMode = Enum.UIFlexMode.Grow
+			flexTab.GrowRatio = 1
+			flexTab.Parent = btn
 
 			local inner = Instance.new("Frame")
 			inner.Name = "TabboxPage_" .. name
@@ -1867,7 +1808,6 @@ function Library.new(config: WindowConfig)
 			btn.MouseButton1Click:Connect(function()
 				selectSub(idx)
 			end)
-			reflowStrip()
 			selectSub(activeSub)
 			return proxy
 		end
