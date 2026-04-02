@@ -116,21 +116,55 @@ end
 function Library:Notify(payload: any, duration: number?)
 	local title = "Notice"
 	local desc = ""
-	local t = 3
+	local dur = 5
+	local persist = false
+	local stepsTotal: number? = nil
+	local timeInstance: Instance? = nil
+	local soundId: any = nil
+
 	if typeof(payload) == "table" then
 		title = tostring(payload.Title or title)
 		desc = tostring(payload.Description or payload.Text or "")
-		t = tonumber(payload.Time) or t
+		persist = payload.Persist == true
+		stepsTotal = if typeof(payload.Steps) == "number" then payload.Steps else nil
+		soundId = payload.SoundId
+		if typeof(payload.Time) == "Instance" then
+			timeInstance = payload.Time :: Instance
+			dur = 0
+		elseif typeof(payload.Time) == "number" then
+			dur = payload.Time
+		end
 	elseif typeof(payload) == "string" then
 		desc = payload
-		t = duration or t
+		dur = duration or dur
 	else
 		desc = tostring(payload)
+		dur = duration or dur
 	end
+
 	local list = self._notifyList
 	if not list or not list.Parent then
 		return
 	end
+
+	if soundId ~= nil and soundId ~= "" then
+		local sid = soundId
+		if typeof(sid) == "number" then
+			sid = string.format("rbxassetid://%d", sid)
+		end
+		if typeof(sid) == "string" then
+			pcall(function()
+				local SoundService = game:GetService("SoundService")
+				local s = Instance.new("Sound")
+				s.SoundId = sid
+				s.Volume = 0.35
+				s.PlayOnRemove = true
+				s.Parent = SoundService
+				s:Destroy()
+			end)
+		end
+	end
+
 	self._notifyOrder += 1
 	local order = self._notifyOrder
 	local card = Instance.new("Frame")
@@ -152,8 +186,9 @@ function Library:Notify(payload: any, duration: number?)
 	padN.Parent = card
 	local vl = Instance.new("UIListLayout")
 	vl.SortOrder = Enum.SortOrder.LayoutOrder
-	vl.Padding = UDim.new(0, 4)
+	vl.Padding = UDim.new(0, 6)
 	vl.Parent = card
+
 	local tl = Instance.new("TextLabel")
 	tl.BackgroundTransparency = 1
 	tl.Font = Enum.Font.GothamBold
@@ -166,25 +201,188 @@ function Library:Notify(payload: any, duration: number?)
 	tl.Text = title
 	tl.LayoutOrder = 1
 	tl.Parent = card
+
+	local dl: TextLabel? = nil
 	if desc ~= "" then
-		local dl = Instance.new("TextLabel")
-		dl.BackgroundTransparency = 1
-		dl.Font = Enum.Font.GothamMedium
-		dl.TextSize = 12
-		dl.TextColor3 = Theme.TextDim
-		dl.TextXAlignment = Enum.TextXAlignment.Left
-		dl.TextWrapped = true
-		dl.AutomaticSize = Enum.AutomaticSize.Y
-		dl.Size = UDim2.new(1, 0, 0, 0)
-		dl.Text = desc
-		dl.LayoutOrder = 2
-		dl.Parent = card
+		local d = Instance.new("TextLabel")
+		d.BackgroundTransparency = 1
+		d.Font = Enum.Font.GothamMedium
+		d.TextSize = 12
+		d.TextColor3 = Theme.TextDim
+		d.TextXAlignment = Enum.TextXAlignment.Left
+		d.TextWrapped = true
+		d.AutomaticSize = Enum.AutomaticSize.Y
+		d.Size = UDim2.new(1, 0, 0, 0)
+		d.Text = desc
+		d.LayoutOrder = 2
+		d.Parent = card
+		dl = d
 	end
-	task.delay(t, function()
+
+	local hasInstanceTime = typeof(timeInstance) == "Instance"
+	local useStepBar = typeof(stepsTotal) == "number" and stepsTotal > 0
+	local showTimerBar = not persist and (useStepBar or (not hasInstanceTime and dur > 0))
+
+	local timerHolder = Instance.new("Frame")
+	timerHolder.Name = "TimerHolder"
+	timerHolder.BackgroundTransparency = 1
+	timerHolder.Size = UDim2.new(1, 0, 0, 7)
+	timerHolder.LayoutOrder = 3
+	timerHolder.Visible = showTimerBar
+	timerHolder.Parent = card
+
+	local timerBar = Instance.new("Frame")
+	timerBar.Name = "TimerBar"
+	timerBar.BackgroundColor3 = Theme.SliderTrack
+	timerBar.BorderSizePixel = 0
+	timerBar.Position = UDim2.new(0, 0, 0, 3)
+	timerBar.Size = UDim2.new(1, 0, 0, 2)
+	timerBar.ClipsDescendants = true
+	timerBar.Parent = timerHolder
+	corner(Theme.CornerSm).Parent = timerBar
+
+	local timerFill = Instance.new("Frame")
+	timerFill.Name = "TimerFill"
+	timerFill.BackgroundColor3 = Theme.AccentBlue
+	timerFill.BorderSizePixel = 0
+	timerFill.Size = UDim2.fromScale(1, 1)
+	timerFill.Parent = timerBar
+	corner(Theme.CornerSm).Parent = timerFill
+
+	if hasInstanceTime and not useStepBar then
+		timerFill.Size = UDim2.fromScale(0, 1)
+	end
+
+	local cancelled = false
+	local activeTween: Tween? = nil
+	local instConn: RBXScriptConnection? = nil
+
+	local handle: any
+
+	local function doDestroy()
+		if cancelled then
+			return
+		end
+		cancelled = true
+		if handle then
+			handle.Destroyed = true
+		end
+		if activeTween then
+			pcall(function()
+				activeTween:Cancel()
+			end)
+			activeTween = nil
+		end
+		if instConn then
+			instConn:Disconnect()
+			instConn = nil
+		end
 		if card.Parent then
 			card:Destroy()
 		end
-	end)
+	end
+
+	handle = {
+		Destroyed = false,
+		Destroy = function()
+			if handle.Destroyed then
+				return
+			end
+			doDestroy()
+		end,
+		ChangeTitle = function(_self, text: string)
+			if tl.Parent then
+				tl.Text = tostring(text)
+			end
+		end,
+		ChangeDescription = function(_self, text: string)
+			local s = tostring(text)
+			if not dl or not dl.Parent then
+				if s == "" then
+					return
+				end
+				local d = Instance.new("TextLabel")
+				d.BackgroundTransparency = 1
+				d.Font = Enum.Font.GothamMedium
+				d.TextSize = 12
+				d.TextColor3 = Theme.TextDim
+				d.TextXAlignment = Enum.TextXAlignment.Left
+				d.TextWrapped = true
+				d.AutomaticSize = Enum.AutomaticSize.Y
+				d.Size = UDim2.new(1, 0, 0, 0)
+				d.LayoutOrder = 2
+				d.Parent = card
+				dl = d
+			end
+			if dl then
+				dl.Text = s
+				dl.Visible = s ~= ""
+			end
+		end,
+		ChangeStep = function(_self, newStep: number?)
+			if typeof(stepsTotal) ~= "number" or stepsTotal <= 0 then
+				return
+			end
+			local n = math.clamp(newStep or 0, 0, stepsTotal)
+			timerFill.Size = UDim2.fromScale(n / stepsTotal, 1)
+		end,
+	}
+
+	if useStepBar then
+		handle:ChangeStep(0)
+	end
+
+	if persist then
+		return handle
+	end
+
+	if hasInstanceTime then
+		if not timeInstance.Parent then
+			task.defer(doDestroy)
+			return handle
+		end
+		instConn = timeInstance.Destroying:Connect(function()
+			task.defer(doDestroy)
+		end)
+		return handle
+	end
+
+	if dur > 0 then
+		if useStepBar then
+			task.delay(dur, function()
+				if not cancelled then
+					doDestroy()
+				end
+			end)
+		elseif showTimerBar then
+			timerFill.Size = UDim2.fromScale(1, 1)
+			activeTween = TweenService:Create(
+				timerFill,
+				TweenInfo.new(dur, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
+				{ Size = UDim2.fromScale(0, 1) }
+			)
+			activeTween.Completed:Connect(function(state)
+				if state ~= Enum.PlaybackState.Cancelled and not cancelled then
+					doDestroy()
+				end
+			end)
+			activeTween:Play()
+		else
+			task.delay(dur, function()
+				if not cancelled then
+					doDestroy()
+				end
+			end)
+		end
+	else
+		task.defer(function()
+			if not cancelled then
+				doDestroy()
+			end
+		end)
+	end
+
+	return handle
 end
 
 function Library:Unload()
