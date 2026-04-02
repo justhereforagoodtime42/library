@@ -42,6 +42,8 @@ Library.Theme = {
 	CornerSm = UDim.new(0, 6),
 }
 local Theme = Library.Theme
+--[[ Groupbox outline + title rule; lerped from accents (ThemeManager updates after ApplyScheme). ]]
+Theme.AccentStroke = Theme.AccentPurple:Lerp(Theme.AccentBlue, 0.48)
 
 -- ----------------------------------------------------------------------------- helpers (must be above Library:Notify — it uses corner/stroke)
 local function tween(inst: Instance, ti: TweenInfo, props: { [string]: any })
@@ -2037,8 +2039,8 @@ function Library.new(config: WindowConfig)
 		wrap.LayoutOrder = layoutOrder
 		wrap.Parent = parentScroll
 		corner(Theme.Corner).Parent = wrap
-		local gbStroke = stroke(Theme.Stroke, 1, math.clamp(Theme.StrokeTrans, 0.25, 0.62))
-		gbStroke:SetAttribute("AcidStroke", "Stroke")
+		local gbStroke = stroke(Theme.AccentStroke, 1, math.clamp(Theme.StrokeTrans, 0.25, 0.62))
+		gbStroke:SetAttribute("AcidStroke", "AccentStroke")
 		gbStroke.Parent = wrap
 		local wrapOuterPad = Instance.new("UIPadding")
 		wrapOuterPad.PaddingLeft = UDim.new(0, 7)
@@ -2225,11 +2227,11 @@ function Library.new(config: WindowConfig)
 		titleSep.Name = "SectionTitleSep"
 		titleSep.Size = UDim2.new(1, 0, 0, 1)
 		titleSep.BorderSizePixel = 0
-		titleSep.BackgroundColor3 = Theme.Stroke
-		titleSep.BackgroundTransparency = math.clamp(Theme.StrokeTrans + 0.08, 0.35, 0.72)
+		titleSep.BackgroundColor3 = Theme.AccentStroke
+		titleSep.BackgroundTransparency = math.clamp(Theme.StrokeTrans + 0.02, 0.3, 0.68)
 		titleSep.LayoutOrder = 2
 		titleSep.Parent = wrap
-		titleSep:SetAttribute("AcidBg", "Stroke")
+		titleSep:SetAttribute("AcidBg", "AccentStroke")
 
 		local bodyF = Instance.new("Frame")
 		bodyF.Name = "Body"
