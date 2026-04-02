@@ -475,6 +475,9 @@ do
 
 	function ThemeManager:CreateGroupBox(tab)
 		assert(self.Library, "Must set ThemeManager.Library first!")
+		if typeof(tab.AddRightGroupbox) == "function" then
+			return tab:AddRightGroupbox("Themes")
+		end
 		return tab:AddSection("Themes")
 	end
 
