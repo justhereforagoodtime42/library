@@ -1628,8 +1628,166 @@ function Library.new(config: WindowConfig)
 	local Tab = {}
 	Tab.__index = Tab
 
+	--[[ Horizontal sub-tabs inside a column; each :AddTab returns a proxy Tab (use AddLeftGroupbox / AddSection on it). ]]
+	local function makeTabbox(parentScroll: Instance, layoutOrder: number, boxTitle: string?): any
+		local root = Instance.new("Frame")
+		root.Name = "TabboxRoot"
+		root.BackgroundTransparency = 1
+		root.BorderSizePixel = 0
+		root.Size = UDim2.new(1, 0, 0, 0)
+		root.AutomaticSize = Enum.AutomaticSize.Y
+		root.LayoutOrder = layoutOrder
+		root.Parent = parentScroll
+
+		local vList = Instance.new("UIListLayout")
+		vList.FillDirection = Enum.FillDirection.Vertical
+		vList.SortOrder = Enum.SortOrder.LayoutOrder
+		vList.Padding = UDim.new(0, 6)
+		vList.Parent = root
+
+		local nextLo = 1
+		if typeof(boxTitle) == "string" and boxTitle ~= "" then
+			local title = Instance.new("TextLabel")
+			title.BackgroundTransparency = 1
+			title.Size = UDim2.new(1, 0, 0, 14)
+			title.Font = Enum.Font.GothamBold
+			title.TextSize = 11
+			title.TextColor3 = Theme.TextDim
+			title.TextXAlignment = Enum.TextXAlignment.Left
+			title.Text = string.upper(boxTitle)
+			title.LayoutOrder = nextLo
+			title:SetAttribute("AcidText", "TextDim")
+			nextLo += 1
+			title.Parent = root
+		end
+
+		local strip = Instance.new("Frame")
+		strip.Name = "TabboxStrip"
+		strip.BackgroundColor3 = Theme.Background
+		strip.BackgroundTransparency = 0.35
+		strip.BorderSizePixel = 0
+		strip.Size = UDim2.new(1, 0, 0, 30)
+		strip.LayoutOrder = nextLo
+		nextLo += 1
+		strip:SetAttribute("AcidBg", "Background")
+		strip.Parent = root
+		corner(Theme.CornerSm).Parent = strip
+		local stripPad = Instance.new("UIPadding")
+		stripPad.PaddingLeft = UDim.new(0, 4)
+		stripPad.PaddingRight = UDim.new(0, 4)
+		stripPad.PaddingTop = UDim.new(0, 4)
+		stripPad.PaddingBottom = UDim.new(0, 4)
+		stripPad.Parent = strip
+
+		local hList = Instance.new("UIListLayout")
+		hList.FillDirection = Enum.FillDirection.Horizontal
+		hList.SortOrder = Enum.SortOrder.LayoutOrder
+		hList.Padding = UDim.new(0, 4)
+		hList.VerticalAlignment = Enum.VerticalAlignment.Center
+		hList.Parent = strip
+
+		local contentHost = Instance.new("Frame")
+		contentHost.Name = "TabboxContent"
+		contentHost.BackgroundTransparency = 1
+		contentHost.BorderSizePixel = 0
+		contentHost.Size = UDim2.new(1, 0, 0, 0)
+		contentHost.AutomaticSize = Enum.AutomaticSize.Y
+		contentHost.LayoutOrder = nextLo
+		contentHost.Parent = root
+
+		local chList = Instance.new("UIListLayout")
+		chList.SortOrder = Enum.SortOrder.LayoutOrder
+		chList.Padding = UDim.new(0, 0)
+		chList.Parent = contentHost
+
+		local entries: { { btn: TextButton, inner: Frame, proxy: any } } = {}
+		local activeSub = 1
+
+		local function paintStrip(sel: number)
+			for i, e in entries do
+				local on = i == sel
+				e.btn.BackgroundTransparency = if on then 0.08 else 0.55
+				e.btn.BackgroundColor3 = if on then Theme.Elevated else Theme.Background
+				e.btn.TextColor3 = if on then Theme.Text else Theme.TextDim
+				e.btn:SetAttribute("AcidBg", if on then "Elevated" else "Background")
+				e.btn:SetAttribute("AcidText", if on then "Text" else "TextDim")
+			end
+		end
+
+		local function selectSub(i: number)
+			if i < 1 or i > #entries then
+				return
+			end
+			activeSub = i
+			for j, e in entries do
+				e.inner.Visible = j == i
+			end
+			paintStrip(i)
+		end
+
+		local box = {}
+		function box:AddTab(name: string)
+			local idx = #entries + 1
+			local btn = Instance.new("TextButton")
+			btn.Name = "SubTab_" .. name
+			btn.AutoButtonColor = false
+			btn.Size = UDim2.new(0, 0, 0, 22)
+			btn.AutomaticSize = Enum.AutomaticSize.X
+			btn.Font = Enum.Font.GothamMedium
+			btn.TextSize = 12
+			btn.Text = name
+			btn.BackgroundColor3 = Theme.Background
+			btn.BackgroundTransparency = 0.55
+			btn.TextColor3 = Theme.TextDim
+			btn.LayoutOrder = idx
+			btn:SetAttribute("AcidBg", "Background")
+			btn:SetAttribute("AcidText", "TextDim")
+			btn.Parent = strip
+			corner(Theme.CornerSm).Parent = btn
+			pad(8).Parent = btn
+
+			local inner = Instance.new("Frame")
+			inner.Name = "TabboxPage_" .. name
+			inner.BackgroundTransparency = 1
+			inner.BorderSizePixel = 0
+			inner.Size = UDim2.new(1, 0, 0, 0)
+			inner.AutomaticSize = Enum.AutomaticSize.Y
+			inner.Visible = idx == 1
+			inner.LayoutOrder = 1
+			inner.Parent = contentHost
+
+			local innerList = Instance.new("UIListLayout")
+			innerList.SortOrder = Enum.SortOrder.LayoutOrder
+			innerList.Padding = UDim.new(0, 12)
+			innerList.Parent = inner
+
+			local proxy = setmetatable({
+				_scroll = inner,
+				_list = innerList,
+				_split = false,
+				_scrollLeft = nil,
+				_scrollRight = nil,
+				_listLeft = nil,
+				_listRight = nil,
+				_name = name,
+				_sectionOrder = 0,
+				_sectionOrderLeft = 0,
+				_sectionOrderRight = 0,
+			}, Tab)
+
+			table.insert(entries, { btn = btn, inner = inner, proxy = proxy })
+			btn.MouseButton1Click:Connect(function()
+				selectSub(idx)
+			end)
+			selectSub(activeSub)
+			return proxy
+		end
+
+		return box
+	end
+
 	--[[ Tab icons: Lucide name (e.g. "layout-grid", "eye") or rbxassetid://… — same as Obsidian GetCustomIcon
-	    SplitColumns: two-column layout (left/right ScrollingFrames); use AddLeftGroupbox / AddRightGroupbox ]]
+	    SplitColumns: two-column layout (left/right ScrollingFrames); use AddLeftGroupbox / AddRightGroupbox / AddLeftTabbox / AddRightTabbox ]]
 	function window:AddTab(opts: { Name: string?, Icon: (string | number)?, Tooltip: string?, SplitColumns: boolean? })
 		opts = opts or {}
 		local idx = #tabScrolls + 1
@@ -2417,8 +2575,11 @@ function Library.new(config: WindowConfig)
 			Tooltip: string?,
 			AllowNull: boolean?,
 			Idx: string?,
+			--[[ Filter option rows while the list is open (search box at top of dropdown). ]]
+			Searchable: boolean?,
 		})
 			local allowNull = o.AllowNull == true
+			local searchable = o.Searchable == true
 			local multi = if o.Multi ~= nil then (o.Multi == true) else dropdownMultiDefault
 			local options = o.Options or {}
 			local selected: { [string]: boolean } = {}
@@ -2560,8 +2721,51 @@ function Library.new(config: WindowConfig)
 			innerList.Parent = listF
 			pad(6).Parent = listF
 
+			local searchBox: TextBox? = nil
+			if searchable then
+				local searchRow = Instance.new("Frame")
+				searchRow.Name = "DropdownSearch"
+				searchRow.BackgroundTransparency = 1
+				searchRow.Size = UDim2.new(1, -12, 0, 30)
+				searchRow.LayoutOrder = -100
+				searchRow.Parent = listF
+				local sb = Instance.new("TextBox")
+				sb.Name = "Search"
+				sb.Size = UDim2.new(1, 0, 1, 0)
+				sb.BackgroundColor3 = Theme.Elevated
+				sb.BackgroundTransparency = 0.12
+				sb.ClearTextOnFocus = false
+				sb.Font = Enum.Font.GothamMedium
+				sb.TextSize = 12
+				sb.TextColor3 = Theme.Text
+				sb.PlaceholderText = "Search…"
+				sb.PlaceholderColor3 = Theme.TextDim
+				sb.Text = ""
+				sb:SetAttribute("AcidBg", "Elevated")
+				sb:SetAttribute("AcidText", "Text")
+				sb:SetAttribute("AcidPlaceholder", "TextDim")
+				sb.Parent = searchRow
+				corner(Theme.CornerSm).Parent = sb
+				pad(8).Parent = sb
+				searchBox = sb
+			end
+
 			local open = false
 			local optionButtonMap: { [string]: TextButton } = {}
+
+			local function filteredOptions(): { string }
+				if not searchable or not searchBox or searchBox.Text == "" then
+					return options
+				end
+				local q = string.lower(searchBox.Text)
+				local out: { string } = {}
+				for _, opt in options do
+					if string.find(string.lower(opt), q, 1, true) then
+						table.insert(out, opt)
+					end
+				end
+				return out
+			end
 
 			local function styleOptionRow(optBtn: TextButton, optName: string)
 				local sel = selected[optName] == true
@@ -2597,7 +2801,7 @@ function Library.new(config: WindowConfig)
 
 			local function buildOptionButtons()
 				clearOptionButtons()
-				for _, opt in options do
+				for _, opt in filteredOptions() do
 					local optBtn = Instance.new("TextButton")
 					optBtn.Size = UDim2.new(1, -12, 0, 28)
 					optBtn.AutoButtonColor = false
@@ -2637,8 +2841,22 @@ function Library.new(config: WindowConfig)
 
 			buildOptionButtons()
 
+			if searchBox then
+				searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+					if open then
+						buildOptionButtons()
+						refreshOptionVisuals()
+					end
+				end)
+			end
+
 			btn.MouseButton1Click:Connect(function()
 				open = not open
+				if open and searchBox then
+					searchBox.Text = ""
+					buildOptionButtons()
+					refreshOptionVisuals()
+				end
 				listF.Visible = open
 			end)
 
@@ -3450,6 +3668,36 @@ function Library.new(config: WindowConfig)
 		end
 
 		return section
+	end
+
+	function Tab:AddLeftTabbox(boxTitle: string?)
+		local parentScroll: Instance
+		local layoutOrder: number
+		if self._split and self._scrollLeft then
+			parentScroll = self._scrollLeft
+			self._sectionOrderLeft += 1
+			layoutOrder = self._sectionOrderLeft
+		else
+			parentScroll = self._scroll
+			self._sectionOrder += 1
+			layoutOrder = self._sectionOrder
+		end
+		return makeTabbox(parentScroll, layoutOrder, boxTitle)
+	end
+
+	function Tab:AddRightTabbox(boxTitle: string?)
+		local parentScroll: Instance
+		local layoutOrder: number
+		if self._split and self._scrollRight then
+			parentScroll = self._scrollRight
+			self._sectionOrderRight += 1
+			layoutOrder = self._sectionOrderRight
+		else
+			parentScroll = self._scroll
+			self._sectionOrder += 1
+			layoutOrder = self._sectionOrder
+		end
+		return makeTabbox(parentScroll, layoutOrder, boxTitle)
 	end
 
 	function Tab:AddLeftGroupbox(
