@@ -356,12 +356,12 @@ function Library.new(config: WindowConfig)
 		panelGlowHost.BorderSizePixel = 0
 		panelGlowHost.ZIndex = 0
 		panelGlowHost.Parent = mainPanel
-		--[[ Stronger Frosthub-style rim (more opaque + wider spread) ]]
+		--[[ Soft rim — visible but not overpowering ]]
 		addStackedGlow(panelGlowHost, {
-			{ size = 10, transparency = 0.58, radius = 11 },
-			{ size = 22, transparency = 0.74, radius = 13 },
-			{ size = 34, transparency = 0.84, radius = 15 },
-			{ size = 46, transparency = 0.91, radius = 17 },
+			{ size = 6, transparency = 0.76, radius = 10 },
+			{ size = 14, transparency = 0.86, radius = 11 },
+			{ size = 24, transparency = 0.92, radius = 13 },
+			{ size = 32, transparency = 0.96, radius = 14 },
 		})
 	end
 
@@ -637,9 +637,9 @@ function Library.new(config: WindowConfig)
 			tabGlowHost.ZIndex = 0
 			tabGlowHost.Parent = tabSlot
 			addStackedGlow(tabGlowHost, {
-				{ size = 4, transparency = 0.68, radius = 7 },
-				{ size = 11, transparency = 0.82, radius = 8 },
-				{ size = 20, transparency = 0.90, radius = 9 },
+				{ size = 3, transparency = 0.82, radius = 7 },
+				{ size = 8, transparency = 0.90, radius = 8 },
+				{ size = 14, transparency = 0.95, radius = 9 },
 			}, function(t: number)
 				return Color3.new(1, 1, 1):Lerp(Color3.fromRGB(210, 218, 245), t)
 			end)
