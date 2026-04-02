@@ -716,7 +716,7 @@ function Library.new(config: WindowConfig)
 	contentHost.Parent = panelFace
 
 	local tabButtons: { TextButton } = {}
-	local tabScrolls: { ScrollingFrame } = {}
+	local tabScrolls: { GuiObject } = {}
 	local activeTab = 0
 
 	local function selectTab(index: number)
@@ -943,7 +943,15 @@ function Library.new(config: WindowConfig)
 		end
 		panelTitle.TextColor3 = Theme.Text
 		for _, sc in tabScrolls do
-			sc.ScrollBarImageColor3 = Theme.AccentBlue
+			if sc:IsA("ScrollingFrame") then
+				sc.ScrollBarImageColor3 = Theme.AccentBlue
+			else
+				for _, ch in sc:GetChildren() do
+					if ch:IsA("ScrollingFrame") then
+						ch.ScrollBarImageColor3 = Theme.AccentBlue
+					end
+				end
+			end
 		end
 		for _, row in toggleThemeRows do
 			row.track.BackgroundColor3 = if row.getOn() then Theme.ToggleOn else Theme.ToggleOff
@@ -1046,10 +1054,12 @@ function Library.new(config: WindowConfig)
 	local Tab = {}
 	Tab.__index = Tab
 
-	--[[ Tab icons: Lucide name (e.g. "layout-grid", "eye") or rbxassetid://… — same as Obsidian GetCustomIcon ]]
-	function window:AddTab(opts: { Name: string?, Icon: string?, Tooltip: string? })
+	--[[ Tab icons: Lucide name (e.g. "layout-grid", "eye") or rbxassetid://… — same as Obsidian GetCustomIcon
+	    SplitColumns: two-column layout (left/right ScrollingFrames); use AddLeftGroupbox / AddRightGroupbox ]]
+	function window:AddTab(opts: { Name: string?, Icon: string?, Tooltip: string?, SplitColumns: boolean? })
 		opts = opts or {}
 		local idx = #tabScrolls + 1
+		local splitColumns = opts.SplitColumns == true
 		local rawIcon = opts.Icon
 		local parsed = (rawIcon ~= nil and rawIcon ~= "") and Library:GetCustomIcon(rawIcon) or nil
 
@@ -1140,38 +1150,101 @@ function Library.new(config: WindowConfig)
 			bindTooltipToInstances({ btn }, tipStr)
 		end
 
-		local scroll = Instance.new("ScrollingFrame")
-		scroll.Name = "TabContent_" .. idx
-		scroll.Size = UDim2.fromScale(1, 1)
-		scroll.BackgroundTransparency = 1
-		scroll.BorderSizePixel = 0
-		scroll.ScrollBarThickness = 4
-		scroll.ScrollBarImageColor3 = Theme.AccentBlue
-		scroll.AutomaticCanvasSize = Enum.AutomaticSize.Y
-		scroll.CanvasSize = UDim2.new(0, 0, 0, 0)
-		scroll.Visible = (idx == 1)
-		scroll.Parent = contentHost
+		local scroll: ScrollingFrame
+		local list: UIListLayout
+		local scrollLeft: ScrollingFrame? = nil
+		local scrollRight: ScrollingFrame? = nil
+		local listLeft: UIListLayout? = nil
+		local listRight: UIListLayout? = nil
 
-		local list = Instance.new("UIListLayout")
-		list.SortOrder = Enum.SortOrder.LayoutOrder
-		list.Padding = UDim.new(0, 12)
-		list.Parent = scroll
+		if splitColumns then
+			local host = Instance.new("Frame")
+			host.Name = "TabSplitHost_" .. idx
+			host.Size = UDim2.fromScale(1, 1)
+			host.BackgroundTransparency = 1
+			host.BorderSizePixel = 0
+			host.Visible = (idx == 1)
+			host.Parent = contentHost
 
-		local padScroll = Instance.new("UIPadding")
-		padScroll.PaddingLeft = UDim.new(0, 14)
-		padScroll.PaddingRight = UDim.new(0, 14)
-		padScroll.PaddingTop = UDim.new(0, 8)
-		padScroll.PaddingBottom = UDim.new(0, 20)
-		padScroll.Parent = scroll
+			local function makeColumn(name: string, xScale: number, xOffset: number): (ScrollingFrame, UIListLayout)
+				local sc = Instance.new("ScrollingFrame")
+				sc.Name = name
+				sc.Size = UDim2.new(0.5, -7, 1, 0)
+				sc.Position = UDim2.new(xScale, xOffset, 0, 0)
+				sc.BackgroundTransparency = 1
+				sc.BorderSizePixel = 0
+				sc.ScrollBarThickness = 4
+				sc.ScrollBarImageColor3 = Theme.AccentBlue
+				sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+				sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+				sc.Parent = host
+
+				local lst = Instance.new("UIListLayout")
+				lst.SortOrder = Enum.SortOrder.LayoutOrder
+				lst.Padding = UDim.new(0, 12)
+				lst.Parent = sc
+
+				local pad = Instance.new("UIPadding")
+				pad.PaddingLeft = UDim.new(0, 14)
+				pad.PaddingRight = UDim.new(0, 14)
+				pad.PaddingTop = UDim.new(0, 8)
+				pad.PaddingBottom = UDim.new(0, 20)
+				pad.Parent = sc
+
+				return sc, lst
+			end
+
+			local sl, ll = makeColumn("TabColumn_Left_" .. idx, 0, 0)
+			local sr, lr = makeColumn("TabColumn_Right_" .. idx, 0.5, 7)
+			scrollLeft, listLeft = sl, ll
+			scrollRight, listRight = sr, lr
+			scroll = sl
+			list = ll
+			table.insert(tabScrolls, host)
+		else
+			local sc = Instance.new("ScrollingFrame")
+			sc.Name = "TabContent_" .. idx
+			sc.Size = UDim2.fromScale(1, 1)
+			sc.BackgroundTransparency = 1
+			sc.BorderSizePixel = 0
+			sc.ScrollBarThickness = 4
+			sc.ScrollBarImageColor3 = Theme.AccentBlue
+			sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+			sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+			sc.Visible = (idx == 1)
+			sc.Parent = contentHost
+			scroll = sc
+
+			local lst = Instance.new("UIListLayout")
+			lst.SortOrder = Enum.SortOrder.LayoutOrder
+			lst.Padding = UDim.new(0, 12)
+			lst.Parent = scroll
+			list = lst
+
+			local padScroll = Instance.new("UIPadding")
+			padScroll.PaddingLeft = UDim.new(0, 14)
+			padScroll.PaddingRight = UDim.new(0, 14)
+			padScroll.PaddingTop = UDim.new(0, 8)
+			padScroll.PaddingBottom = UDim.new(0, 20)
+			padScroll.Parent = scroll
+
+			table.insert(tabScrolls, scroll)
+		end
 
 		table.insert(tabButtons, btn)
-		table.insert(tabScrolls, scroll)
 
 		local tab = setmetatable({
 			_scroll = scroll,
 			_list = list,
+			_split = splitColumns,
+			_scrollLeft = scrollLeft,
+			_scrollRight = scrollRight,
+			_listLeft = listLeft,
+			_listRight = listRight,
 			_name = opts.Name or ("Tab " .. idx),
 			_sectionOrder = 0,
+			_sectionOrderLeft = 0,
+			_sectionOrderRight = 0,
 		}, Tab)
 
 		if idx == 1 then
@@ -1181,23 +1254,46 @@ function Library.new(config: WindowConfig)
 		return tab
 	end
 
-	--[[ Section: optional Collapsible (default true), DefaultExpanded (default true), Tooltip on header ]]
+	--[[ Section: optional Collapsible, DefaultExpanded, Tooltip; Column "Left"|"Right" when tab uses SplitColumns ]]
 	function Tab:AddSection(
 		header: string,
-		sectionOpts: { Collapsible: boolean?, DefaultExpanded: boolean?, Tooltip: string? }?
+		sectionOpts: {
+			Collapsible: boolean?,
+			DefaultExpanded: boolean?,
+			Tooltip: string?,
+			Column: string?,
+		}?
 	)
 		sectionOpts = sectionOpts or {}
 		local collapsible = sectionOpts.Collapsible ~= false
 		local expanded = sectionOpts.DefaultExpanded ~= false
 
-		self._sectionOrder += 1
+		local parentScroll: ScrollingFrame
+		local layoutOrder: number
+		if self._split and self._scrollLeft and self._scrollRight then
+			local col = sectionOpts.Column
+			if col == "Right" then
+				parentScroll = self._scrollRight
+				self._sectionOrderRight += 1
+				layoutOrder = self._sectionOrderRight
+			else
+				parentScroll = self._scrollLeft
+				self._sectionOrderLeft += 1
+				layoutOrder = self._sectionOrderLeft
+			end
+		else
+			parentScroll = self._scroll
+			self._sectionOrder += 1
+			layoutOrder = self._sectionOrder
+		end
+
 		local wrap = Instance.new("Frame")
 		wrap.Name = "Section_" .. header
 		wrap.Size = UDim2.new(1, 0, 0, 0)
 		wrap.AutomaticSize = Enum.AutomaticSize.Y
 		wrap.BackgroundTransparency = 1
-		wrap.LayoutOrder = self._sectionOrder
-		wrap.Parent = self._scroll
+		wrap.LayoutOrder = layoutOrder
+		wrap.Parent = parentScroll
 
 		local wrapList = Instance.new("UIListLayout")
 		wrapList.FillDirection = Enum.FillDirection.Vertical
@@ -1789,18 +1885,33 @@ function Library.new(config: WindowConfig)
 			pad(6).Parent = listF
 
 			local open = false
+			local optionButtonMap: { [string]: TextButton } = {}
+
+			local function styleOptionRow(optBtn: TextButton, optName: string)
+				local sel = selected[optName] == true
+				optBtn.Text = optName
+				optBtn.BackgroundColor3 = Theme.Elevated
+				optBtn.TextColor3 = Theme.Text
+				if sel then
+					optBtn.BackgroundTransparency = 0.08
+					optBtn.TextTransparency = 0
+				else
+					optBtn.BackgroundTransparency = 1
+					optBtn.TextTransparency = 0.45
+				end
+			end
 
 			local function refreshOptionVisuals()
-				for _, child in listF:GetChildren() do
-					if child:IsA("TextButton") then
-						local name = child.Text:gsub("^[☑☐] ", "")
-						child.Text = (if selected[name] then "☑ " else "☐ ") .. name
+				for optName, ob in optionButtonMap do
+					if ob.Parent then
+						styleOptionRow(ob, optName)
 					end
 				end
 				btn.Text = "  " .. summary()
 			end
 
 			local function clearOptionButtons()
+				table.clear(optionButtonMap)
 				for _, ch in listF:GetChildren() do
 					if ch:IsA("TextButton") then
 						ch:Destroy()
@@ -1813,36 +1924,32 @@ function Library.new(config: WindowConfig)
 				for _, opt in options do
 					local optBtn = Instance.new("TextButton")
 					optBtn.Size = UDim2.new(1, -12, 0, 28)
-					optBtn.BackgroundColor3 = Theme.Elevated
-					optBtn.BackgroundTransparency = 0.4
 					optBtn.AutoButtonColor = false
-					optBtn.Text = (if multi and selected[opt] then "☑ " else "☐ ") .. opt
 					optBtn.Font = Enum.Font.GothamMedium
 					optBtn.TextSize = 12
-					optBtn.TextColor3 = Theme.Text
 					optBtn.TextXAlignment = Enum.TextXAlignment.Left
 					optBtn.ZIndex = 6
 					optBtn:SetAttribute("AcidBg", "Elevated")
 					optBtn:SetAttribute("AcidText", "Text")
 					optBtn.Parent = listF
 					corner(UDim.new(0, 4)).Parent = optBtn
+					pad(8).Parent = optBtn
+					optionButtonMap[opt] = optBtn
+					styleOptionRow(optBtn, opt)
 					optBtn.MouseButton1Click:Connect(function()
 						if multi then
 							selected[opt] = not selected[opt]
-							optBtn.Text = (if selected[opt] then "☑ " else "☐ ") .. opt
-						else
-							for _, child in listF:GetChildren() do
-								if child:IsA("TextButton") then
-									local t = child.Text
-									local name = t:gsub("^[☑☐] ", "")
-									child.Text = "☐ " .. name
-								end
+							for optName, ob in optionButtonMap do
+								styleOptionRow(ob, optName)
 							end
+						else
 							for k in pairs(selected) do
 								selected[k] = nil
 							end
 							selected[opt] = true
-							optBtn.Text = "☑ " .. opt
+							for optName, ob in optionButtonMap do
+								styleOptionRow(ob, optName)
+							end
 							listF.Visible = false
 							open = false
 						end
@@ -2304,6 +2411,28 @@ function Library.new(config: WindowConfig)
 		end
 
 		return section
+	end
+
+	function Tab:AddLeftGroupbox(
+		header: string,
+		sectionOpts: { Collapsible: boolean?, DefaultExpanded: boolean?, Tooltip: string? }?
+	)
+		local o: any = if sectionOpts then table.clone(sectionOpts) else {}
+		if self._split then
+			o.Column = "Left"
+		end
+		return Tab.AddSection(self, header, o)
+	end
+
+	function Tab:AddRightGroupbox(
+		header: string,
+		sectionOpts: { Collapsible: boolean?, DefaultExpanded: boolean?, Tooltip: string? }?
+	)
+		local o: any = if sectionOpts then table.clone(sectionOpts) else {}
+		if self._split then
+			o.Column = "Right"
+		end
+		return Tab.AddSection(self, header, o)
 	end
 
 	return window
