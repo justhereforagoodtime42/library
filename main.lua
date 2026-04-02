@@ -1703,11 +1703,8 @@ function Library.new(config: WindowConfig)
 		hList.FillDirection = Enum.FillDirection.Horizontal
 		hList.SortOrder = Enum.SortOrder.LayoutOrder
 		hList.Padding = UDim.new(0, 4)
-		hList.VerticalAlignment = Enum.VerticalAlignment.Stretch
+		hList.VerticalAlignment = Enum.VerticalAlignment.Center
 		hList.Parent = strip
-		pcall(function()
-			hList.HorizontalFlex = Enum.UIFlexAlignment.Fill
-		end)
 
 		local contentHost = Instance.new("Frame")
 		contentHost.Name = "TabboxContent"
@@ -1725,13 +1722,37 @@ function Library.new(config: WindowConfig)
 
 		local entries: { { btn: TextButton, inner: Frame, proxy: any } } = {}
 		local activeSub = 1
+		local STRIP_BTN_H = 22
+
+		--[[ Equal widths so the strip is always filled (4 tabs grow, 20 tabs shrink). ]]
+		local function syncTabStripWidths()
+			local n = #entries
+			if n == 0 then
+				return
+			end
+			local sx = strip.AbsoluteSize.X
+			if sx < 16 then
+				return
+			end
+			local pl = stripPad.PaddingLeft.Offset
+			local pr = stripPad.PaddingRight.Offset
+			local gap = hList.Padding.Offset
+			local inner = math.max(1, sx - pl - pr - gap * math.max(0, n - 1))
+			local cell = math.max(1, math.floor(inner / n))
+			for _, e in entries do
+				e.btn.Size = UDim2.new(0, cell, 0, STRIP_BTN_H)
+			end
+		end
+
+		strip:GetPropertyChangedSignal("AbsoluteSize"):Connect(syncTabStripWidths)
 
 		local function paintStrip(sel: number)
+			local T = Library.Theme
 			for i, e in entries do
 				local on = i == sel
 				e.btn.BackgroundTransparency = if on then 0.08 else 0.55
-				e.btn.BackgroundColor3 = if on then Theme.Elevated else Theme.Background
-				e.btn.TextColor3 = if on then Theme.Text else Theme.TextDim
+				e.btn.BackgroundColor3 = if on then T.Elevated else T.Background
+				e.btn.TextColor3 = if on then T.Text else T.TextDim
 				e.btn:SetAttribute("AcidBg", if on then "Elevated" else "Background")
 				e.btn:SetAttribute("AcidText", if on then "Text" else "TextDim")
 			end
@@ -1754,26 +1775,22 @@ function Library.new(config: WindowConfig)
 			local btn = Instance.new("TextButton")
 			btn.Name = "SubTab_" .. name
 			btn.AutoButtonColor = false
-			btn.Size = UDim2.new(0, 0, 1, 0)
+			btn.Size = UDim2.new(0, 80, 0, STRIP_BTN_H)
 			btn.AutomaticSize = Enum.AutomaticSize.None
 			btn.Font = Enum.Font.GothamMedium
-			btn.TextSize = 12
+			btn.TextSize = 11
 			btn.Text = name
 			btn.TextXAlignment = Enum.TextXAlignment.Center
 			btn.TextTruncate = Enum.TextTruncate.AtEnd
-			btn.BackgroundColor3 = Theme.Background
+			btn.BackgroundColor3 = Library.Theme.Background
 			btn.BackgroundTransparency = 0.55
-			btn.TextColor3 = Theme.TextDim
+			btn.TextColor3 = Library.Theme.TextDim
 			btn.LayoutOrder = idx
 			btn:SetAttribute("AcidBg", "Background")
 			btn:SetAttribute("AcidText", "TextDim")
 			btn.Parent = strip
 			corner(Theme.CornerSm).Parent = btn
-			pad(6).Parent = btn
-			local flexTab = Instance.new("UIFlexItem")
-			flexTab.FlexMode = Enum.UIFlexMode.Grow
-			flexTab.GrowRatio = 1
-			flexTab.Parent = btn
+			pad(4).Parent = btn
 
 			local inner = Instance.new("Frame")
 			inner.Name = "TabboxPage_" .. name
@@ -1809,6 +1826,7 @@ function Library.new(config: WindowConfig)
 				selectSub(idx)
 			end)
 			selectSub(activeSub)
+			task.defer(syncTabStripWidths)
 			return proxy
 		end
 
