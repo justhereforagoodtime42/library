@@ -234,12 +234,12 @@ local function parseHexColor(raw: string): Color3?
 	return nil
 end
 
---[[ Obsidian-style hue strip (full saturation/value at each hue) ]]
+--[[ Obsidian-style hue strip (Roblox allows at most 20 ColorSequence keypoints) ]]
 local ColorPickerHueSequence: ColorSequence
 do
 	local kp: { ColorSequenceKeypoint } = {}
-	for i = 0, 20 do
-		local h = i / 20
+	for i = 0, 19 do
+		local h = i / 19
 		table.insert(kp, ColorSequenceKeypoint.new(h, Color3.fromHSV(h, 1, 1)))
 	end
 	ColorPickerHueSequence = ColorSequence.new(kp)
