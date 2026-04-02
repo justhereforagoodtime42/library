@@ -1572,6 +1572,7 @@ function Library.new(config: WindowConfig)
 				cg.TextSize = 12
 				cg.Font = Enum.Font.GothamBold
 				cg.TextColor3 = Theme.TextDim
+				cg.TextYAlignment = Enum.TextYAlignment.Center
 				cg.LayoutOrder = headerLayoutNext
 				cg.Parent = headerRow
 				chevGlyph = cg
@@ -1611,13 +1612,14 @@ function Library.new(config: WindowConfig)
 				return
 			end
 			bodyF.Visible = on
+			--[[ Collapsed → ^ (up); expanded → ▼ (down). Lucide chevron-down: 0° = down, 180° = up. ]]
 			if chevImg then
 				tween(chevImg, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
 					Rotation = if on then 0 else 180,
 				}):Play()
 			end
 			if chevGlyph then
-				chevGlyph.Text = if on then "▼" else "▲"
+				chevGlyph.Text = if on then "▼" else "^"
 			end
 		end
 		if collapsible and headerRow:IsA("TextButton") then
@@ -1630,7 +1632,7 @@ function Library.new(config: WindowConfig)
 				chevImg.Rotation = 180
 			end
 			if chevGlyph and not expanded then
-				chevGlyph.Text = "▲"
+				chevGlyph.Text = "^"
 			end
 			applySectionExpanded(expanded)
 		else
