@@ -234,15 +234,24 @@ local function parseHexColor(raw: string): Color3?
 	return nil
 end
 
---[[ Obsidian-style hue strip (Roblox allows at most 20 ColorSequence keypoints) ]]
+--[[ Hue strip for color picker. Some clients cap ColorSequence keypoints below 20; use 11 + fallback. ]]
 local ColorPickerHueSequence: ColorSequence
 do
 	local kp: { ColorSequenceKeypoint } = {}
-	for i = 0, 19 do
-		local h = i / 19
+	for _, h in { 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1 } do
 		table.insert(kp, ColorSequenceKeypoint.new(h, Color3.fromHSV(h, 1, 1)))
 	end
-	ColorPickerHueSequence = ColorSequence.new(kp)
+	local ok, res = pcall(function()
+		return ColorSequence.new(kp)
+	end)
+	if ok and res ~= nil then
+		ColorPickerHueSequence = res
+	else
+		ColorPickerHueSequence = ColorSequence.new(
+			ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 1, 1)),
+			ColorSequenceKeypoint.new(1, Color3.fromHSV(0.92, 1, 1))
+		)
+	end
 end
 
 type GlowLayerSpec = { size: number, transparency: number, radius: number }
