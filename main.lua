@@ -43,6 +43,35 @@ Library.Theme = {
 }
 local Theme = Library.Theme
 
+-- ----------------------------------------------------------------------------- helpers (must be above Library:Notify — it uses corner/stroke)
+local function tween(inst: Instance, ti: TweenInfo, props: { [string]: any })
+	return TweenService:Create(inst, ti, props)
+end
+
+local function corner(radius: UDim)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = radius
+	return c
+end
+
+local function stroke(color: Color3, thickness: number, transparency: number)
+	local s = Instance.new("UIStroke")
+	s.Color = color
+	s.Thickness = thickness
+	s.Transparency = transparency
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	return s
+end
+
+local function pad(p: number)
+	local x = Instance.new("UIPadding")
+	x.PaddingLeft = UDim.new(0, p)
+	x.PaddingRight = UDim.new(0, p)
+	x.PaddingTop = UDim.new(0, p)
+	x.PaddingBottom = UDim.new(0, p)
+	return x
+end
+
 Library.Toggles = {} :: { [string]: any }
 Library.Options = {} :: { [string]: any }
 --[[ When true, AddDropdown uses Multi = true unless the option explicitly sets Multi = false ]]
@@ -181,35 +210,6 @@ function Library:Unload()
 	table.clear(self.Toggles)
 	table.clear(self.Options)
 	self.ToggleKeybind = nil
-end
-
--- ----------------------------------------------------------------------------- helpers
-local function tween(inst: Instance, ti: TweenInfo, props: { [string]: any })
-	return TweenService:Create(inst, ti, props)
-end
-
-local function corner(radius: UDim)
-	local c = Instance.new("UICorner")
-	c.CornerRadius = radius
-	return c
-end
-
-local function stroke(color: Color3, thickness: number, transparency: number)
-	local s = Instance.new("UIStroke")
-	s.Color = color
-	s.Thickness = thickness
-	s.Transparency = transparency
-	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	return s
-end
-
-local function pad(p: number)
-	local x = Instance.new("UIPadding")
-	x.PaddingLeft = UDim.new(0, p)
-	x.PaddingRight = UDim.new(0, p)
-	x.PaddingTop = UDim.new(0, p)
-	x.PaddingBottom = UDim.new(0, p)
-	return x
 end
 
 --[[ Works when Color3.fromHex is missing or picky; accepts #RGB, #RRGGBB ]]
