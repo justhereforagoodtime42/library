@@ -59,7 +59,8 @@ do
 			Load = function(idx, data)
 				local object = SaveManager.Library.Options[idx]
 				local n = tonumber(data.value)
-				if object and n ~= nil and math.abs((object.Value :: number) - n) > 1e-6 then
+				local cur = tonumber(object.Value)
+				if object and n ~= nil and cur ~= nil and math.abs(cur - n) > 1e-6 then
 					object:SetValue(data.value)
 				end
 			end,
