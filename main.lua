@@ -224,7 +224,6 @@ function Library.new(config: WindowConfig)
 	pill.LayoutOrder = 1
 	pill.Parent = topRow
 	corner(UDim.new(1, 0)).Parent = pill
-	stroke(Theme.Stroke, 1, 0.65).Parent = pill
 	pad(12).Parent = pill
 
 	local pillLayout = Instance.new("UIListLayout")
@@ -334,13 +333,6 @@ function Library.new(config: WindowConfig)
 		activeTab = index
 		for i, btn in tabButtons do
 			local isSel = (i == index)
-			local glow = btn:FindFirstChild("Glow") :: UIStroke?
-			if glow then
-				--[[ Border: soft white when idle, accent when selected ]]
-				glow.Color = if isSel then Theme.AccentPurple else Color3.new(1, 1, 1)
-				glow.Thickness = if isSel then 2.5 else 1.2
-				glow.Transparency = if isSel then 0.14 else 0.88
-			end
 			btn.BackgroundTransparency = if isSel then 0.08 else 0.45
 			local icon = btn:FindFirstChild("LucideIcon")
 			if icon and icon:IsA("ImageLabel") then
@@ -589,9 +581,6 @@ function Library.new(config: WindowConfig)
 			btn.Font = Enum.Font.GothamBold
 		end
 		corner(Theme.CornerSm).Parent = btn
-		local g = stroke(Color3.new(1, 1, 1), 1.2, 0.88)
-		g.Name = "Glow"
-		g.Parent = btn
 
 		btn.MouseEnter:Connect(function()
 			if idx ~= activeTab then
@@ -993,7 +982,6 @@ function Library.new(config: WindowConfig)
 			listF.ZIndex = 5
 			listF.Parent = row
 			corner(Theme.CornerSm).Parent = listF
-			stroke(Theme.Stroke, 1, 0.7).Parent = listF
 
 			local innerList = Instance.new("UIListLayout")
 			innerList.SortOrder = Enum.SortOrder.LayoutOrder
