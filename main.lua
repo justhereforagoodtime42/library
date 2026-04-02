@@ -234,22 +234,39 @@ local function parseHexColor(raw: string): Color3?
 	return nil
 end
 
---[[ Hue strip for color picker. Some clients cap ColorSequence keypoints below 20; use 11 + fallback. ]]
+--[[ Hue strip: same spacing as Obsidian (`for Hue = 0, 1, 0.1`). Some executors cap keypoints < 11 — cascade down. ]]
 local ColorPickerHueSequence: ColorSequence
 do
-	local kp: { ColorSequenceKeypoint } = {}
-	for _, h in { 0, 0.1, 0.2, 0.3, 0.4, 0.5, 0.6, 0.7, 0.8, 0.9, 1 } do
-		table.insert(kp, ColorSequenceKeypoint.new(h, Color3.fromHSV(h, 1, 1)))
+	local function hueSequenceFromCount(count: number): ColorSequence?
+		if count < 2 then
+			return nil
+		end
+		local kp: { ColorSequenceKeypoint } = {}
+		for i = 0, count - 1 do
+			local h = i / (count - 1)
+			table.insert(kp, ColorSequenceKeypoint.new(h, Color3.fromHSV(h, 1, 1)))
+		end
+		local ok, res = pcall(function()
+			return ColorSequence.new(kp)
+		end)
+		if ok and res ~= nil then
+			return res
+		end
+		return nil
 	end
-	local ok, res = pcall(function()
-		return ColorSequence.new(kp)
-	end)
-	if ok and res ~= nil then
-		ColorPickerHueSequence = res
+
+	local seq = hueSequenceFromCount(11)
+		or hueSequenceFromCount(10)
+		or hueSequenceFromCount(8)
+		or hueSequenceFromCount(6)
+		or hueSequenceFromCount(4)
+
+	if seq then
+		ColorPickerHueSequence = seq
 	else
 		ColorPickerHueSequence = ColorSequence.new(
 			ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 1, 1)),
-			ColorSequenceKeypoint.new(1, Color3.fromHSV(0.92, 1, 1))
+			ColorSequenceKeypoint.new(1, Color3.fromHSV(0.99, 1, 1))
 		)
 	end
 end
