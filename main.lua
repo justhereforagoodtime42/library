@@ -264,12 +264,24 @@ end
 
 type GlowLayerSpec = { size: number, transparency: number, radius: number }
 
+--[[ Panel / pill: inner = accent (purple→blue), outer eases toward Stroke — tracks ThemeManager accent ]]
+local function themeGlowLayerColor(t: number): Color3
+	local core = Theme.AccentPurple:Lerp(Theme.AccentBlue, math.clamp(t * 1.1, 0, 1))
+	return core:Lerp(Theme.Stroke, t * t * 0.52)
+end
+
+--[[ Idle tab halo: faint accent on dark backgrounds (lerp into Background) ]]
+local function themeTabIdleGlowColor(t: number): Color3
+	local c = Theme.AccentPurple:Lerp(Theme.AccentBlue, t * 0.75)
+	return c:Lerp(Theme.Background, 0.58 + t * 0.22)
+end
+
 --[[ Centered stacked frames behind a host; spills past edges when host clips are off ]]
 local function addStackedGlow(host: Frame, specs: { GlowLayerSpec })
 	local steps = #specs - 1
 	for i, g in specs do
 		local t = if steps > 0 then (i - 1) / steps else 0
-		local layerColor = Theme.AccentBlue:Lerp(Theme.Stroke, t)
+		local layerColor = themeGlowLayerColor(t)
 		local layer = Instance.new("Frame")
 		layer.Name = "GlowLayer"
 		layer.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -286,7 +298,7 @@ local function addStackedGlow(host: Frame, specs: { GlowLayerSpec })
 	end
 end
 
---[[ Sidebar tabs: soft white halo; tint updated in selectTab ]]
+--[[ Sidebar tabs: accent-tinted halo; paintTabGlowHost updates for selected vs idle ]]
 local function addTabStackedGlow(host: Frame, specs: { GlowLayerSpec })
 	local n = #specs
 	for i, g in specs do
@@ -297,7 +309,7 @@ local function addTabStackedGlow(host: Frame, specs: { GlowLayerSpec })
 		layer.AnchorPoint = Vector2.new(0.5, 0.5)
 		layer.Position = UDim2.fromScale(0.5, 0.5)
 		layer.Size = UDim2.new(1, g.size, 1, g.size)
-		layer.BackgroundColor3 = Color3.new(1, 1, 1):Lerp(Color3.fromRGB(232, 238, 255), t * 0.4)
+		layer.BackgroundColor3 = themeTabIdleGlowColor(t)
 		layer.BackgroundTransparency = g.transparency
 		layer.BorderSizePixel = 0
 		layer.ZIndex = 0
@@ -319,7 +331,7 @@ local function addPillStackedGlow(host: Frame, specs: { GlowLayerSpec })
 		layer.AnchorPoint = Vector2.new(0.5, 0.5)
 		layer.Position = UDim2.fromScale(0.5, 0.5)
 		layer.Size = UDim2.new(1, g.size, 1, g.size)
-		layer.BackgroundColor3 = Theme.AccentBlue:Lerp(Theme.Stroke, t)
+		layer.BackgroundColor3 = themeGlowLayerColor(t)
 		layer.BackgroundTransparency = g.transparency
 		layer.BorderSizePixel = 0
 		layer.ZIndex = 0
@@ -346,7 +358,27 @@ local function paintPillGlowHost(pillGlowHost: Frame?)
 	local steps = #layers - 1
 	for i, layer in layers do
 		local t = if steps > 0 then (i - 1) / steps else 0
-		layer.BackgroundColor3 = Theme.AccentBlue:Lerp(Theme.Stroke, t)
+		layer.BackgroundColor3 = themeGlowLayerColor(t)
+	end
+end
+
+local function paintMainGlowHost(mainGlowHost: Frame?)
+	if not mainGlowHost then
+		return
+	end
+	local layers: { Frame } = {}
+	for _, c in mainGlowHost:GetChildren() do
+		if c:IsA("Frame") and c.Name == "GlowLayer" then
+			table.insert(layers, c)
+		end
+	end
+	table.sort(layers, function(a, b)
+		return a.Size.X.Offset < b.Size.X.Offset
+	end)
+	local steps = #layers - 1
+	for i, layer in layers do
+		local t = if steps > 0 then (i - 1) / steps else 0
+		layer.BackgroundColor3 = themeGlowLayerColor(t)
 	end
 end
 
@@ -367,9 +399,10 @@ local function paintTabGlowHost(tabGlowHost: Frame?, isSelected: boolean)
 	for i, layer in layers do
 		local t = if steps > 0 then (i - 1) / steps else 0
 		if isSelected then
-			layer.BackgroundColor3 = Theme.AccentPurple:Lerp(Theme.AccentBlue, t)
+			local hot = Theme.AccentPurple:Lerp(Theme.AccentBlue, t)
+			layer.BackgroundColor3 = hot:Lerp(Theme.Stroke, t * t * 0.38)
 		else
-			layer.BackgroundColor3 = Color3.new(1, 1, 1):Lerp(Color3.fromRGB(232, 238, 255), t * 0.4)
+			layer.BackgroundColor3 = themeTabIdleGlowColor(t)
 		end
 	end
 end
@@ -862,16 +895,18 @@ function Library.new(config: WindowConfig)
 	mainPanel.ClipsDescendants = false
 	mainPanel.Parent = body
 
+	local panelGlowHost: Frame? = nil
 	if config.GlowEnabled ~= false then
-		local panelGlowHost = Instance.new("Frame")
-		panelGlowHost.Name = "MainGlowHost"
-		panelGlowHost.Size = UDim2.fromScale(1, 1)
-		panelGlowHost.Position = UDim2.fromScale(0, 0)
-		panelGlowHost.BackgroundTransparency = 1
-		panelGlowHost.BorderSizePixel = 0
-		panelGlowHost.ZIndex = 0
-		panelGlowHost.Parent = mainPanel
-		addStackedGlow(panelGlowHost, {
+		local gh = Instance.new("Frame")
+		gh.Name = "MainGlowHost"
+		gh.Size = UDim2.fromScale(1, 1)
+		gh.Position = UDim2.fromScale(0, 0)
+		gh.BackgroundTransparency = 1
+		gh.BorderSizePixel = 0
+		gh.ZIndex = 0
+		gh.Parent = mainPanel
+		panelGlowHost = gh
+		addStackedGlow(gh, {
 			{ size = 5, transparency = 0.82, radius = 9 },
 			{ size = 11, transparency = 0.9, radius = 11 },
 			{ size = 17, transparency = 0.95, radius = 12 },
@@ -1127,6 +1162,7 @@ function Library.new(config: WindowConfig)
 			end
 		end
 		paintPillGlowHost(pillGlowHost)
+		paintMainGlowHost(panelGlowHost)
 		if logo:IsA("Frame") then
 			logo.BackgroundColor3 = Theme.AccentPurple
 		elseif logo:IsA("ImageLabel") then
