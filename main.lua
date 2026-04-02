@@ -65,8 +65,8 @@ end
 
 type GlowLayerSpec = { size: number, transparency: number, radius: number }
 
---[[ Centered stacked frames behind a host; spills past edges when host clips are off.
-    colorAt(t) maps 0..1 across layers; sets GlowIdx on each layer for tab selection updates. ]]
+--[[ Single or stacked rim frames behind a host; spills past edges when host clips are off.
+    colorAt(t) maps 0..1 across layers (one layer → t = 0); GlowIdx on each layer for tab selection tint. ]]
 local function addStackedGlow(host: Frame, specs: { GlowLayerSpec }, colorAt: ((number) -> Color3)?)
 	local steps = #specs - 1
 	host:SetAttribute("GlowSteps", #specs)
@@ -356,12 +356,8 @@ function Library.new(config: WindowConfig)
 		panelGlowHost.BorderSizePixel = 0
 		panelGlowHost.ZIndex = 0
 		panelGlowHost.Parent = mainPanel
-		--[[ Soft rim — visible but not overpowering ]]
 		addStackedGlow(panelGlowHost, {
 			{ size = 6, transparency = 0.76, radius = 10 },
-			{ size = 14, transparency = 0.86, radius = 11 },
-			{ size = 24, transparency = 0.92, radius = 13 },
-			{ size = 32, transparency = 0.96, radius = 14 },
 		})
 	end
 
@@ -638,8 +634,6 @@ function Library.new(config: WindowConfig)
 			tabGlowHost.Parent = tabSlot
 			addStackedGlow(tabGlowHost, {
 				{ size = 3, transparency = 0.82, radius = 7 },
-				{ size = 8, transparency = 0.90, radius = 8 },
-				{ size = 14, transparency = 0.95, radius = 9 },
 			}, function(t: number)
 				return Color3.new(1, 1, 1):Lerp(Color3.fromRGB(210, 218, 245), t)
 			end)
