@@ -308,16 +308,15 @@ function Library.new(config: WindowConfig)
 	sideList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	sideList.Parent = sidebar
 
-	--[[ Main panel only (not sidebar / top pill): subtle glow sits behind this rounded box ]]
-	local panelWrap = Instance.new("Frame")
-	panelWrap.Name = "MainPanelWrap"
-	panelWrap.Size = UDim2.new(1, -62, 1, 0)
-	panelWrap.BackgroundTransparency = 1
-	panelWrap.BorderSizePixel = 0
-	panelWrap.ClipsDescendants = false
-	panelWrap.LayoutOrder = 1
-	panelWrap.ZIndex = 1
-	panelWrap.Parent = body
+	--[[ One shell: transparent MainPanel holds glow + inner face (no extra MainPanelWrap in the tree) ]]
+	local mainPanel = Instance.new("Frame")
+	mainPanel.Name = "MainPanel"
+	mainPanel.Size = UDim2.new(1, -62, 1, 0)
+	mainPanel.LayoutOrder = 1
+	mainPanel.BackgroundTransparency = 1
+	mainPanel.BorderSizePixel = 0
+	mainPanel.ClipsDescendants = false
+	mainPanel.Parent = body
 
 	if config.GlowEnabled ~= false then
 		local panelGlowHost = Instance.new("Frame")
@@ -327,7 +326,7 @@ function Library.new(config: WindowConfig)
 		panelGlowHost.BackgroundTransparency = 1
 		panelGlowHost.BorderSizePixel = 0
 		panelGlowHost.ZIndex = 0
-		panelGlowHost.Parent = panelWrap
+		panelGlowHost.Parent = mainPanel
 		addStackedGlow(panelGlowHost, {
 			{ size = 5, transparency = 0.82, radius = 9 },
 			{ size = 11, transparency = 0.9, radius = 11 },
@@ -336,19 +335,19 @@ function Library.new(config: WindowConfig)
 		})
 	end
 
-	local mainPanel = Instance.new("Frame")
-	mainPanel.Name = "MainPanel"
-	mainPanel.Size = UDim2.fromScale(1, 1)
-	mainPanel.Position = UDim2.fromScale(0, 0)
-	mainPanel.ZIndex = 1
-	mainPanel.BackgroundColor3 = Theme.Panel
-	mainPanel.BackgroundTransparency = Theme.PanelTrans
-	mainPanel.ClipsDescendants = true
-	mainPanel.Parent = panelWrap
-	corner(Theme.Corner).Parent = mainPanel
+	local panelFace = Instance.new("Frame")
+	panelFace.Name = "PanelFace"
+	panelFace.Size = UDim2.fromScale(1, 1)
+	panelFace.Position = UDim2.fromScale(0, 0)
+	panelFace.ZIndex = 1
+	panelFace.BackgroundColor3 = Theme.Panel
+	panelFace.BackgroundTransparency = Theme.PanelTrans
+	panelFace.ClipsDescendants = true
+	panelFace.Parent = mainPanel
+	corner(Theme.Corner).Parent = panelFace
 	local panelOutline = stroke(Theme.Stroke, 2, math.clamp(Theme.StrokeTrans - 0.15, 0.2, 0.55))
 	panelOutline.Name = "PanelOutline"
-	panelOutline.Parent = mainPanel
+	panelOutline.Parent = panelFace
 
 	local panelTitle = Instance.new("TextLabel")
 	panelTitle.Name = "WindowTitle"
@@ -360,14 +359,14 @@ function Library.new(config: WindowConfig)
 	panelTitle.TextColor3 = Theme.Text
 	panelTitle.TextXAlignment = Enum.TextXAlignment.Left
 	panelTitle.Text = titleText
-	panelTitle.Parent = mainPanel
+	panelTitle.Parent = panelFace
 
 	local contentHost = Instance.new("Frame")
 	contentHost.Name = "ContentHost"
 	contentHost.Position = UDim2.new(0, 0, 0, 44)
 	contentHost.Size = UDim2.new(1, 0, 1, -44)
 	contentHost.BackgroundTransparency = 1
-	contentHost.Parent = mainPanel
+	contentHost.Parent = panelFace
 
 	local tabButtons: { TextButton } = {}
 	local tabScrolls: { ScrollingFrame } = {}
@@ -386,9 +385,9 @@ function Library.new(config: WindowConfig)
 			btn.BackgroundTransparency = if isSel then 0.08 else 0.45
 			local icon = btn:FindFirstChild("LucideIcon")
 			if icon and icon:IsA("ImageLabel") then
-				icon.ImageColor3 = if isSel then Theme.AccentPurple else Theme.Text
+				icon.ImageColor3 = if isSel then Color3.new(1, 1, 1) else Theme.Text
 			else
-				btn.TextColor3 = if isSel then Theme.AccentPurple else Theme.Text
+				btn.TextColor3 = if isSel then Color3.new(1, 1, 1) else Theme.Text
 			end
 		end
 		for i, sc in tabScrolls do
