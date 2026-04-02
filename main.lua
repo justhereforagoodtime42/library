@@ -1544,6 +1544,9 @@ function Library.new(config: WindowConfig)
 			if d:IsA("Frame") and d:GetAttribute("AcidBg") == "Groupbox" then
 				d.BackgroundTransparency = Theme.GroupboxTrans
 			end
+			if d.Name == "DropdownScroll" and d:IsA("ScrollingFrame") then
+				d.ScrollBarImageColor3 = Theme.AccentBlue
+			end
 		end
 		for _, chevRefresh in sectionChevronRefreshes do
 			pcall(chevRefresh)
@@ -2590,9 +2593,16 @@ function Library.new(config: WindowConfig)
 			Idx: string?,
 			--[[ Filter option rows while the list is open (search box at top of dropdown). ]]
 			Searchable: boolean?,
+			--[[ Max option rows visible before scrolling (default 8; clamped 3–24). ]]
+			MaxVisibleItems: number?,
 		})
 			local allowNull = o.AllowNull == true
 			local searchable = o.Searchable == true
+			local maxVisibleItems = math.clamp(
+				if typeof(o.MaxVisibleItems) == "number" then math.floor(o.MaxVisibleItems :: number) else 8,
+				3,
+				24
+			)
 			local multi = if o.Multi ~= nil then (o.Multi == true) else dropdownMultiDefault
 			local options = o.Options or {}
 			local selected: { [string]: boolean } = {}
@@ -2728,11 +2738,53 @@ function Library.new(config: WindowConfig)
 			listStroke:SetAttribute("AcidStroke", "Stroke")
 			listStroke.Parent = listF
 
+			pad(6).Parent = listF
+			local stackLay = Instance.new("UIListLayout")
+			stackLay.FillDirection = Enum.FillDirection.Vertical
+			stackLay.SortOrder = Enum.SortOrder.LayoutOrder
+			stackLay.Padding = UDim.new(0, 6)
+			stackLay.Parent = listF
+
+			local scrollList = Instance.new("ScrollingFrame")
+			scrollList.Name = "DropdownScroll"
+			scrollList.BackgroundTransparency = 1
+			scrollList.BorderSizePixel = 0
+			scrollList.Size = UDim2.new(1, -12, 0, 120)
+			scrollList.ScrollBarThickness = 4
+			scrollList.ScrollBarImageColor3 = Theme.AccentBlue
+			scrollList.ScrollingDirection = Enum.ScrollingDirection.Y
+			scrollList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+			scrollList.CanvasSize = UDim2.new(0, 0, 0, 0)
+			scrollList.ZIndex = 6
+			scrollList.LayoutOrder = 2
+			scrollList.ClipsDescendants = true
+			scrollList.Parent = listF
+
 			local innerList = Instance.new("UIListLayout")
 			innerList.SortOrder = Enum.SortOrder.LayoutOrder
 			innerList.Padding = UDim.new(0, 2)
-			innerList.Parent = listF
-			pad(6).Parent = listF
+			innerList.Parent = scrollList
+
+			local OPT_ROW_H = 28
+			local LIST_GAP = 2
+			local function optionsBlockHeight(n: number): number
+				if n <= 0 then
+					return OPT_ROW_H
+				end
+				return n * OPT_ROW_H + (n - 1) * LIST_GAP
+			end
+			local function syncScrollViewport()
+				local n = 0
+				for _, ch in scrollList:GetChildren() do
+					if ch:IsA("TextButton") then
+						n = n + 1
+					end
+				end
+				local contentH = optionsBlockHeight(n)
+				local capH = optionsBlockHeight(maxVisibleItems)
+				local viewH = math.clamp(math.min(contentH, capH), OPT_ROW_H, capH)
+				scrollList.Size = UDim2.new(1, -12, 0, viewH)
+			end
 
 			local searchBox: TextBox? = nil
 			if searchable then
@@ -2740,7 +2792,7 @@ function Library.new(config: WindowConfig)
 				searchRow.Name = "DropdownSearch"
 				searchRow.BackgroundTransparency = 1
 				searchRow.Size = UDim2.new(1, -12, 0, 30)
-				searchRow.LayoutOrder = -100
+				searchRow.LayoutOrder = 1
 				searchRow.Parent = listF
 				local sb = Instance.new("TextBox")
 				sb.Name = "Search"
@@ -2805,7 +2857,7 @@ function Library.new(config: WindowConfig)
 
 			local function clearOptionButtons()
 				table.clear(optionButtonMap)
-				for _, ch in listF:GetChildren() do
+				for _, ch in scrollList:GetChildren() do
 					if ch:IsA("TextButton") then
 						ch:Destroy()
 					end
@@ -2816,15 +2868,15 @@ function Library.new(config: WindowConfig)
 				clearOptionButtons()
 				for _, opt in filteredOptions() do
 					local optBtn = Instance.new("TextButton")
-					optBtn.Size = UDim2.new(1, -12, 0, 28)
+					optBtn.Size = UDim2.new(1, -12, 0, OPT_ROW_H)
 					optBtn.AutoButtonColor = false
 					optBtn.Font = Enum.Font.GothamMedium
 					optBtn.TextSize = 12
 					optBtn.TextXAlignment = Enum.TextXAlignment.Left
-					optBtn.ZIndex = 6
+					optBtn.ZIndex = 7
 					optBtn:SetAttribute("AcidBg", "Elevated")
 					optBtn:SetAttribute("AcidText", "Text")
-					optBtn.Parent = listF
+					optBtn.Parent = scrollList
 					corner(UDim.new(0, 4)).Parent = optBtn
 					pad(8).Parent = optBtn
 					optionButtonMap[opt] = optBtn
@@ -2850,6 +2902,8 @@ function Library.new(config: WindowConfig)
 						fire()
 					end)
 				end
+				syncScrollViewport()
+				scrollList.CanvasPosition = Vector2.zero
 			end
 
 			buildOptionButtons()
