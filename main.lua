@@ -87,6 +87,8 @@ Library._notifyList = nil :: Frame?
 Library._notifyOrder = 0
 Library._updateNotifyLayout = nil :: (() -> ())?
 Library._windowDestroy = nil :: (() -> ())?
+--[[ Per-toast refresh callbacks so notifications follow Library.Theme after ThemeManager:ApplyTheme ]]
+Library._notifyThemeRefreshes = {} :: { () -> () }
 
 function Library:OnUnload(fn: () -> ())
 	if typeof(fn) == "function" then
@@ -96,6 +98,9 @@ end
 
 function Library:RefreshTheme()
 	for _, fn in self._windowRefreshes do
+		pcall(fn)
+	end
+	for _, fn in self._notifyThemeRefreshes do
 		pcall(fn)
 	end
 end
@@ -171,13 +176,14 @@ function Library:Notify(payload: any, duration: number?)
 	card.Name = "Notify_" .. order
 	card.Size = UDim2.new(0, 280, 0, 0)
 	card.AutomaticSize = Enum.AutomaticSize.Y
-	card.BackgroundColor3 = Theme.Elevated
-	card.BackgroundTransparency = 0.06
+	card.BackgroundColor3 = Theme.Groupbox
+	card.BackgroundTransparency = 0
 	card.BorderSizePixel = 0
 	card.LayoutOrder = -order
 	card.Parent = list
-	corner(Theme.CornerSm).Parent = card
-	stroke(Theme.Stroke, 1, 0.5).Parent = card
+	corner(Theme.Corner).Parent = card
+	local cardStroke = stroke(Theme.Stroke, 1, math.clamp(Theme.StrokeTrans, 0.25, 0.62))
+	cardStroke.Parent = card
 	local padN = Instance.new("UIPadding")
 	padN.PaddingLeft = UDim.new(0, 10)
 	padN.PaddingRight = UDim.new(0, 10)
@@ -223,41 +229,127 @@ function Library:Notify(payload: any, duration: number?)
 	local useStepBar = typeof(stepsTotal) == "number" and stepsTotal > 0
 	local showTimerBar = not persist and (useStepBar or (not hasInstanceTime and dur > 0))
 
+	local timerBar: Frame? = nil
+	local timerBarStroke: UIStroke? = nil
+	local timerFill: Frame? = nil
+	local fillGradient: UIGradient? = nil
+	local timeLeftLabel: TextLabel? = nil
+
 	local timerHolder = Instance.new("Frame")
 	timerHolder.Name = "TimerHolder"
 	timerHolder.BackgroundTransparency = 1
-	timerHolder.Size = UDim2.new(1, 0, 0, 7)
+	timerHolder.Size = UDim2.new(1, 0, 0, 0)
+	timerHolder.AutomaticSize = Enum.AutomaticSize.Y
 	timerHolder.LayoutOrder = 3
 	timerHolder.Visible = showTimerBar
 	timerHolder.Parent = card
 
-	local timerBar = Instance.new("Frame")
-	timerBar.Name = "TimerBar"
-	timerBar.BackgroundColor3 = Theme.SliderTrack
-	timerBar.BorderSizePixel = 0
-	timerBar.Position = UDim2.new(0, 0, 0, 3)
-	timerBar.Size = UDim2.new(1, 0, 0, 2)
-	timerBar.ClipsDescendants = true
-	timerBar.Parent = timerHolder
-	corner(Theme.CornerSm).Parent = timerBar
+	if showTimerBar then
+		local stack = Instance.new("UIListLayout")
+		stack.SortOrder = Enum.SortOrder.LayoutOrder
+		stack.Padding = UDim.new(0, 5)
+		stack.Parent = timerHolder
 
-	local timerFill = Instance.new("Frame")
-	timerFill.Name = "TimerFill"
-	timerFill.BackgroundColor3 = Theme.AccentBlue
-	timerFill.BorderSizePixel = 0
-	timerFill.Size = UDim2.fromScale(1, 1)
-	timerFill.Parent = timerBar
-	corner(Theme.CornerSm).Parent = timerFill
+		local tlbl = Instance.new("TextLabel")
+		tlbl.Name = "TimeLeft"
+		tlbl.BackgroundTransparency = 1
+		tlbl.Font = Enum.Font.GothamMedium
+		tlbl.TextSize = 12
+		tlbl.TextColor3 = Theme.TextDim
+		tlbl.TextXAlignment = Enum.TextXAlignment.Right
+		tlbl.TextYAlignment = Enum.TextYAlignment.Center
+		tlbl.TextTransparency = 0.25
+		tlbl.Size = UDim2.new(1, 0, 0, 15)
+		tlbl.Text = useStepBar and string.format("Step 0 / %d", stepsTotal :: number) or string.format("%.1fs left", dur)
+		tlbl.LayoutOrder = 1
+		tlbl.Parent = timerHolder
+		timeLeftLabel = tlbl
 
-	if hasInstanceTime and not useStepBar then
-		timerFill.Size = UDim2.fromScale(0, 1)
+		local bar = Instance.new("Frame")
+		bar.Name = "TimerBar"
+		bar.BackgroundColor3 = Theme.SliderTrack
+		bar.BorderSizePixel = 0
+		bar.Size = UDim2.new(1, 0, 0, 5)
+		bar.ClipsDescendants = true
+		bar.LayoutOrder = 2
+		bar.Parent = timerHolder
+		corner(UDim.new(1, 0)).Parent = bar
+		local bs = stroke(Theme.Stroke, 1, math.clamp(Theme.StrokeTrans + 0.12, 0.35, 0.78))
+		bs.Parent = bar
+		timerBar = bar
+		timerBarStroke = bs
+
+		local fill = Instance.new("Frame")
+		fill.Name = "TimerFill"
+		fill.BackgroundColor3 = Color3.new(1, 1, 1)
+		fill.BorderSizePixel = 0
+		fill.Size = UDim2.fromScale(1, 1)
+		fill.Parent = bar
+		corner(UDim.new(1, 0)).Parent = fill
+		local grad = Instance.new("UIGradient")
+		grad.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Theme.AccentPurple),
+			ColorSequenceKeypoint.new(1, Theme.AccentBlue),
+		})
+		grad.Parent = fill
+		timerFill = fill
+		fillGradient = grad
+
+		if hasInstanceTime and not useStepBar then
+			fill.Size = UDim2.fromScale(0, 1)
+			tlbl.Text = "…"
+		end
 	end
 
 	local cancelled = false
 	local activeTween: Tween? = nil
 	local instConn: RBXScriptConnection? = nil
+	local hbConn: RBXScriptConnection? = nil
 
 	local handle: any
+
+	local function refreshNotifyCard()
+		local T = Library.Theme
+		card.BackgroundColor3 = T.Groupbox
+		card.BackgroundTransparency = 0
+		local cc = card:FindFirstChildWhichIsA("UICorner")
+		if cc then
+			cc.CornerRadius = T.Corner
+		end
+		cardStroke.Color = T.Stroke
+		cardStroke.Transparency = math.clamp(T.StrokeTrans, 0.25, 0.62)
+		tl.TextColor3 = T.Text
+		if dl then
+			dl.TextColor3 = T.TextDim
+		end
+		if timeLeftLabel then
+			timeLeftLabel.TextColor3 = T.TextDim
+		end
+		if timerBar then
+			timerBar.BackgroundColor3 = T.SliderTrack
+		end
+		if timerBarStroke then
+			timerBarStroke.Color = T.Stroke
+			timerBarStroke.Transparency = math.clamp(T.StrokeTrans + 0.12, 0.35, 0.78)
+		end
+		if fillGradient then
+			fillGradient.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, T.AccentPurple),
+				ColorSequenceKeypoint.new(1, T.AccentBlue),
+			})
+		end
+	end
+
+	table.insert(self._notifyThemeRefreshes, refreshNotifyCard)
+
+	local function unregisterNotifyTheme()
+		for i = #self._notifyThemeRefreshes, 1, -1 do
+			if self._notifyThemeRefreshes[i] == refreshNotifyCard then
+				table.remove(self._notifyThemeRefreshes, i)
+				break
+			end
+		end
+	end
 
 	local function doDestroy()
 		if cancelled then
@@ -266,6 +358,11 @@ function Library:Notify(payload: any, duration: number?)
 		cancelled = true
 		if handle then
 			handle.Destroyed = true
+		end
+		unregisterNotifyTheme()
+		if hbConn then
+			hbConn:Disconnect()
+			hbConn = nil
 		end
 		if activeTween then
 			pcall(function()
@@ -305,7 +402,7 @@ function Library:Notify(payload: any, duration: number?)
 				d.BackgroundTransparency = 1
 				d.Font = Enum.Font.GothamMedium
 				d.TextSize = 12
-				d.TextColor3 = Theme.TextDim
+				d.TextColor3 = Library.Theme.TextDim
 				d.TextXAlignment = Enum.TextXAlignment.Left
 				d.TextWrapped = true
 				d.AutomaticSize = Enum.AutomaticSize.Y
@@ -316,20 +413,38 @@ function Library:Notify(payload: any, duration: number?)
 			end
 			if dl then
 				dl.Text = s
+				dl.TextColor3 = Library.Theme.TextDim
 				dl.Visible = s ~= ""
 			end
 		end,
 		ChangeStep = function(_self, newStep: number?)
-			if typeof(stepsTotal) ~= "number" or stepsTotal <= 0 then
+			if typeof(stepsTotal) ~= "number" or stepsTotal <= 0 or not timerFill then
 				return
 			end
 			local n = math.clamp(newStep or 0, 0, stepsTotal)
 			timerFill.Size = UDim2.fromScale(n / stepsTotal, 1)
+			if timeLeftLabel then
+				timeLeftLabel.Text = string.format("Step %d / %d", n, stepsTotal)
+			end
 		end,
 	}
 
 	if useStepBar then
 		handle:ChangeStep(0)
+	end
+
+	if showTimerBar and dur > 0 and not useStepBar and not hasInstanceTime then
+		local t0 = tick()
+		hbConn = RunService.Heartbeat:Connect(function()
+			if cancelled or not timeLeftLabel or not timeLeftLabel.Parent then
+				if hbConn then
+					hbConn:Disconnect()
+					hbConn = nil
+				end
+				return
+			end
+			timeLeftLabel.Text = string.format("%.1fs left", math.max(0, dur - (tick() - t0)))
+		end)
 	end
 
 	if persist then
@@ -354,7 +469,7 @@ function Library:Notify(payload: any, duration: number?)
 					doDestroy()
 				end
 			end)
-		elseif showTimerBar then
+		elseif showTimerBar and timerFill then
 			timerFill.Size = UDim2.fromScale(1, 1)
 			activeTween = TweenService:Create(
 				timerFill,
@@ -405,6 +520,7 @@ function Library:Unload()
 	self._notifyList = nil
 	self._updateNotifyLayout = nil
 	table.clear(self._windowRefreshes)
+	table.clear(self._notifyThemeRefreshes)
 	table.clear(self.Toggles)
 	table.clear(self.Options)
 	self.ToggleKeybind = nil
