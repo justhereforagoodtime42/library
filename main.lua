@@ -25,8 +25,10 @@ Library.Theme = {
 	Panel = Color3.new(0, 0, 0),
 	--[[ Main panel + scroll columns; 0 = fully opaque (Obsidian-style solid UI) ]]
 	PanelTrans = 0,
-	--[[ Groupbox shell fill (Obsidian uses BackgroundColor for the boxed area) ]]
+	--[[ Groupbox shell fill — panel washed with accent (recomputed after AccentBlue is set below) ]]
 	Groupbox = Color3.new(0, 0, 0),
+	--[[ Section wrap transparency; lower = more solid accent tint on the box ]]
+	GroupboxTrans = 0.68,
 	Elevated = Color3.fromRGB(20, 20, 26),
 	Stroke = Color3.fromRGB(70, 130, 255),
 	StrokeTrans = 0.55,
@@ -42,8 +44,7 @@ Library.Theme = {
 	CornerSm = UDim.new(0, 6),
 }
 local Theme = Library.Theme
---[[ Groupbox outline + title rule; lerped from accents (ThemeManager updates after ApplyScheme). ]]
-Theme.AccentStroke = Theme.AccentPurple:Lerp(Theme.AccentBlue, 0.48)
+Theme.Groupbox = Theme.Panel:Lerp(Theme.AccentBlue, 0.16)
 
 -- ----------------------------------------------------------------------------- helpers (must be above Library:Notify — it uses corner/stroke)
 local function tween(inst: Instance, ti: TweenInfo, props: { [string]: any })
@@ -1536,6 +1537,11 @@ function Library.new(config: WindowConfig)
 			})
 		end
 		paintThemedDescendants(contentHost)
+		for _, d in contentHost:GetDescendants() do
+			if d:IsA("Frame") and d:GetAttribute("AcidBg") == "Groupbox" then
+				d.BackgroundTransparency = Theme.GroupboxTrans
+			end
+		end
 		for _, chevRefresh in sectionChevronRefreshes do
 			pcall(chevRefresh)
 		end
@@ -2034,13 +2040,15 @@ function Library.new(config: WindowConfig)
 		wrap.Name = "Section_" .. header
 		wrap.Size = UDim2.new(1, 0, 0, 0)
 		wrap.AutomaticSize = Enum.AutomaticSize.Y
-		wrap.BackgroundTransparency = 1
+		wrap.BackgroundColor3 = Theme.Groupbox
+		wrap.BackgroundTransparency = Theme.GroupboxTrans
 		wrap.BorderSizePixel = 0
 		wrap.LayoutOrder = layoutOrder
+		wrap:SetAttribute("AcidBg", "Groupbox")
 		wrap.Parent = parentScroll
 		corner(Theme.Corner).Parent = wrap
-		local gbStroke = stroke(Theme.AccentStroke, 1, math.clamp(Theme.StrokeTrans, 0.25, 0.62))
-		gbStroke:SetAttribute("AcidStroke", "AccentStroke")
+		local gbStroke = stroke(Theme.AccentBlue, 1, math.clamp(Theme.StrokeTrans, 0.22, 0.58))
+		gbStroke:SetAttribute("AcidStroke", "AccentBlue")
 		gbStroke.Parent = wrap
 		local wrapOuterPad = Instance.new("UIPadding")
 		wrapOuterPad.PaddingLeft = UDim.new(0, 7)
@@ -2227,11 +2235,11 @@ function Library.new(config: WindowConfig)
 		titleSep.Name = "SectionTitleSep"
 		titleSep.Size = UDim2.new(1, 0, 0, 1)
 		titleSep.BorderSizePixel = 0
-		titleSep.BackgroundColor3 = Theme.AccentStroke
-		titleSep.BackgroundTransparency = math.clamp(Theme.StrokeTrans + 0.02, 0.3, 0.68)
+		titleSep.BackgroundColor3 = Theme.AccentBlue
+		titleSep.BackgroundTransparency = math.clamp(Theme.StrokeTrans, 0.28, 0.65)
 		titleSep.LayoutOrder = 2
 		titleSep.Parent = wrap
-		titleSep:SetAttribute("AcidBg", "AccentStroke")
+		titleSep:SetAttribute("AcidBg", "AccentBlue")
 
 		local bodyF = Instance.new("Frame")
 		bodyF.Name = "Body"
