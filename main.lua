@@ -1546,46 +1546,39 @@ function Library.new(config: WindowConfig)
 		flexGrow.FlexMode = Enum.UIFlexMode.Grow
 		flexGrow.Parent = hText
 
+		--[[ Collapsible: Lucide chevron-down (expanded) / chevron-up (collapsed) — swap atlas rect; Rotation doesn’t reorient sprite UVs. ]]
 		local chevImg: ImageLabel? = nil
-		local chevGlyph: TextLabel? = nil
+		local specChevExpanded: any = nil
+		local specChevCollapsed: any = nil
 		if collapsible then
-			local ci = Library:GetIcon("chevron-down")
-			if ci and typeof(ci.Url) == "string" and ci.Url ~= "" then
-				local img = Instance.new("ImageLabel")
-				img.Name = "Chevron"
-				img.BackgroundTransparency = 1
-				img.Size = UDim2.fromOffset(16, 16)
-				img.Image = ci.Url
-				img.ImageRectOffset = ci.ImageRectOffset or Vector2.zero
-				img.ImageRectSize = ci.ImageRectSize or Vector2.zero
-				img.ImageColor3 = Theme.TextDim
-				img.LayoutOrder = headerLayoutNext
-				img.ScaleType = Enum.ScaleType.Fit
-				img.Parent = headerRow
-				chevImg = img
-			else
-				local cg = Instance.new("TextLabel")
-				cg.Name = "ChevronGlyph"
-				cg.BackgroundTransparency = 1
-				cg.Size = UDim2.fromOffset(18, 18)
-				cg.Text = "▼"
-				cg.TextSize = 12
-				cg.Font = Enum.Font.GothamBold
-				cg.TextColor3 = Theme.TextDim
-				cg.TextYAlignment = Enum.TextYAlignment.Center
-				cg.LayoutOrder = headerLayoutNext
-				cg.Parent = headerRow
-				chevGlyph = cg
+			specChevExpanded = Library:GetIcon("chevron-down")
+			specChevCollapsed = Library:GetIcon("chevron-up")
+			if
+				not specChevExpanded
+				or typeof(specChevExpanded.Url) ~= "string"
+				or specChevExpanded.Url == ""
+				or not specChevCollapsed
+				or typeof(specChevCollapsed.Url) ~= "string"
+				or specChevCollapsed.Url == ""
+			then
+				error("AcidHub: Lucide chevron-down and chevron-up are required for collapsible sections.")
 			end
+			local img = Instance.new("ImageLabel")
+			img.Name = "Chevron"
+			img.BackgroundTransparency = 1
+			img.Size = UDim2.fromOffset(16, 16)
+			img.ImageColor3 = Theme.TextDim
+			img.LayoutOrder = headerLayoutNext
+			img.ScaleType = Enum.ScaleType.Fit
+			img.Rotation = 0
+			img.Parent = headerRow
+			chevImg = img
 		end
 
 		headerRow:SetAttribute("AcidBg", "Background")
 		hText:SetAttribute("AcidText", "Text")
 		if chevImg then
 			chevImg:SetAttribute("AcidImg", "TextDim")
-		end
-		if chevGlyph then
-			chevGlyph:SetAttribute("AcidText", "TextDim")
 		end
 
 		if typeof(sectionOpts.Tooltip) == "string" and sectionOpts.Tooltip ~= "" then
@@ -1606,21 +1599,22 @@ function Library.new(config: WindowConfig)
 		bodyList.Parent = bodyF
 
 		local sectionExpanded = expanded
+		local function applyChevronSprite(on: boolean)
+			if not chevImg or not specChevExpanded or not specChevCollapsed then
+				return
+			end
+			local spec = if on then specChevExpanded else specChevCollapsed
+			chevImg.Image = spec.Url
+			chevImg.ImageRectOffset = spec.ImageRectOffset or Vector2.zero
+			chevImg.ImageRectSize = spec.ImageRectSize or Vector2.zero
+		end
 		local function applySectionExpanded(on: boolean)
 			sectionExpanded = on
 			if not collapsible then
 				return
 			end
 			bodyF.Visible = on
-			--[[ Collapsed → ^ (up); expanded → ▼ (down). Lucide chevron-down: 0° = down, 180° = up. ]]
-			if chevImg then
-				tween(chevImg, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-					Rotation = if on then 0 else 180,
-				}):Play()
-			end
-			if chevGlyph then
-				chevGlyph.Text = if on then "▼" else "^"
-			end
+			applyChevronSprite(on)
 		end
 		if collapsible and headerRow:IsA("TextButton") then
 			(headerRow :: TextButton).MouseButton1Click:Connect(function()
@@ -1628,12 +1622,6 @@ function Library.new(config: WindowConfig)
 			end)
 		end
 		if collapsible then
-			if chevImg and not expanded then
-				chevImg.Rotation = 180
-			end
-			if chevGlyph and not expanded then
-				chevGlyph.Text = "^"
-			end
 			applySectionExpanded(expanded)
 		else
 			bodyF.Visible = true
