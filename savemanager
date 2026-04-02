@@ -555,6 +555,7 @@ do
 			Options = self:RefreshConfigList(),
 			AllowNull = true,
 			Idx = "SaveManager_ConfigList",
+			MaxVisibleItems = 10,
 		})
 
 		section:AddButton("Load config", function()
