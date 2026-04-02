@@ -1490,11 +1490,6 @@ function Library.new(config: WindowConfig)
 				paintMainGlowHost(panelGlowHost)
 			end
 		end
-		for _, d in contentHost:GetDescendants() do
-			if d:IsA("Frame") and d.Name == "SectionGlowHost" then
-				paintMainGlowHost(d)
-			end
-		end
 		if logo:IsA("Frame") then
 			logo.BackgroundColor3 = Theme.AccentPurple
 		elseif logo:IsA("ImageLabel") then
@@ -1875,65 +1870,14 @@ function Library.new(config: WindowConfig)
 			layoutOrder = self._sectionOrder
 		end
 
-		local wrapParent: Instance = parentScroll
-		local gbGlowHost: Frame? = nil
-		if config.GlowEnabled ~= false then
-			local outer = Instance.new("Frame")
-			outer.Name = "SectionShell_" .. header
-			outer.BackgroundTransparency = 1
-			outer.BorderSizePixel = 0
-			outer.Size = UDim2.new(1, 0, 0, 0)
-			outer.AutomaticSize = Enum.AutomaticSize.Y
-			outer.ClipsDescendants = false
-			outer.LayoutOrder = layoutOrder
-			outer.Parent = parentScroll
-			wrapParent = outer
-
-			local gh = Instance.new("Frame")
-			gh.Name = "SectionGlowHost"
-			gh.BackgroundTransparency = 1
-			gh.BorderSizePixel = 0
-			gh.ZIndex = 0
-			gh.Parent = outer
-			gbGlowHost = gh
-			addStackedGlow(gh, {
-				{ size = 4, transparency = 0.84, radius = 8 },
-				{ size = 9, transparency = 0.91, radius = 9 },
-				{ size = 14, transparency = 0.95, radius = 10 },
-				{ size = 18, transparency = 0.98, radius = 11 },
-			})
-		end
-
 		local wrap = Instance.new("Frame")
 		wrap.Name = "Section_" .. header
 		wrap.Size = UDim2.new(1, 0, 0, 0)
 		wrap.AutomaticSize = Enum.AutomaticSize.Y
-		wrap.BackgroundColor3 = Theme.Groupbox
-		wrap.BackgroundTransparency = 0
+		wrap.BackgroundTransparency = 1
 		wrap.BorderSizePixel = 0
-		wrap:SetAttribute("AcidBg", "Groupbox")
-		wrap.ZIndex = 1
-		if config.GlowEnabled == false then
-			wrap.LayoutOrder = layoutOrder
-		end
-		wrap.Parent = wrapParent
-
-		if gbGlowHost then
-			local glowPad = 9
-			local function syncSectionGlow()
-				if not gbGlowHost or not gbGlowHost.Parent or not wrap.Parent then
-					return
-				end
-				local sz = wrap.AbsoluteSize
-				if sz.X < 2 or sz.Y < 2 then
-					return
-				end
-				gbGlowHost.Size = UDim2.fromOffset(sz.X + glowPad * 2, sz.Y + glowPad * 2)
-				gbGlowHost.Position = UDim2.fromOffset(-glowPad, -glowPad)
-			end
-			wrap:GetPropertyChangedSignal("AbsoluteSize"):Connect(syncSectionGlow)
-			task.defer(syncSectionGlow)
-		end
+		wrap.LayoutOrder = layoutOrder
+		wrap.Parent = parentScroll
 		corner(Theme.Corner).Parent = wrap
 		local gbStroke = stroke(Theme.Stroke, 1, math.clamp(Theme.StrokeTrans, 0.25, 0.62))
 		gbStroke:SetAttribute("AcidStroke", "Stroke")
