@@ -308,6 +308,48 @@ local function addTabStackedGlow(host: Frame, specs: { GlowLayerSpec })
 	end
 end
 
+--[[ Top title pill: full rounded rect glow (accent → outline), sits behind solid TopPill ]]
+local function addPillStackedGlow(host: Frame, specs: { GlowLayerSpec })
+	local n = #specs
+	for i, g in specs do
+		local t = if n > 1 then (i - 1) / (n - 1) else 0
+		local layer = Instance.new("Frame")
+		layer.Name = "PillGlowLayer"
+		layer:SetAttribute("GlowStep", i)
+		layer.AnchorPoint = Vector2.new(0.5, 0.5)
+		layer.Position = UDim2.fromScale(0.5, 0.5)
+		layer.Size = UDim2.new(1, g.size, 1, g.size)
+		layer.BackgroundColor3 = Theme.AccentBlue:Lerp(Theme.Stroke, t)
+		layer.BackgroundTransparency = g.transparency
+		layer.BorderSizePixel = 0
+		layer.ZIndex = 0
+		layer.Parent = host
+		local gc = Instance.new("UICorner")
+		gc.CornerRadius = UDim.new(1, 0)
+		gc.Parent = layer
+	end
+end
+
+local function paintPillGlowHost(pillGlowHost: Frame?)
+	if not pillGlowHost then
+		return
+	end
+	local layers: { Frame } = {}
+	for _, c in pillGlowHost:GetChildren() do
+		if c:IsA("Frame") and c.Name == "PillGlowLayer" then
+			table.insert(layers, c)
+		end
+	end
+	table.sort(layers, function(a, b)
+		return (tonumber(a:GetAttribute("GlowStep")) or 0) < (tonumber(b:GetAttribute("GlowStep")) or 0)
+	end)
+	local steps = #layers - 1
+	for i, layer in layers do
+		local t = if steps > 0 then (i - 1) / steps else 0
+		layer.BackgroundColor3 = Theme.AccentBlue:Lerp(Theme.Stroke, t)
+	end
+end
+
 local function paintTabGlowHost(tabGlowHost: Frame?, isSelected: boolean)
 	if not tabGlowHost then
 		return
@@ -448,7 +490,7 @@ export type WindowConfig = {
 	MinSize: Vector2?,
 	Resizable: boolean?,
 	GlowEnabled: boolean?,
-	--[[ stacked halo behind each sidebar tab; off by default (cleaner icons) ]]
+	--[[ stacked halo behind each sidebar tab; on by default (set false to disable) ]]
 	TabGlowEnabled: boolean?,
 	--[[ Dropdowns default to Multi when Multi is omitted (Obsidian-style) ]]
 	MultiDropdownByDefault: boolean?,
@@ -466,7 +508,7 @@ function Library.new(config: WindowConfig)
 	local mascotOffset = if mascotId then 72 else 0
 	local minRootW = minContent.X + mascotOffset
 	local minRootH = minContent.Y + 48
-	local tabGlowEnabled = config.TabGlowEnabled == true
+	local tabGlowEnabled = config.TabGlowEnabled ~= false
 	local dropdownMultiDefault = config.MultiDropdownByDefault == true
 	Library.MultiDropdownByDefault = dropdownMultiDefault
 
@@ -689,13 +731,41 @@ function Library.new(config: WindowConfig)
 		mascot = m
 	end
 
+	local pillOuter = Instance.new("Frame")
+	pillOuter.Name = "TopPillOuter"
+	pillOuter.Size = UDim2.new(1, mascot and -74 or 0, 0, 36)
+	pillOuter.BackgroundTransparency = 1
+	pillOuter.BorderSizePixel = 0
+	pillOuter.LayoutOrder = 1
+	pillOuter.ClipsDescendants = false
+	pillOuter.Parent = topRow
+
+	local pillGlowHost: Frame? = nil
+	if config.GlowEnabled ~= false then
+		local gh = Instance.new("Frame")
+		gh.Name = "PillGlowHost"
+		gh.Size = UDim2.fromScale(1, 1)
+		gh.BackgroundTransparency = 1
+		gh.BorderSizePixel = 0
+		gh.ZIndex = 0
+		gh.Parent = pillOuter
+		pillGlowHost = gh
+		addPillStackedGlow(gh, {
+			{ size = 4, transparency = 0.84, radius = 0 },
+			{ size = 10, transparency = 0.91, radius = 0 },
+			{ size = 16, transparency = 0.95, radius = 0 },
+		})
+	end
+
 	local pill = Instance.new("Frame")
 	pill.Name = "TopPill"
-	pill.Size = UDim2.new(1, mascot and -74 or 0, 0, 36)
+	pill.Size = UDim2.fromScale(1, 1)
+	pill.Position = UDim2.fromScale(0, 0)
+	pill.ZIndex = 1
 	pill.BackgroundColor3 = Theme.Background
 	pill.BackgroundTransparency = 0
-	pill.LayoutOrder = 1
-	pill.Parent = topRow
+	pill.BorderSizePixel = 0
+	pill.Parent = pillOuter
 	corner(UDim.new(1, 0)).Parent = pill
 	stroke(Theme.Stroke, 1, 0.65).Parent = pill
 	pad(12).Parent = pill
@@ -1056,6 +1126,7 @@ function Library.new(config: WindowConfig)
 				ch.Color = Theme.Stroke
 			end
 		end
+		paintPillGlowHost(pillGlowHost)
 		if logo:IsA("Frame") then
 			logo.BackgroundColor3 = Theme.AccentPurple
 		elseif logo:IsA("ImageLabel") then
@@ -1608,7 +1679,6 @@ function Library.new(config: WindowConfig)
 			btn.Name = "Chevron"
 			btn.AutoButtonColor = false
 			btn.BackgroundTransparency = 1
-			btn.Text = ""
 			btn.Size = UDim2.fromOffset(16, 16)
 			btn.ImageColor3 = Theme.TextDim
 			btn.LayoutOrder = headerLayoutNext
