@@ -35,6 +35,38 @@ if typeof(clonefunction) == "function" then
 end
 
 local SaveManager = {}
+
+--[[ Basename of path "folder/name.json" or "name.json" -> "name" ]]
+local function jsonBasename(path: string): string?
+	if path:sub(-5) ~= ".json" then
+		return nil
+	end
+	local dot = path:find(".json", 1, true)
+	if not dot then
+		return nil
+	end
+	local slash = 0
+	for i = dot - 1, 1, -1 do
+		local c = path:sub(i, i)
+		if c == "/" or c == "\\" then
+			slash = i
+			break
+		end
+	end
+	return path:sub(slash + 1, dot - 1)
+end
+
+local function configInputName(lib: any): string
+	local opt = lib.Options.SaveManager_ConfigName
+	if opt and typeof(opt.Get) == "function" then
+		return tostring(opt:Get())
+	end
+	if opt and typeof(opt.Value) == "string" then
+		return opt.Value
+	end
+	return ""
+end
+
 do
 	SaveManager.Folder = "AcidHubSettings"
 	SaveManager.SubFolder = ""
@@ -277,7 +309,10 @@ do
 			return false, "failed to encode data"
 		end
 
-		writefile(fullPath, encoded)
+		local wOk, wErr = pcall(writefile, fullPath, encoded)
+		if not wOk then
+			return false, tostring(wErr)
+		end
 		return true
 	end
 
@@ -358,19 +393,9 @@ do
 
 			for i = 1, #list do
 				local file = list[i]
-				if file:sub(-5) == ".json" then
-					local pos = file:find(".json", 1, true)
-					local start = pos
-
-					local char = file:sub(pos, pos)
-					while char ~= "/" and char ~= "\\" and char ~= "" do
-						pos = pos - 1
-						char = file:sub(pos, pos)
-					end
-
-					if char == "/" or char == "\\" then
-						table.insert(out, file:sub(pos + 1, start - 1))
-					end
+				local base = jsonBasename(file)
+				if base and base ~= "" then
+					table.insert(out, base)
 				end
 			end
 
@@ -408,7 +433,7 @@ do
 				return "none"
 			end
 
-			name = tostring(name)
+			name = tostring(name):gsub("^%s+", ""):gsub("%s+$", ""):gsub("\r", ""):gsub("\n", "")
 			return if name == "" then "none" else name
 		end
 
@@ -434,6 +459,7 @@ do
 				return
 			end
 
+			name = tostring(name):gsub("^%s+", ""):gsub("%s+$", ""):gsub("\r", ""):gsub("\n", "")
 			local success, err = self:Load(name)
 			if not success then
 				self.Library:Notify({
@@ -487,9 +513,15 @@ do
 	function SaveManager:BuildConfigSection(tab)
 		assert(self.Library, "Must set SaveManager.Library")
 
-		local section = if typeof(tab.AddRightGroupbox) == "function"
-			then tab:AddRightGroupbox("Configuration")
-			else tab:AddSection("Configuration")
+		local tabAny = tab :: any
+		local section
+		if typeof(tab.AddLeftGroupbox) == "function" and tabAny._split == true then
+			section = tab:AddLeftGroupbox("Configuration")
+		elseif typeof(tab.AddRightGroupbox) == "function" then
+			section = tab:AddRightGroupbox("Configuration")
+		else
+			section = tab:AddSection("Configuration")
+		end
 
 		section:AddInput({
 			Text = "Config name",
@@ -498,7 +530,7 @@ do
 		})
 
 		section:AddButton("Create config", function()
-			local name = self.Library.Options.SaveManager_ConfigName.Value
+			local name = configInputName(self.Library)
 
 			if name:gsub(" ", "") == "" then
 				self.Library:Notify({ Title = "Config", Description = "Invalid name (empty)", Time = 2 })
