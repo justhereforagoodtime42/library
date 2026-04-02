@@ -205,6 +205,33 @@ local function pad(p: number)
 	return x
 end
 
+--[[ Works when Color3.fromHex is missing or picky; accepts #RGB, #RRGGBB ]]
+local function parseHexColor(raw: string): Color3?
+	local s = string.lower((raw:gsub("#", ""):gsub("%s", "")))
+	if #s == 6 then
+		local r = tonumber(s:sub(1, 2), 16)
+		local g = tonumber(s:sub(3, 4), 16)
+		local b = tonumber(s:sub(5, 6), 16)
+		if r and g and b then
+			return Color3.fromRGB(r, g, b)
+		end
+	elseif #s == 3 then
+		local r = tonumber(s:sub(1, 1), 16)
+		local g = tonumber(s:sub(2, 2), 16)
+		local b = tonumber(s:sub(3, 3), 16)
+		if r and g and b then
+			return Color3.fromRGB(r * 17, g * 17, b * 17)
+		end
+	end
+	local ok, c = pcall(function()
+		return Color3.fromHex(s)
+	end)
+	if ok and typeof(c) == "Color3" then
+		return c
+	end
+	return nil
+end
+
 type GlowLayerSpec = { size: number, transparency: number, radius: number }
 
 --[[ Centered stacked frames behind a host; spills past edges when host clips are off ]]
@@ -363,6 +390,8 @@ export type WindowConfig = {
 	MinSize: Vector2?,
 	Resizable: boolean?,
 	GlowEnabled: boolean?,
+	--[[ stacked halo behind each sidebar tab; off by default (cleaner icons) ]]
+	TabGlowEnabled: boolean?,
 }
 
 function Library.new(config: WindowConfig)
@@ -376,6 +405,7 @@ function Library.new(config: WindowConfig)
 	local mascotOffset = if mascotId then 72 else 0
 	local minRootW = minContent.X + mascotOffset
 	local minRootH = minContent.Y + 48
+	local tabGlowEnabled = config.TabGlowEnabled == true
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "AcidHubUI"
@@ -398,39 +428,7 @@ function Library.new(config: WindowConfig)
 	local toggleThemeRows: { { track: Frame, getOn: () -> boolean } } = {}
 	local sliderGradients: { UIGradient } = {}
 
-	-- Notifications (Obsidian-style toasts)
-	local notifyHost = Instance.new("Frame")
-	notifyHost.Name = "NotifyHost"
-	notifyHost.Size = UDim2.fromScale(1, 1)
-	notifyHost.BackgroundTransparency = 1
-	notifyHost.ZIndex = 750
-	notifyHost.Parent = screenGui
-	local notifyList = Instance.new("Frame")
-	notifyList.Name = "NotifyList"
-	notifyList.Size = UDim2.new(0, 300, 1, -24)
-	notifyList.BackgroundTransparency = 1
-	notifyList.Parent = notifyHost
-	local nlayout = Instance.new("UIListLayout")
-	nlayout.SortOrder = Enum.SortOrder.LayoutOrder
-	nlayout.VerticalAlignment = Enum.VerticalAlignment.Top
-	nlayout.Padding = UDim.new(0, 8)
-	nlayout.Parent = notifyList
-	Library._notifyList = notifyList
-
-	local function updateNotifyLayout()
-		local side = string.lower(Library.NotifySide or "right")
-		if side == "left" then
-			notifyList.AnchorPoint = Vector2.new(0, 0)
-			notifyList.Position = UDim2.new(0, 12, 0, 12)
-			nlayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
-		else
-			notifyList.AnchorPoint = Vector2.new(1, 0)
-			notifyList.Position = UDim2.new(1, -12, 0, 12)
-			nlayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-		end
-	end
-	updateNotifyLayout()
-	Library._updateNotifyLayout = updateNotifyLayout
+	-- Notify UI is parented after root (see below) so it stacks above the window with Global ZIndex
 
 	local function paintThemedDescendants(host: Instance)
 		for _, d in host:GetDescendants() do
@@ -475,7 +473,7 @@ function Library.new(config: WindowConfig)
 	tooltipLabel.TextWrapped = true
 	tooltipLabel.Visible = false
 	tooltipLabel.AutomaticSize = Enum.AutomaticSize.XY
-	tooltipLabel.ZIndex = 500
+	tooltipLabel.ZIndex = 950
 	tooltipLabel.Parent = screenGui
 	corner(Theme.CornerSm).Parent = tooltipLabel
 	local ttPad = Instance.new("UIPadding")
@@ -559,6 +557,42 @@ function Library.new(config: WindowConfig)
 	root.Size = UDim2.fromOffset(size.X + mascotOffset, size.Y + 48)
 	root.BackgroundTransparency = 1
 	root.Parent = screenGui
+
+	-- Toasts: created after root so with Sibling ZIndex they stack above the window; high ZIndex vs root (0)
+	local notifyHost = Instance.new("Frame")
+	notifyHost.Name = "NotifyHost"
+	notifyHost.Size = UDim2.fromScale(1, 1)
+	notifyHost.BackgroundTransparency = 1
+	notifyHost.ZIndex = 800
+	notifyHost.Active = false
+	notifyHost.Parent = screenGui
+	local notifyList = Instance.new("Frame")
+	notifyList.Name = "NotifyList"
+	notifyList.Size = UDim2.new(0, 300, 1, -24)
+	notifyList.BackgroundTransparency = 1
+	notifyList.ZIndex = 801
+	notifyList.Parent = notifyHost
+	local nlayout = Instance.new("UIListLayout")
+	nlayout.SortOrder = Enum.SortOrder.LayoutOrder
+	nlayout.VerticalAlignment = Enum.VerticalAlignment.Top
+	nlayout.Padding = UDim.new(0, 8)
+	nlayout.Parent = notifyList
+
+	local function updateNotifyLayout()
+		local side = string.lower(Library.NotifySide or "right")
+		if side == "left" then
+			notifyList.AnchorPoint = Vector2.new(0, 0)
+			notifyList.Position = UDim2.new(0, 12, 0, 12)
+			nlayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+		else
+			notifyList.AnchorPoint = Vector2.new(1, 0)
+			notifyList.Position = UDim2.new(1, -12, 0, 12)
+			nlayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+		end
+	end
+	updateNotifyLayout()
+	Library._notifyList = notifyList
+	Library._updateNotifyLayout = updateNotifyLayout
 
 	-- top row: mascot + pill
 	local topRow = Instance.new("Frame")
@@ -1072,7 +1106,7 @@ function Library.new(config: WindowConfig)
 		tabSlot.LayoutOrder = idx
 		tabSlot.Parent = sidebar
 
-		if config.GlowEnabled ~= false then
+		if tabGlowEnabled then
 			local tabGlowHost = Instance.new("Frame")
 			tabGlowHost.Name = "TabGlowHost"
 			tabGlowHost.Size = UDim2.fromScale(1, 1)
@@ -1124,9 +1158,6 @@ function Library.new(config: WindowConfig)
 			btn.Font = Enum.Font.GothamBold
 		end
 		corner(Theme.CornerSm).Parent = btn
-		local g = stroke(Color3.new(1, 1, 1), 1.2, 0.72)
-		g.Name = "Glow"
-		g.Parent = btn
 
 		btn.MouseEnter:Connect(function()
 			if idx ~= activeTab then
@@ -2319,7 +2350,7 @@ function Library.new(config: WindowConfig)
 			row.Parent = bodyF
 
 			local lbl = Instance.new("TextLabel")
-			lbl.Size = UDim2.new(1, -120, 0, 16)
+			lbl.Size = UDim2.new(1, 0, 0, 16)
 			lbl.BackgroundTransparency = 1
 			lbl.Font = Enum.Font.GothamMedium
 			lbl.TextSize = 12
@@ -2329,31 +2360,46 @@ function Library.new(config: WindowConfig)
 			lbl:SetAttribute("AcidText", "TextDim")
 			lbl.Parent = row
 
-			local swatch = Instance.new("Frame")
-			swatch.Size = UDim2.fromOffset(36, 28)
-			swatch.Position = UDim2.new(1, -120, 0, 22)
-			swatch.BackgroundColor3 = col
-			swatch.BackgroundTransparency = 1 - alpha
-			swatch.BorderSizePixel = 0
-			swatch.Parent = row
-			corner(Theme.CornerSm).Parent = swatch
-			stroke(Theme.Stroke, 1, 0.5).Parent = swatch
+			local bar = Instance.new("Frame")
+			bar.Name = "ColorBar"
+			bar.BackgroundTransparency = 1
+			bar.Size = UDim2.new(1, 0, 0, 28)
+			bar.Position = UDim2.new(0, 0, 0, 22)
+			bar.Parent = row
 
 			local hexBox = Instance.new("TextBox")
-			hexBox.Size = UDim2.new(1, -130, 0, 28)
-			hexBox.Position = UDim2.new(0, 0, 0, 22)
+			hexBox.Size = UDim2.new(1, -48, 1, 0)
+			hexBox.Position = UDim2.fromScale(0, 0)
 			hexBox.BackgroundColor3 = Theme.Elevated
 			hexBox.BackgroundTransparency = 0.1
 			hexBox.Text = string.upper(col:ToHex())
+			hexBox.PlaceholderText = "RRGGBB"
+			hexBox.PlaceholderColor3 = Theme.TextDim
 			hexBox.Font = Enum.Font.GothamMedium
 			hexBox.TextSize = 12
 			hexBox.TextColor3 = Theme.Text
 			hexBox.ClearTextOnFocus = false
 			hexBox:SetAttribute("AcidBg", "Elevated")
 			hexBox:SetAttribute("AcidText", "Text")
-			hexBox.Parent = row
+			hexBox:SetAttribute("AcidPlaceholder", "TextDim")
+			hexBox.Parent = bar
 			corner(Theme.CornerSm).Parent = hexBox
 			pad(6).Parent = hexBox
+
+			local swBtn = Instance.new("TextButton")
+			swBtn.Name = "Swatch"
+			swBtn.AnchorPoint = Vector2.new(1, 0)
+			swBtn.Size = UDim2.fromOffset(40, 28)
+			swBtn.Position = UDim2.new(1, 0, 0, 0)
+			swBtn.BackgroundColor3 = col
+			swBtn.BackgroundTransparency = 1 - alpha
+			swBtn.Text = ""
+			swBtn.AutoButtonColor = false
+			swBtn.ZIndex = 2
+			swBtn:SetAttribute("AcidBg", "Elevated")
+			swBtn.Parent = bar
+			corner(Theme.CornerSm).Parent = swBtn
+			stroke(Theme.Stroke, 1, 0.5).Parent = swBtn
 
 			local colorCbs: { (Color3) -> () } = {}
 			local reg: any = {
@@ -2362,11 +2408,16 @@ function Library.new(config: WindowConfig)
 				Transparency = o.Transparency or 0,
 			}
 
+			local function syncSwatch()
+				swBtn.BackgroundColor3 = col
+				swBtn.BackgroundTransparency = 1 - alpha
+			end
+
 			local function applyColor(c: Color3)
 				col = c
 				reg.Value = col
-				swatch.BackgroundColor3 = col
-				hexBox.Text = string.upper(c:ToHex())
+				syncSwatch()
+				hexBox.Text = string.upper(col:ToHex())
 				for _, cb in colorCbs do
 					task.spawn(cb, col)
 				end
@@ -2375,14 +2426,167 @@ function Library.new(config: WindowConfig)
 				end
 			end
 
-			hexBox.FocusLost:Connect(function()
-				local h = hexBox.Text:gsub("#", ""):gsub("%s", "")
-				local ok, parsed = pcall(Color3.fromHex, h)
-				if ok and typeof(parsed) == "Color3" then
+			local function tryParseHexInput()
+				local parsed = parseHexColor(hexBox.Text)
+				if parsed then
 					applyColor(parsed)
 				else
 					hexBox.Text = string.upper(col:ToHex())
 				end
+			end
+
+			hexBox.FocusLost:Connect(function()
+				tryParseHexInput()
+			end)
+
+			-- RGB popover (ThemeManager / executors where hex alone is awkward)
+			local popOpen = false
+			local popCloseConn: RBXScriptConnection? = nil
+			local pop = Instance.new("Frame")
+			pop.Name = "ColorPickerPop"
+			pop.Size = UDim2.fromOffset(196, 138)
+			pop.BackgroundColor3 = Theme.Elevated
+			pop.BackgroundTransparency = 0.04
+			pop.Visible = false
+			pop.ZIndex = 2500
+			pop.Parent = screenGui
+			corner(Theme.CornerSm).Parent = pop
+			stroke(Theme.Stroke, 1, 0.45).Parent = pop
+			local popPad = Instance.new("UIPadding")
+			popPad.PaddingLeft = UDim.new(0, 8)
+			popPad.PaddingRight = UDim.new(0, 8)
+			popPad.PaddingTop = UDim.new(0, 8)
+			popPad.PaddingBottom = UDim.new(0, 8)
+			popPad.Parent = pop
+			local popList = Instance.new("UIListLayout")
+			popList.SortOrder = Enum.SortOrder.LayoutOrder
+			popList.Padding = UDim.new(0, 6)
+			popList.Parent = pop
+
+			local function rgbRow(labelText: string, layoutOrder: number): TextBox
+				local wrap = Instance.new("Frame")
+				wrap.BackgroundTransparency = 1
+				wrap.Size = UDim2.new(1, 0, 0, 26)
+				wrap.LayoutOrder = layoutOrder
+				wrap.ZIndex = 2501
+				wrap.Parent = pop
+				local lab = Instance.new("TextLabel")
+				lab.Size = UDim2.fromOffset(22, 26)
+				lab.BackgroundTransparency = 1
+				lab.Font = Enum.Font.GothamBold
+				lab.TextSize = 12
+				lab.TextColor3 = Theme.TextDim
+				lab.Text = labelText
+				lab.TextXAlignment = Enum.TextXAlignment.Left
+				lab.ZIndex = 2501
+				lab.Parent = wrap
+				local box = Instance.new("TextBox")
+				box.Size = UDim2.new(1, -28, 1, 0)
+				box.Position = UDim2.new(0, 28, 0, 0)
+				box.BackgroundColor3 = Theme.Elevated
+				box.BackgroundTransparency = 0.1
+				box.Font = Enum.Font.GothamMedium
+				box.TextSize = 12
+				box.TextColor3 = Theme.Text
+				box.ClearTextOnFocus = false
+				box.ZIndex = 2501
+				box.Parent = wrap
+				corner(Theme.CornerSm).Parent = box
+				pad(6).Parent = box
+				return box
+			end
+
+			local rBox = rgbRow("R", 1)
+			local gBox = rgbRow("G", 2)
+			local bBox = rgbRow("B", 3)
+
+			local function fillRgbBoxes()
+				rBox.Text = tostring(math.floor(col.R * 255 + 0.5))
+				gBox.Text = tostring(math.floor(col.G * 255 + 0.5))
+				bBox.Text = tostring(math.floor(col.B * 255 + 0.5))
+			end
+
+			local function tryApplyRgb()
+				local r = tonumber(rBox.Text)
+				local g = tonumber(gBox.Text)
+				local b = tonumber(bBox.Text)
+				if r and g and b then
+					applyColor(
+						Color3.fromRGB(math.clamp(math.floor(r), 0, 255), math.clamp(math.floor(g), 0, 255), math.clamp(math.floor(b), 0, 255))
+					)
+				else
+					fillRgbBoxes()
+				end
+			end
+
+			rBox.FocusLost:Connect(tryApplyRgb)
+			gBox.FocusLost:Connect(tryApplyRgb)
+			bBox.FocusLost:Connect(tryApplyRgb)
+
+			local doneBtn = Instance.new("TextButton")
+			doneBtn.Size = UDim2.new(1, 0, 0, 26)
+			doneBtn.LayoutOrder = 4
+			doneBtn.BackgroundColor3 = Theme.AccentBlue
+			doneBtn.BackgroundTransparency = 0.15
+			doneBtn.Text = "Done"
+			doneBtn.TextColor3 = Theme.Text
+			doneBtn.TextSize = 12
+			doneBtn.Font = Enum.Font.GothamBold
+			doneBtn.AutoButtonColor = false
+			doneBtn.ZIndex = 2501
+			doneBtn.Parent = pop
+			corner(Theme.CornerSm).Parent = doneBtn
+
+			local function closePop()
+				popOpen = false
+				pop.Visible = false
+				if popCloseConn then
+					popCloseConn:Disconnect()
+					popCloseConn = nil
+				end
+			end
+
+			local function openPop()
+				fillRgbBoxes()
+				local ap = swBtn.AbsolutePosition
+				local sz = swBtn.AbsoluteSize
+				pop.AnchorPoint = Vector2.new(0, 0)
+				pop.Position = UDim2.fromOffset(math.floor(ap.X), math.floor(ap.Y + sz.Y + 4))
+				pop.Visible = true
+				popOpen = true
+				if popCloseConn then
+					popCloseConn:Disconnect()
+				end
+				popCloseConn = UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
+					if gp or not popOpen or not pop.Visible then
+						return
+					end
+					if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+						return
+					end
+					local p = Vector2.new(input.Position.X, input.Position.Y)
+					local function inside(g: GuiObject): boolean
+						local a, s = g.AbsolutePosition, g.AbsoluteSize
+						return p.X >= a.X and p.X <= a.X + s.X and p.Y >= a.Y and p.Y <= a.Y + s.Y
+					end
+					if inside(pop) or inside(swBtn) then
+						return
+					end
+					closePop()
+				end)
+			end
+
+			swBtn.MouseButton1Click:Connect(function()
+				if popOpen then
+					closePop()
+				else
+					openPop()
+				end
+			end)
+
+			doneBtn.MouseButton1Click:Connect(function()
+				tryApplyRgb()
+				closePop()
 			end)
 
 			reg.SetValueRGB = function(_: any, c: Color3, trans: number?)
@@ -2390,13 +2594,11 @@ function Library.new(config: WindowConfig)
 				reg.Value = col
 				if typeof(trans) == "number" then
 					reg.Transparency = trans
-					swatch.BackgroundTransparency = trans
 					alpha = 1 - trans
-				else
-					swatch.BackgroundTransparency = 1 - alpha
 				end
-				swatch.BackgroundColor3 = col
+				syncSwatch()
 				hexBox.Text = string.upper(col:ToHex())
+				fillRgbBoxes()
 			end
 			reg.SetValue = reg.SetValueRGB
 			reg.OnChanged = function(_: any, cb: (Color3) -> ())
