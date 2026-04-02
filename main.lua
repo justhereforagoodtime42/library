@@ -23,7 +23,10 @@ local Library = {}
 Library.Theme = {
 	Background = Color3.fromRGB(10, 10, 12),
 	Panel = Color3.fromRGB(14, 14, 18),
-	PanelTrans = 0.12,
+	--[[ Main panel + scroll columns; 0 = fully opaque (Obsidian-style solid UI) ]]
+	PanelTrans = 0,
+	--[[ Groupbox shell fill (Obsidian uses BackgroundColor for the boxed area) ]]
+	Groupbox = Color3.fromRGB(10, 10, 12),
 	Elevated = Color3.fromRGB(20, 20, 26),
 	Stroke = Color3.fromRGB(70, 130, 255),
 	StrokeTrans = 0.55,
@@ -487,6 +490,8 @@ function Library.new(config: WindowConfig)
 
 	local toggleThemeRows: { { track: Frame, getOn: () -> boolean } } = {}
 	local sliderGradients: { UIGradient } = {}
+	--[[ After theme paint, restore section chevrons (ImageRect can get cleared on some clients). ]]
+	local sectionChevronRefreshes: { () -> () } = {}
 
 	-- Notify UI is parented after root (see below) so it stacks above the window with Global ZIndex
 
@@ -514,8 +519,10 @@ function Library.new(config: WindowConfig)
 				d.Color = Theme[sk]
 			end
 			local ik = d:GetAttribute("AcidImg")
-			if typeof(ik) == "string" and typeof(Theme[ik]) == "Color3" and d:IsA("ImageLabel") then
-				d.ImageColor3 = Theme[ik]
+			if typeof(ik) == "string" and typeof(Theme[ik]) == "Color3" then
+				if d:IsA("ImageLabel") or d:IsA("ImageButton") then
+					d.ImageColor3 = Theme[ik]
+				end
 			end
 		end
 	end
@@ -686,7 +693,7 @@ function Library.new(config: WindowConfig)
 	pill.Name = "TopPill"
 	pill.Size = UDim2.new(1, mascot and -74 or 0, 0, 36)
 	pill.BackgroundColor3 = Theme.Background
-	pill.BackgroundTransparency = 0.08
+	pill.BackgroundTransparency = 0
 	pill.LayoutOrder = 1
 	pill.Parent = topRow
 	corner(UDim.new(1, 0)).Parent = pill
@@ -1068,12 +1075,17 @@ function Library.new(config: WindowConfig)
 		end
 		panelTitle.TextColor3 = Theme.Text
 		for _, sc in tabScrolls do
+			local function styleScroll(sf: ScrollingFrame)
+				sf.BackgroundColor3 = Theme.Panel
+				sf.BackgroundTransparency = Theme.PanelTrans
+				sf.ScrollBarImageColor3 = Theme.AccentBlue
+			end
 			if sc:IsA("ScrollingFrame") then
-				sc.ScrollBarImageColor3 = Theme.AccentBlue
+				styleScroll(sc)
 			else
 				for _, ch in sc:GetChildren() do
 					if ch:IsA("ScrollingFrame") then
-						ch.ScrollBarImageColor3 = Theme.AccentBlue
+						styleScroll(ch)
 					end
 				end
 			end
@@ -1088,6 +1100,9 @@ function Library.new(config: WindowConfig)
 			})
 		end
 		paintThemedDescendants(contentHost)
+		for _, chevRefresh in sectionChevronRefreshes do
+			pcall(chevRefresh)
+		end
 		selectTab(activeTab)
 		if resizeHandle then
 			local grip = resizeHandle:FindFirstChild("ResizeIcon")
@@ -1301,7 +1316,8 @@ function Library.new(config: WindowConfig)
 				sc.Name = name
 				sc.Size = UDim2.new(0.5, -7, 1, 0)
 				sc.Position = UDim2.new(xScale, xOffset, 0, 0)
-				sc.BackgroundTransparency = 1
+				sc.BackgroundColor3 = Theme.Panel
+				sc.BackgroundTransparency = Theme.PanelTrans
 				sc.BorderSizePixel = 0
 				sc.ScrollBarThickness = 4
 				sc.ScrollBarImageColor3 = Theme.AccentBlue
@@ -1335,7 +1351,8 @@ function Library.new(config: WindowConfig)
 			local sc = Instance.new("ScrollingFrame")
 			sc.Name = "TabContent_" .. idx
 			sc.Size = UDim2.fromScale(1, 1)
-			sc.BackgroundTransparency = 1
+			sc.BackgroundColor3 = Theme.Panel
+			sc.BackgroundTransparency = Theme.PanelTrans
 			sc.BorderSizePixel = 0
 			sc.ScrollBarThickness = 4
 			sc.ScrollBarImageColor3 = Theme.AccentBlue
@@ -1423,14 +1440,27 @@ function Library.new(config: WindowConfig)
 		wrap.Name = "Section_" .. header
 		wrap.Size = UDim2.new(1, 0, 0, 0)
 		wrap.AutomaticSize = Enum.AutomaticSize.Y
-		wrap.BackgroundTransparency = 1
+		wrap.BackgroundColor3 = Theme.Groupbox
+		wrap.BackgroundTransparency = 0
+		wrap.BorderSizePixel = 0
+		wrap:SetAttribute("AcidBg", "Groupbox")
 		wrap.LayoutOrder = layoutOrder
 		wrap.Parent = parentScroll
+		corner(Theme.Corner).Parent = wrap
+		local gbStroke = stroke(Theme.Stroke, 1, math.clamp(Theme.StrokeTrans, 0.25, 0.62))
+		gbStroke:SetAttribute("AcidStroke", "Stroke")
+		gbStroke.Parent = wrap
+		local wrapOuterPad = Instance.new("UIPadding")
+		wrapOuterPad.PaddingLeft = UDim.new(0, 7)
+		wrapOuterPad.PaddingRight = UDim.new(0, 7)
+		wrapOuterPad.PaddingTop = UDim.new(0, 7)
+		wrapOuterPad.PaddingBottom = UDim.new(0, 7)
+		wrapOuterPad.Parent = wrap
 
 		local wrapList = Instance.new("UIListLayout")
 		wrapList.FillDirection = Enum.FillDirection.Vertical
 		wrapList.SortOrder = Enum.SortOrder.LayoutOrder
-		wrapList.Padding = UDim.new(0, 6)
+		wrapList.Padding = UDim.new(0, 0)
 		wrapList.Parent = wrap
 
 		local headerRow: GuiObject
@@ -1438,8 +1468,7 @@ function Library.new(config: WindowConfig)
 			local hb = Instance.new("TextButton")
 			hb.Name = "Header"
 			hb.Size = UDim2.new(1, 0, 0, 28)
-			hb.BackgroundColor3 = Theme.Background
-			hb.BackgroundTransparency = 0.2
+			hb.BackgroundTransparency = 1
 			hb.Text = ""
 			hb.AutoButtonColor = false
 			hb.LayoutOrder = 1
@@ -1449,13 +1478,11 @@ function Library.new(config: WindowConfig)
 			local hf = Instance.new("Frame")
 			hf.Name = "Header"
 			hf.Size = UDim2.new(1, 0, 0, 28)
-			hf.BackgroundColor3 = Theme.Background
-			hf.BackgroundTransparency = 0.2
+			hf.BackgroundTransparency = 1
 			hf.LayoutOrder = 1
 			hf.Parent = wrap
 			headerRow = hf
 		end
-		corner(Theme.CornerSm).Parent = headerRow
 		pad(8).Parent = headerRow
 
 		local hLayout = Instance.new("UIListLayout")
@@ -1546,51 +1573,81 @@ function Library.new(config: WindowConfig)
 		flexGrow.FlexMode = Enum.UIFlexMode.Grow
 		flexGrow.Parent = hText
 
-		--[[ Collapsible: Lucide chevron-down (expanded) / chevron-up (collapsed) — swap atlas rect; Rotation doesn’t reorient sprite UVs. ]]
-		local chevImg: ImageLabel? = nil
+		--[[ Collapsible: swap Lucide chevron-down (expanded) / chevron-up (collapsed). ImageButton so the glyph receives clicks (ImageLabel often lets hits fall through oddly). ]]
+		local chevBtn: ImageButton? = nil
 		local specChevExpanded: any = nil
 		local specChevCollapsed: any = nil
+		local function lucideSpriteUrl(spec: any): string?
+			if typeof(spec) ~= "table" then
+				return nil
+			end
+			local u = spec.Url or spec.url
+			if typeof(u) == "string" and u ~= "" then
+				return u
+			end
+			return nil
+		end
+		local function applyLucideSprite(btn: ImageButton, spec: any)
+			local u = lucideSpriteUrl(spec)
+			if not u then
+				return
+			end
+			btn.Image = u
+			local ro = spec.ImageRectOffset or spec.imageRectOffset
+			local rs = spec.ImageRectSize or spec.imageRectSize
+			btn.ImageRectOffset = if typeof(ro) == "Vector2" then ro else Vector2.zero
+			btn.ImageRectSize = if typeof(rs) == "Vector2" then rs else Vector2.zero
+		end
 		if collapsible then
 			specChevExpanded = Library:GetIcon("chevron-down")
 			specChevCollapsed = Library:GetIcon("chevron-up")
-			if
-				not specChevExpanded
-				or typeof(specChevExpanded.Url) ~= "string"
-				or specChevExpanded.Url == ""
-				or not specChevCollapsed
-				or typeof(specChevCollapsed.Url) ~= "string"
-				or specChevCollapsed.Url == ""
-			then
+			if not lucideSpriteUrl(specChevExpanded) or not lucideSpriteUrl(specChevCollapsed) then
 				error("AcidHub: Lucide chevron-down and chevron-up are required for collapsible sections.")
 			end
-			local img = Instance.new("ImageLabel")
-			img.Name = "Chevron"
-			img.BackgroundTransparency = 1
-			img.Size = UDim2.fromOffset(16, 16)
-			img.ImageColor3 = Theme.TextDim
-			img.LayoutOrder = headerLayoutNext
-			img.ScaleType = Enum.ScaleType.Fit
-			img.Rotation = 0
-			img.Parent = headerRow
-			chevImg = img
+			local btn = Instance.new("ImageButton")
+			btn.Name = "Chevron"
+			btn.AutoButtonColor = false
+			btn.BackgroundTransparency = 1
+			btn.Text = ""
+			btn.Size = UDim2.fromOffset(16, 16)
+			btn.ImageColor3 = Theme.TextDim
+			btn.LayoutOrder = headerLayoutNext
+			btn.ScaleType = Enum.ScaleType.Fit
+			btn.ZIndex = 2
+			btn.Selectable = false
+			btn.Parent = headerRow
+			chevBtn = btn
 		end
 
-		headerRow:SetAttribute("AcidBg", "Background")
 		hText:SetAttribute("AcidText", "Text")
-		if chevImg then
-			chevImg:SetAttribute("AcidImg", "TextDim")
+		if chevBtn then
+			chevBtn:SetAttribute("AcidImg", "TextDim")
 		end
 
 		if typeof(sectionOpts.Tooltip) == "string" and sectionOpts.Tooltip ~= "" then
-			bindTooltipToInstances({ headerRow, hText }, sectionOpts.Tooltip)
+			local ttParts: { GuiObject } = { headerRow, hText }
+			if chevBtn then
+				table.insert(ttParts, chevBtn)
+			end
+			bindTooltipToInstances(ttParts, sectionOpts.Tooltip)
 		end
+
+		local titleSep = Instance.new("Frame")
+		titleSep.Name = "SectionTitleSep"
+		titleSep.Size = UDim2.new(1, 0, 0, 1)
+		titleSep.BorderSizePixel = 0
+		titleSep.BackgroundColor3 = Theme.Stroke
+		titleSep.BackgroundTransparency = math.clamp(Theme.StrokeTrans + 0.08, 0.35, 0.72)
+		titleSep.LayoutOrder = 2
+		titleSep.Parent = wrap
+		titleSep:SetAttribute("AcidBg", "Stroke")
 
 		local bodyF = Instance.new("Frame")
 		bodyF.Name = "Body"
 		bodyF.Size = UDim2.new(1, 0, 0, 0)
 		bodyF.AutomaticSize = Enum.AutomaticSize.Y
 		bodyF.BackgroundTransparency = 1
-		bodyF.LayoutOrder = 2
+		bodyF.LayoutOrder = 3
 		bodyF.Parent = wrap
 
 		local bodyList = Instance.new("UIListLayout")
@@ -1600,13 +1657,11 @@ function Library.new(config: WindowConfig)
 
 		local sectionExpanded = expanded
 		local function applyChevronSprite(on: boolean)
-			if not chevImg or not specChevExpanded or not specChevCollapsed then
+			if not chevBtn or not specChevExpanded or not specChevCollapsed then
 				return
 			end
 			local spec = if on then specChevExpanded else specChevCollapsed
-			chevImg.Image = spec.Url
-			chevImg.ImageRectOffset = spec.ImageRectOffset or Vector2.zero
-			chevImg.ImageRectSize = spec.ImageRectSize or Vector2.zero
+			applyLucideSprite(chevBtn, spec)
 		end
 		local function applySectionExpanded(on: boolean)
 			sectionExpanded = on
@@ -1616,13 +1671,26 @@ function Library.new(config: WindowConfig)
 			bodyF.Visible = on
 			applyChevronSprite(on)
 		end
+		local lastSectionToggleClock = 0.0
+		local function toggleSectionExpanded()
+			local t = os.clock()
+			if t - lastSectionToggleClock < 0.08 then
+				return
+			end
+			lastSectionToggleClock = t
+			applySectionExpanded(not sectionExpanded)
+		end
 		if collapsible and headerRow:IsA("TextButton") then
-			(headerRow :: TextButton).MouseButton1Click:Connect(function()
-				applySectionExpanded(not sectionExpanded)
-			end)
+			(headerRow :: TextButton).MouseButton1Click:Connect(toggleSectionExpanded)
+		end
+		if chevBtn then
+			chevBtn.MouseButton1Click:Connect(toggleSectionExpanded)
 		end
 		if collapsible then
 			applySectionExpanded(expanded)
+			table.insert(sectionChevronRefreshes, function()
+				applyChevronSprite(sectionExpanded)
+			end)
 		else
 			bodyF.Visible = true
 		end
