@@ -234,39 +234,25 @@ local function parseHexColor(raw: string): Color3?
 	return nil
 end
 
---[[ Hue strip: same spacing as Obsidian (`for Hue = 0, 1, 0.1`). Some executors cap keypoints < 11 — cascade down. ]]
+--[[ Hue strip: same pattern as Obsidian (`HueSequenceTable` + `for Hue = 0, 1, step`).
+	Obsidian uses step 0.1 (11 keypoints). Many executors cap ColorSequence tables much lower
+	and still *print* "table is too long" even when the call is inside pcall — so we must not
+	try 11 first. We use step 0.25 (5 stops: 0, 0.25, …, 1); if that fails, two-keypoint API (no table). ]]
 local ColorPickerHueSequence: ColorSequence
 do
-	local function hueSequenceFromCount(count: number): ColorSequence?
-		if count < 2 then
-			return nil
-		end
-		local kp: { ColorSequenceKeypoint } = {}
-		for i = 0, count - 1 do
-			local h = i / (count - 1)
-			table.insert(kp, ColorSequenceKeypoint.new(h, Color3.fromHSV(h, 1, 1)))
-		end
-		local ok, res = pcall(function()
-			return ColorSequence.new(kp)
-		end)
-		if ok and res ~= nil then
-			return res
-		end
-		return nil
+	local HueSequenceTable: { ColorSequenceKeypoint } = {}
+	for Hue = 0, 1, 0.25 do
+		table.insert(HueSequenceTable, ColorSequenceKeypoint.new(Hue, Color3.fromHSV(Hue, 1, 1)))
 	end
-
-	local seq = hueSequenceFromCount(11)
-		or hueSequenceFromCount(10)
-		or hueSequenceFromCount(8)
-		or hueSequenceFromCount(6)
-		or hueSequenceFromCount(4)
-
-	if seq then
-		ColorPickerHueSequence = seq
+	local ok, res = pcall(function()
+		return ColorSequence.new(HueSequenceTable)
+	end)
+	if ok and res ~= nil then
+		ColorPickerHueSequence = res
 	else
 		ColorPickerHueSequence = ColorSequence.new(
 			ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 1, 1)),
-			ColorSequenceKeypoint.new(1, Color3.fromHSV(0.99, 1, 1))
+			ColorSequenceKeypoint.new(1, Color3.fromHSV(1, 1, 1))
 		)
 	end
 end
