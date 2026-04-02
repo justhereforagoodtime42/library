@@ -183,6 +183,31 @@ do
 		return Color3.new(1, 1, 1)
 	end
 
+	--[[ Keep theme Idx pickers (BackgroundColor, MainColor, …) in sync with Library.Theme after ApplyScheme.
+		Previously only SetValueRGB when that key existed in scheme — partial JSON / order bugs left swatches on stale Panel. ]]
+	function ThemeManager:SyncThemeColorPickersFromTheme()
+		local Lib = self.Library
+		if not Lib or not Lib.Theme or not Lib.Options then
+			return
+		end
+		local T = Lib.Theme
+		local rows = {
+			{ "BackgroundColor", T.Background },
+			{ "MainColor", T.Panel },
+			{ "AccentColor", T.AccentBlue },
+			{ "OutlineColor", T.Stroke },
+			{ "FontColor", T.Text },
+		}
+		for i = 1, #rows do
+			local field = rows[i][1]
+			local color = rows[i][2]
+			local opt = Lib.Options[field]
+			if opt and opt.SetValueRGB and typeof(color) == "Color3" then
+				opt:SetValueRGB(color, 0)
+			end
+		end
+	end
+
 	--[[ Maps Obsidian-style scheme keys onto AcidHub Library.Theme ]]
 	function ThemeManager:ApplyScheme(scheme: { [string]: string })
 		local T = self.Library.Theme
@@ -190,7 +215,10 @@ do
 			T.Text = self:HexToColor(scheme.FontColor)
 		end
 		if scheme.BackgroundColor then
-			T.Background = self:HexToColor(scheme.BackgroundColor)
+			local bg = self:HexToColor(scheme.BackgroundColor)
+			T.Background = bg
+			--[[ Obsidian groupbox fill uses the same key as window background ]]
+			T.Groupbox = bg
 		end
 		if scheme.MainColor then
 			local m = self:HexToColor(scheme.MainColor)
@@ -211,15 +239,7 @@ do
 		T.TextDim = T.Text:Lerp(T.Background, 0.42)
 		T.ToggleOff = T.Panel:Lerp(Color3.new(0, 0, 0), 0.25)
 
-		for _, field in ThemeFields do
-			local hex = scheme[field]
-			if typeof(hex) == "string" and hex ~= "" then
-				local opt = self.Library.Options[field]
-				if opt and opt.SetValueRGB then
-					opt:SetValueRGB(self:HexToColor(hex), 0)
-				end
-			end
-		end
+		self:SyncThemeColorPickersFromTheme()
 
 		self.Library:RefreshTheme()
 	end
