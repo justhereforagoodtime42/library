@@ -63,6 +63,30 @@ local function pad(p: number)
 	return x
 end
 
+type GlowLayerSpec = { size: number, transparency: number, radius: number }
+
+--[[ Centered stacked frames behind a host; spills past edges when host clips are off ]]
+local function addStackedGlow(host: Frame, specs: { GlowLayerSpec })
+	local steps = #specs - 1
+	for i, g in specs do
+		local t = if steps > 0 then (i - 1) / steps else 0
+		local layerColor = Theme.AccentBlue:Lerp(Theme.Stroke, t)
+		local layer = Instance.new("Frame")
+		layer.Name = "GlowLayer"
+		layer.AnchorPoint = Vector2.new(0.5, 0.5)
+		layer.Position = UDim2.fromScale(0.5, 0.5)
+		layer.Size = UDim2.new(1, g.size, 1, g.size)
+		layer.BackgroundColor3 = layerColor
+		layer.BackgroundTransparency = g.transparency
+		layer.BorderSizePixel = 0
+		layer.ZIndex = 0
+		layer.Parent = host
+		local gc = Instance.new("UICorner")
+		gc.CornerRadius = UDim.new(0, g.radius)
+		gc.Parent = layer
+	end
+end
+
 -- ----------------------------------------------------------------------------- Lucide ([lucide.dev](https://lucide.dev) — executor loads sprite module like Obsidian)
 local LUCIDE_ROBLOX_DIRECT =
 	"https://raw.githubusercontent.com/deividcomsono/lucide-roblox-direct/refs/heads/main/source.lua"
@@ -152,6 +176,7 @@ export type WindowConfig = {
 	--[[ minimum body content size (width × height below title bar); root adds mascot + 48px header ]]
 	MinSize: Vector2?,
 	Resizable: boolean?,
+	GlowEnabled: boolean?,
 }
 
 function Library.new(config: WindowConfig)
@@ -224,6 +249,7 @@ function Library.new(config: WindowConfig)
 	pill.LayoutOrder = 1
 	pill.Parent = topRow
 	corner(UDim.new(1, 0)).Parent = pill
+	stroke(Theme.Stroke, 1, 0.65).Parent = pill
 	pad(12).Parent = pill
 
 	local pillLayout = Instance.new("UIListLayout")
@@ -282,7 +308,7 @@ function Library.new(config: WindowConfig)
 	sideList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	sideList.Parent = sidebar
 
-	--[[ MainPanel: single rim via PanelOutline (UIStroke) on the face — no extra halo frames ]]
+	--[[ One shell: transparent MainPanel holds glow + inner face (no extra MainPanelWrap in the tree) ]]
 	local mainPanel = Instance.new("Frame")
 	mainPanel.Name = "MainPanel"
 	mainPanel.Size = UDim2.new(1, -62, 1, 0)
@@ -291,6 +317,23 @@ function Library.new(config: WindowConfig)
 	mainPanel.BorderSizePixel = 0
 	mainPanel.ClipsDescendants = false
 	mainPanel.Parent = body
+
+	if config.GlowEnabled ~= false then
+		local panelGlowHost = Instance.new("Frame")
+		panelGlowHost.Name = "MainGlowHost"
+		panelGlowHost.Size = UDim2.fromScale(1, 1)
+		panelGlowHost.Position = UDim2.fromScale(0, 0)
+		panelGlowHost.BackgroundTransparency = 1
+		panelGlowHost.BorderSizePixel = 0
+		panelGlowHost.ZIndex = 0
+		panelGlowHost.Parent = mainPanel
+		addStackedGlow(panelGlowHost, {
+			{ size = 5, transparency = 0.82, radius = 9 },
+			{ size = 11, transparency = 0.9, radius = 11 },
+			{ size = 17, transparency = 0.95, radius = 12 },
+			{ size = 22, transparency = 0.98, radius = 13 },
+		})
+	end
 
 	local panelFace = Instance.new("Frame")
 	panelFace.Name = "PanelFace"
@@ -335,9 +378,9 @@ function Library.new(config: WindowConfig)
 			local isSel = (i == index)
 			local glow = btn:FindFirstChild("Glow") :: UIStroke?
 			if glow then
-				glow.Color = if isSel then Theme.AccentPurple else Color3.new(1, 1, 1)
+				glow.Color = if isSel then Theme.AccentPurple else Theme.AccentBlue
 				glow.Thickness = if isSel then 2.5 else 1.2
-				glow.Transparency = if isSel then 0.14 else 0.88
+				glow.Transparency = if isSel then 0.18 else 0.85
 			end
 			btn.BackgroundTransparency = if isSel then 0.08 else 0.45
 			local icon = btn:FindFirstChild("LucideIcon")
@@ -357,41 +400,22 @@ function Library.new(config: WindowConfig)
 		local rh = Instance.new("TextButton")
 		rh.Name = "ResizeGrip"
 		rh.AnchorPoint = Vector2.new(1, 1)
-		rh.Position = UDim2.new(1, -4, 1, -4)
-		rh.Size = UDim2.fromOffset(28, 28)
+		rh.Position = UDim2.new(1, -2, 1, -2)
+		rh.Size = UDim2.fromOffset(22, 22)
 		rh.BackgroundTransparency = 1
 		rh.Text = ""
 		rh.AutoButtonColor = false
-		rh.Active = true
-		rh.ZIndex = 50
+		rh.ZIndex = 8
 		rh.Parent = root
-		local resizeIcon = Library:GetIcon("move-diagonal-2")
-		if resizeIcon then
-			local ig = Instance.new("ImageLabel")
-			ig.Name = "ResizeIcon"
-			ig.BackgroundTransparency = 1
-			ig.Size = UDim2.new(1, -6, 1, -6)
-			ig.Position = UDim2.fromOffset(3, 3)
-			ig.ScaleType = Enum.ScaleType.Fit
-			ig.Image = resizeIcon.Url
-			ig.ImageRectOffset = resizeIcon.ImageRectOffset or Vector2.zero
-			ig.ImageRectSize = resizeIcon.ImageRectSize or Vector2.zero
-			ig.ImageColor3 = Theme.TextDim
-			ig.ImageTransparency = 0.42
-			ig.ZIndex = 51
-			ig.Parent = rh
-		else
-			local grip = Instance.new("TextLabel")
-			grip.BackgroundTransparency = 1
-			grip.Size = UDim2.fromScale(1, 1)
-			grip.Text = "⋰"
-			grip.TextColor3 = Theme.TextDim
-			grip.TextTransparency = 0.45
-			grip.TextSize = 16
-			grip.Font = Enum.Font.GothamBold
-			grip.ZIndex = 51
-			grip.Parent = rh
-		end
+		local grip = Instance.new("TextLabel")
+		grip.BackgroundTransparency = 1
+		grip.Size = UDim2.fromScale(1, 1)
+		grip.Text = "⋰"
+		grip.TextColor3 = Theme.TextDim
+		grip.TextTransparency = 0.45
+		grip.TextSize = 16
+		grip.Font = Enum.Font.GothamBold
+		grip.Parent = rh
 		resizeHandle = rh
 	end
 
@@ -415,6 +439,9 @@ function Library.new(config: WindowConfig)
 		end
 
 		local function inputBegan(input: InputObject, gp: boolean)
+			if gp then
+				return
+			end
 			if
 				input.UserInputType ~= Enum.UserInputType.MouseButton1
 				and input.UserInputType ~= Enum.UserInputType.Touch
@@ -422,14 +449,10 @@ function Library.new(config: WindowConfig)
 				return
 			end
 			local p = input.Position
-			--[[ Resize before gameProcessed — otherwise movement is swallowed while dragging size ]]
 			if overResize(p) then
 				resizing = true
 				resizeStart = Vector2.new(p.X, p.Y)
 				resizeStartSize = Vector2.new(root.AbsoluteSize.X, root.AbsoluteSize.Y)
-				return
-			end
-			if gp then
 				return
 			end
 			local ap = mainPanel.AbsolutePosition
@@ -456,6 +479,9 @@ function Library.new(config: WindowConfig)
 			end
 		end
 		local function inputMoved(input: InputObject, gp: boolean)
+			if gp then
+				return
+			end
 			if resizing then
 				if
 					input.UserInputType ~= Enum.UserInputType.MouseMovement
@@ -467,10 +493,6 @@ function Library.new(config: WindowConfig)
 				local newW = math.max(minRootW, resizeStartSize.X + delta.X)
 				local newH = math.max(minRootH, resizeStartSize.Y + delta.Y)
 				root.Size = UDim2.fromOffset(newW, newH)
-				return
-			end
-			--[[ After drag/resize start, ignore gameProcessed so movement isn't eaten by the game ]]
-			if not dragging and gp then
 				return
 			end
 			if not dragging then
@@ -550,6 +572,21 @@ function Library.new(config: WindowConfig)
 		tabSlot.LayoutOrder = idx
 		tabSlot.Parent = sidebar
 
+		if config.GlowEnabled ~= false then
+			local tabGlowHost = Instance.new("Frame")
+			tabGlowHost.Name = "TabGlowHost"
+			tabGlowHost.Size = UDim2.fromScale(1, 1)
+			tabGlowHost.BackgroundTransparency = 1
+			tabGlowHost.BorderSizePixel = 0
+			tabGlowHost.ZIndex = 0
+			tabGlowHost.Parent = tabSlot
+			addStackedGlow(tabGlowHost, {
+				{ size = 2, transparency = 0.88, radius = 6 },
+				{ size = 6, transparency = 0.93, radius = 7 },
+				{ size = 11, transparency = 0.97, radius = 8 },
+			})
+		end
+
 		local btn = Instance.new("TextButton")
 		btn.Name = "Tab_" .. idx
 		btn.Size = UDim2.fromScale(1, 1)
@@ -587,7 +624,7 @@ function Library.new(config: WindowConfig)
 			btn.Font = Enum.Font.GothamBold
 		end
 		corner(Theme.CornerSm).Parent = btn
-		local g = stroke(Color3.new(1, 1, 1), 1.2, 0.88)
+		local g = stroke(Theme.AccentBlue, 1.2, 0.85)
 		g.Name = "Glow"
 		g.Parent = btn
 
@@ -991,6 +1028,7 @@ function Library.new(config: WindowConfig)
 			listF.ZIndex = 5
 			listF.Parent = row
 			corner(Theme.CornerSm).Parent = listF
+			stroke(Theme.Stroke, 1, 0.7).Parent = listF
 
 			local innerList = Instance.new("UIListLayout")
 			innerList.SortOrder = Enum.SortOrder.LayoutOrder
