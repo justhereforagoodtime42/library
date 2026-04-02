@@ -1,11 +1,3 @@
---[[
-	AcidHub UI — Frosthub-style dark glass panel (Roblox Luau).
-	Module returns Library: use Library.new(config) for a window.
-
-	Lucide icons (https://lucide.dev): executor loads deividcomsono's lucide-roblox-direct
-	(same as Obsidian). AddTab { Icon = "layout-grid" } or rbxassetid:// / rbxthumb://.
-	Library:GetIcon / GetCustomIcon / SetIconModule / IsValidCustomIcon match that pattern.
-]]
 
 local cloneref = (cloneref or clonereference or function(instance: any)
 	return instance
@@ -157,28 +149,43 @@ export type WindowConfig = {
 	--[[ optional rbxasset:// or http url for left mascot ]]
 	MascotImage: string?,
 	Size: Vector2?,
+	--[[ minimum body content size (width × height below title bar); root adds mascot + 48px header ]]
+	MinSize: Vector2?,
+	Resizable: boolean?,
+	GlowEnabled: boolean?,
 }
 
 function Library.new(config: WindowConfig)
 	config = config or {}
 	local titleText = config.Title or "Acid Hub"
 	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
+	local minContent = config.MinSize or Vector2.new(380, 300)
 	local size = config.Size or Vector2.new(520, 440)
+	size = Vector2.new(math.max(size.X, minContent.X), math.max(size.Y, minContent.Y))
 	local mascotId = config.MascotImage
+	local mascotOffset = if mascotId then 72 else 0
+	local minRootW = minContent.X + mascotOffset
+	local minRootH = minContent.Y + 48
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "AcidHubUI"
 	screenGui.ResetOnSpawn = false
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screenGui.IgnoreGuiInset = true
-	screenGui.Parent = gethui()
+	--[[ Obsidian-style: protect before parenting, then gethui with PlayerGui fallback ]]
 	pcall(protectgui, screenGui)
+	local parentOk = pcall(function()
+		screenGui.Parent = gethui()
+	end)
+	if not parentOk or not screenGui.Parent then
+		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
+	end
 
 	local root = Instance.new("Frame")
 	root.Name = "Root"
 	root.AnchorPoint = Vector2.new(0.5, 0.5)
 	root.Position = UDim2.new(0.5, 0, 0.5, 0)
-	root.Size = UDim2.fromOffset(size.X + (mascotId and 72 or 0), size.Y + 48)
+	root.Size = UDim2.fromOffset(size.X + mascotOffset, size.Y + 48)
 	root.BackgroundTransparency = 1
 	root.Parent = screenGui
 
@@ -187,6 +194,7 @@ function Library.new(config: WindowConfig)
 	topRow.Name = "TopRow"
 	topRow.Size = UDim2.new(1, 0, 0, 40)
 	topRow.BackgroundTransparency = 1
+	topRow.ZIndex = 3
 	topRow.Parent = root
 
 	local topLayout = Instance.new("UIListLayout")
@@ -247,12 +255,50 @@ function Library.new(config: WindowConfig)
 	subtitle.LayoutOrder = 1
 	subtitle.Parent = pill
 
+	-- soft glow behind body: AccentBlue → Stroke (same palette as pill / toggles)
+	if config.GlowEnabled ~= false then
+		local glowHost = Instance.new("Frame")
+		glowHost.Name = "GlowHost"
+		glowHost.Position = UDim2.new(0, 0, 0, 48)
+		glowHost.Size = UDim2.new(1, 0, 1, -48)
+		glowHost.BackgroundTransparency = 1
+		glowHost.BorderSizePixel = 0
+		glowHost.ZIndex = 0
+		glowHost.Parent = root
+
+		local glowLayers = {
+			{ size = 8, transparency = 0.72, radius = 14 },
+			{ size = 16, transparency = 0.85, radius = 18 },
+			{ size = 24, transparency = 0.92, radius = 22 },
+			{ size = 32, transparency = 0.96, radius = 26 },
+		}
+		local glowSteps = #glowLayers - 1
+		for i, g in glowLayers do
+			local t = if glowSteps > 0 then (i - 1) / glowSteps else 0
+			local layerColor = Theme.AccentBlue:Lerp(Theme.Stroke, t)
+			local layer = Instance.new("Frame")
+			layer.Name = "GlowLayer"
+			layer.AnchorPoint = Vector2.new(0.5, 0.5)
+			layer.Position = UDim2.fromScale(0.5, 0.5)
+			layer.Size = UDim2.new(1, g.size, 1, g.size)
+			layer.BackgroundColor3 = layerColor
+			layer.BackgroundTransparency = g.transparency
+			layer.BorderSizePixel = 0
+			layer.ZIndex = 0
+			layer.Parent = glowHost
+			local gc = Instance.new("UICorner")
+			gc.CornerRadius = UDim.new(0, g.radius)
+			gc.Parent = layer
+		end
+	end
+
 	-- body: sidebar + panel
 	local body = Instance.new("Frame")
 	body.Name = "Body"
 	body.Position = UDim2.new(0, 0, 0, 48)
 	body.Size = UDim2.new(1, 0, 1, -48)
 	body.BackgroundTransparency = 1
+	body.ZIndex = 1
 	body.Parent = root
 
 	local bodyLayout = Instance.new("UIListLayout")
@@ -284,7 +330,9 @@ function Library.new(config: WindowConfig)
 	mainPanel.ClipsDescendants = true
 	mainPanel.Parent = body
 	corner(Theme.Corner).Parent = mainPanel
-	stroke(Theme.Stroke, 1, Theme.StrokeTrans).Parent = mainPanel
+	local panelOutline = stroke(Theme.Stroke, 2, math.clamp(Theme.StrokeTrans - 0.15, 0.2, 0.55))
+	panelOutline.Name = "PanelOutline"
+	panelOutline.Parent = mainPanel
 
 	local panelTitle = Instance.new("TextLabel")
 	panelTitle.Name = "WindowTitle"
@@ -312,23 +360,69 @@ function Library.new(config: WindowConfig)
 	local function selectTab(index: number)
 		activeTab = index
 		for i, btn in tabButtons do
+			local isSel = (i == index)
 			local glow = btn:FindFirstChild("Glow") :: UIStroke?
 			if glow then
-				glow.Transparency = if i == index then 0.35 else 0.85
+				glow.Color = if isSel then Theme.AccentPurple else Theme.AccentBlue
+				glow.Thickness = if isSel then 2.5 else 1.2
+				glow.Transparency = if isSel then 0.18 else 0.85
 			end
-			btn.BackgroundTransparency = if i == index then 0.15 else 0.45
+			btn.BackgroundTransparency = if isSel then 0.08 else 0.45
+			local icon = btn:FindFirstChild("LucideIcon")
+			if icon and icon:IsA("ImageLabel") then
+				icon.ImageColor3 = if isSel then Theme.AccentPurple else Theme.Text
+			else
+				btn.TextColor3 = if isSel then Theme.AccentPurple else Theme.Text
+			end
 		end
 		for i, sc in tabScrolls do
 			sc.Visible = (i == index)
 		end
 	end
 
-	-- dragging
+	local resizeHandle: TextButton? = nil
+	if config.Resizable ~= false then
+		local rh = Instance.new("TextButton")
+		rh.Name = "ResizeGrip"
+		rh.AnchorPoint = Vector2.new(1, 1)
+		rh.Position = UDim2.new(1, -2, 1, -2)
+		rh.Size = UDim2.fromOffset(22, 22)
+		rh.BackgroundTransparency = 1
+		rh.Text = ""
+		rh.AutoButtonColor = false
+		rh.ZIndex = 8
+		rh.Parent = root
+		local grip = Instance.new("TextLabel")
+		grip.BackgroundTransparency = 1
+		grip.Size = UDim2.fromScale(1, 1)
+		grip.Text = "⋰"
+		grip.TextColor3 = Theme.TextDim
+		grip.TextTransparency = 0.45
+		grip.TextSize = 16
+		grip.Font = Enum.Font.GothamBold
+		grip.Parent = rh
+		resizeHandle = rh
+	end
+
+	-- dragging + resize
 	local dragConn: { RBXScriptConnection } = {}
 	local function beginDrag()
 		local dragging = false
+		local resizing = false
 		local dragStart: Vector2
 		local startPos: UDim2
+		local resizeStart: Vector2
+		local resizeStartSize: Vector2
+
+		local function overResize(p: Vector3): boolean
+			if not resizeHandle or not resizeHandle.Visible then
+				return false
+			end
+			local ap = resizeHandle.AbsolutePosition
+			local as = resizeHandle.AbsoluteSize
+			return p.X >= ap.X and p.X <= ap.X + as.X and p.Y >= ap.Y and p.Y <= ap.Y + as.Y
+		end
+
 		local function inputBegan(input: InputObject, gp: boolean)
 			if gp then
 				return
@@ -340,6 +434,12 @@ function Library.new(config: WindowConfig)
 				return
 			end
 			local p = input.Position
+			if overResize(p) then
+				resizing = true
+				resizeStart = Vector2.new(p.X, p.Y)
+				resizeStartSize = Vector2.new(root.AbsoluteSize.X, root.AbsoluteSize.Y)
+				return
+			end
 			local ap = mainPanel.AbsolutePosition
 			local as = mainPanel.AbsoluteSize
 			if
@@ -364,7 +464,23 @@ function Library.new(config: WindowConfig)
 			end
 		end
 		local function inputMoved(input: InputObject, gp: boolean)
-			if not dragging or gp then
+			if gp then
+				return
+			end
+			if resizing then
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseMovement
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				local delta = Vector2.new(input.Position.X, input.Position.Y) - resizeStart
+				local newW = math.max(minRootW, resizeStartSize.X + delta.X)
+				local newH = math.max(minRootH, resizeStartSize.Y + delta.Y)
+				root.Size = UDim2.fromOffset(newW, newH)
+				return
+			end
+			if not dragging then
 				return
 			end
 			if
@@ -387,6 +503,7 @@ function Library.new(config: WindowConfig)
 				or input.UserInputType == Enum.UserInputType.Touch
 			then
 				dragging = false
+				resizing = false
 			end
 		end
 		table.insert(dragConn, UserInputService.InputBegan:Connect(inputBegan))
