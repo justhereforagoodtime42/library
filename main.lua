@@ -40,6 +40,8 @@ local Theme = Library.Theme
 
 Library.Toggles = {} :: { [string]: any }
 Library.Options = {} :: { [string]: any }
+--[[ When true, AddDropdown uses Multi = true unless the option explicitly sets Multi = false ]]
+Library.MultiDropdownByDefault = false
 Library.Unloaded = false
 Library._unloadCallbacks = {} :: { () -> () }
 Library._windowRefreshes = {} :: { () -> () }
@@ -232,6 +234,17 @@ local function parseHexColor(raw: string): Color3?
 	return nil
 end
 
+--[[ Obsidian-style hue strip (full saturation/value at each hue) ]]
+local ColorPickerHueSequence: ColorSequence
+do
+	local kp: { ColorSequenceKeypoint } = {}
+	for i = 0, 20 do
+		local h = i / 20
+		table.insert(kp, ColorSequenceKeypoint.new(h, Color3.fromHSV(h, 1, 1)))
+	end
+	ColorPickerHueSequence = ColorSequence.new(kp)
+end
+
 type GlowLayerSpec = { size: number, transparency: number, radius: number }
 
 --[[ Centered stacked frames behind a host; spills past edges when host clips are off ]]
@@ -358,8 +371,29 @@ function Library:GetIcon(IconName: string): any
 end
 
 function Library:GetCustomIcon(IconName: any): any
+	if typeof(IconName) == "number" then
+		return {
+			Url = string.format("rbxassetid://%d", IconName),
+			ImageRectOffset = Vector2.zero,
+			ImageRectSize = Vector2.zero,
+			Custom = true,
+			Untinted = true,
+		}
+	end
 	if typeof(IconName) ~= "string" then
 		return nil
+	end
+	if IconName:match("^%s*%d+%s*$") then
+		local id = tonumber((IconName :: string):gsub("%s", ""))
+		if id then
+			return {
+				Url = string.format("rbxassetid://%d", id),
+				ImageRectOffset = Vector2.zero,
+				ImageRectSize = Vector2.zero,
+				Custom = true,
+				Untinted = true,
+			}
+		end
 	end
 	if Library.IsValidCustomIcon(IconName) then
 		return {
@@ -367,9 +401,14 @@ function Library:GetCustomIcon(IconName: any): any
 			ImageRectOffset = Vector2.zero,
 			ImageRectSize = Vector2.zero,
 			Custom = true,
+			Untinted = true,
 		}
 	end
-	return Library:GetIcon(IconName)
+	local lucide = Library:GetIcon(IconName)
+	if lucide then
+		return lucide
+	end
+	return nil
 end
 
 --[[ Replace remote module (e.g. offline require) — same idea as Obsidian SetIconModule ]]
@@ -392,6 +431,8 @@ export type WindowConfig = {
 	GlowEnabled: boolean?,
 	--[[ stacked halo behind each sidebar tab; off by default (cleaner icons) ]]
 	TabGlowEnabled: boolean?,
+	--[[ Dropdowns default to Multi when Multi is omitted (Obsidian-style) ]]
+	MultiDropdownByDefault: boolean?,
 }
 
 function Library.new(config: WindowConfig)
@@ -406,6 +447,8 @@ function Library.new(config: WindowConfig)
 	local minRootW = minContent.X + mascotOffset
 	local minRootH = minContent.Y + 48
 	local tabGlowEnabled = config.TabGlowEnabled == true
+	local dropdownMultiDefault = config.MultiDropdownByDefault == true
+	Library.MultiDropdownByDefault = dropdownMultiDefault
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "AcidHubUI"
@@ -684,7 +727,7 @@ function Library.new(config: WindowConfig)
 	sidebar.Parent = body
 
 	local sideList = Instance.new("UIListLayout")
-	sideList.Padding = UDim.new(0, 8)
+	sideList.Padding = UDim.new(0, 6)
 	sideList.SortOrder = Enum.SortOrder.LayoutOrder
 	sideList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	sideList.Parent = sidebar
@@ -761,16 +804,14 @@ function Library.new(config: WindowConfig)
 			if tabSlot and tabSlot:IsA("Frame") then
 				paintTabGlowHost(tabSlot:FindFirstChild("TabGlowHost") :: Frame?, isSel)
 			end
-			local glow = btn:FindFirstChild("Glow") :: UIStroke?
-			if glow then
-				glow.Color = if isSel then Theme.AccentPurple else Color3.new(1, 1, 1)
-				glow.Thickness = if isSel then 2.5 else 1.2
-				glow.Transparency = if isSel then 0.18 else 0.72
-			end
 			btn.BackgroundTransparency = if isSel then 0.08 else 0.45
 			local icon = btn:FindFirstChild("LucideIcon")
 			if icon and icon:IsA("ImageLabel") then
-				icon.ImageColor3 = if isSel then Color3.new(1, 1, 1) else Theme.Text
+				if icon:GetAttribute("AcidTabIconUntinted") == true then
+					icon.ImageColor3 = Color3.new(1, 1, 1)
+				else
+					icon.ImageColor3 = if isSel then Color3.new(1, 1, 1) else Theme.Text
+				end
 			else
 				btn.TextColor3 = if isSel then Color3.new(1, 1, 1) else Theme.Text
 			end
@@ -1090,12 +1131,15 @@ function Library.new(config: WindowConfig)
 
 	--[[ Tab icons: Lucide name (e.g. "layout-grid", "eye") or rbxassetid://… — same as Obsidian GetCustomIcon
 	    SplitColumns: two-column layout (left/right ScrollingFrames); use AddLeftGroupbox / AddRightGroupbox ]]
-	function window:AddTab(opts: { Name: string?, Icon: string?, Tooltip: string?, SplitColumns: boolean? })
+	function window:AddTab(opts: { Name: string?, Icon: (string | number)?, Tooltip: string?, SplitColumns: boolean? })
 		opts = opts or {}
 		local idx = #tabScrolls + 1
 		local splitColumns = opts.SplitColumns == true
 		local rawIcon = opts.Icon
-		local parsed = (rawIcon ~= nil and rawIcon ~= "") and Library:GetCustomIcon(rawIcon) or nil
+		local parsed: any = nil
+		if rawIcon ~= nil and not (typeof(rawIcon) == "string" and rawIcon == "") then
+			parsed = Library:GetCustomIcon(rawIcon)
+		end
 
 		local tabSlot = Instance.new("Frame")
 		tabSlot.Name = "TabSlot_" .. idx
@@ -1142,7 +1186,12 @@ function Library.new(config: WindowConfig)
 			img.Image = parsed.Url
 			img.ImageRectOffset = parsed.ImageRectOffset or Vector2.zero
 			img.ImageRectSize = parsed.ImageRectSize or Vector2.zero
-			img.ImageColor3 = Theme.Text
+			if parsed.Untinted == true then
+				img.ImageColor3 = Color3.new(1, 1, 1)
+				img:SetAttribute("AcidTabIconUntinted", true)
+			else
+				img.ImageColor3 = Theme.Text
+			end
 			img.Parent = btn
 		else
 			local fallback = "◫"
@@ -1293,6 +1342,8 @@ function Library.new(config: WindowConfig)
 			DefaultExpanded: boolean?,
 			Tooltip: string?,
 			Column: string?,
+			--[[ Roblox asset id (number or numeric string), rbxasset URL, or Lucide icon name ]]
+			Icon: (number | string)?,
 		}?
 	)
 		sectionOpts = sectionOpts or {}
@@ -1367,12 +1418,67 @@ function Library.new(config: WindowConfig)
 		hLayout.Padding = UDim.new(0, 8)
 		hLayout.Parent = headerRow
 
-		local dot = Instance.new("Frame")
-		dot.Size = UDim2.fromOffset(8, 8)
-		dot.BackgroundColor3 = Theme.SectionDot
-		dot.LayoutOrder = 0
-		dot.Parent = headerRow
-		corner(UDim.new(1, 0)).Parent = dot
+		local headerLayoutNext = 0
+		if sectionOpts.Icon ~= nil then
+			local spec: { Url: string, ImageRectOffset: Vector2, ImageRectSize: Vector2, Untinted: boolean }? = nil
+			local ri = sectionOpts.Icon
+			if typeof(ri) == "number" then
+				spec = {
+					Url = string.format("rbxassetid://%d", ri),
+					ImageRectOffset = Vector2.zero,
+					ImageRectSize = Vector2.zero,
+					Untinted = true,
+				}
+			elseif typeof(ri) == "string" then
+				if Library.IsValidCustomIcon(ri) then
+					spec = {
+						Url = ri,
+						ImageRectOffset = Vector2.zero,
+						ImageRectSize = Vector2.zero,
+						Untinted = true,
+					}
+				elseif ri:match("^%s*%d+%s*$") then
+					local id = tonumber((ri :: string):gsub("%s", ""))
+					if id then
+						spec = {
+							Url = string.format("rbxassetid://%d", id),
+							ImageRectOffset = Vector2.zero,
+							ImageRectSize = Vector2.zero,
+							Untinted = true,
+						}
+					end
+				else
+					local ci = Library:GetCustomIcon(ri :: string)
+					if ci and typeof(ci.Url) == "string" and ci.Url ~= "" then
+						spec = {
+							Url = ci.Url,
+							ImageRectOffset = ci.ImageRectOffset or Vector2.zero,
+							ImageRectSize = ci.ImageRectSize or Vector2.zero,
+							Untinted = false,
+						}
+					end
+				end
+			end
+			if spec then
+				local img = Instance.new("ImageLabel")
+				img.Name = "SectionIcon"
+				img.BackgroundTransparency = 1
+				img.Size = UDim2.fromOffset(18, 18)
+				img.Image = spec.Url
+				img.ImageRectOffset = spec.ImageRectOffset
+				img.ImageRectSize = spec.ImageRectSize
+				img.ScaleType = Enum.ScaleType.Fit
+				img.LayoutOrder = headerLayoutNext
+				img.Parent = headerRow
+				if spec.Untinted then
+					img.ImageColor3 = Color3.new(1, 1, 1)
+				else
+					img.ImageColor3 = Theme.AccentBlue
+					img:SetAttribute("AcidImg", "AccentBlue")
+				end
+				headerLayoutNext += 1
+			end
+		end
 
 		local hText = Instance.new("TextLabel")
 		hText.Size = UDim2.new(0, 100, 1, 0)
@@ -1383,8 +1489,9 @@ function Library.new(config: WindowConfig)
 		hText.TextColor3 = Theme.Text
 		hText.TextXAlignment = Enum.TextXAlignment.Left
 		hText.Text = string.upper(header)
-		hText.LayoutOrder = 1
+		hText.LayoutOrder = headerLayoutNext
 		hText.Parent = headerRow
+		headerLayoutNext += 1
 		local flexGrow = Instance.new("UIFlexItem")
 		flexGrow.FlexMode = Enum.UIFlexMode.Grow
 		flexGrow.Parent = hText
@@ -1402,7 +1509,7 @@ function Library.new(config: WindowConfig)
 				img.ImageRectOffset = ci.ImageRectOffset or Vector2.zero
 				img.ImageRectSize = ci.ImageRectSize or Vector2.zero
 				img.ImageColor3 = Theme.TextDim
-				img.LayoutOrder = 2
+				img.LayoutOrder = headerLayoutNext
 				img.ScaleType = Enum.ScaleType.Fit
 				img.Parent = headerRow
 				chevImg = img
@@ -1415,14 +1522,13 @@ function Library.new(config: WindowConfig)
 				cg.TextSize = 12
 				cg.Font = Enum.Font.GothamBold
 				cg.TextColor3 = Theme.TextDim
-				cg.LayoutOrder = 2
+				cg.LayoutOrder = headerLayoutNext
 				cg.Parent = headerRow
 				chevGlyph = cg
 			end
 		end
 
 		headerRow:SetAttribute("AcidBg", "Background")
-		dot:SetAttribute("AcidBg", "SectionDot")
 		hText:SetAttribute("AcidText", "Text")
 		if chevImg then
 			chevImg:SetAttribute("AcidImg", "TextDim")
@@ -1457,11 +1563,11 @@ function Library.new(config: WindowConfig)
 			bodyF.Visible = on
 			if chevImg then
 				tween(chevImg, TweenInfo.new(0.14, Enum.EasingStyle.Quad, Enum.EasingDirection.Out), {
-					Rotation = if on then 0 else -90,
+					Rotation = if on then 0 else 180,
 				}):Play()
 			end
 			if chevGlyph then
-				chevGlyph.Text = if on then "▼" else "▶"
+				chevGlyph.Text = if on then "▼" else "▲"
 			end
 		end
 		if collapsible and headerRow:IsA("TextButton") then
@@ -1471,10 +1577,10 @@ function Library.new(config: WindowConfig)
 		end
 		if collapsible then
 			if chevImg and not expanded then
-				chevImg.Rotation = -90
+				chevImg.Rotation = 180
 			end
 			if chevGlyph and not expanded then
-				chevGlyph.Text = "▶"
+				chevGlyph.Text = "▲"
 			end
 			applySectionExpanded(expanded)
 		else
@@ -1774,7 +1880,7 @@ function Library.new(config: WindowConfig)
 			Idx: string?,
 		})
 			local allowNull = o.AllowNull == true
-			local multi = o.Multi == true
+			local multi = if o.Multi ~= nil then (o.Multi == true) else dropdownMultiDefault
 			local options = o.Options or {}
 			local selected: { [string]: boolean } = {}
 			if multi then
@@ -2105,6 +2211,10 @@ function Library.new(config: WindowConfig)
 				reg.Value = box.Text
 			end
 
+			box:GetPropertyChangedSignal("Text"):Connect(function()
+				sync()
+			end)
+
 			box.FocusLost:Connect(function()
 				sync()
 				for _, cb in inputCbs do
@@ -2408,16 +2518,31 @@ function Library.new(config: WindowConfig)
 				Transparency = o.Transparency or 0,
 			}
 
+			local hueN, satN, valN = col:ToHSV()
+			local fillRgbBoxesRef: (() -> ())? = nil
+			local syncHsVisualRef: (() -> ())? = nil
+
 			local function syncSwatch()
 				swBtn.BackgroundColor3 = col
 				swBtn.BackgroundTransparency = 1 - alpha
 			end
+
+			local popOpen = false
 
 			local function applyColor(c: Color3)
 				col = c
 				reg.Value = col
 				syncSwatch()
 				hexBox.Text = string.upper(col:ToHex())
+				if popOpen then
+					hueN, satN, valN = col:ToHSV()
+					if syncHsVisualRef then
+						syncHsVisualRef()
+					end
+					if fillRgbBoxesRef then
+						fillRgbBoxesRef()
+					end
+				end
 				for _, cb in colorCbs do
 					task.spawn(cb, col)
 				end
@@ -2439,12 +2564,15 @@ function Library.new(config: WindowConfig)
 				tryParseHexInput()
 			end)
 
-			-- RGB popover (ThemeManager / executors where hex alone is awkward)
-			local popOpen = false
+			--[[ Obsidian-style HSV surface (rbxassetid://4155801252 saturation map) + RGB fields ]]
+			local SATURATION_MAP_ASSET = "rbxassetid://4155801252"
 			local popCloseConn: RBXScriptConnection? = nil
+			local dragConns: { RBXScriptConnection } = {}
+
 			local pop = Instance.new("Frame")
 			pop.Name = "ColorPickerPop"
-			pop.Size = UDim2.fromOffset(196, 138)
+			pop.AutomaticSize = Enum.AutomaticSize.Y
+			pop.Size = UDim2.fromOffset(260, 0)
 			pop.BackgroundColor3 = Theme.Elevated
 			pop.BackgroundTransparency = 0.04
 			pop.Visible = false
@@ -2460,8 +2588,132 @@ function Library.new(config: WindowConfig)
 			popPad.Parent = pop
 			local popList = Instance.new("UIListLayout")
 			popList.SortOrder = Enum.SortOrder.LayoutOrder
-			popList.Padding = UDim.new(0, 6)
+			popList.Padding = UDim.new(0, 8)
 			popList.Parent = pop
+
+			local svRow = Instance.new("Frame")
+			svRow.BackgroundTransparency = 1
+			svRow.Size = UDim2.new(1, 0, 0, 168)
+			svRow.LayoutOrder = 1
+			svRow.ZIndex = 2501
+			svRow.Parent = pop
+			local svList = Instance.new("UIListLayout")
+			svList.FillDirection = Enum.FillDirection.Horizontal
+			svList.SortOrder = Enum.SortOrder.LayoutOrder
+			svList.Padding = UDim.new(0, 8)
+			svList.VerticalAlignment = Enum.VerticalAlignment.Center
+			svList.Parent = svRow
+
+			local satMap = Instance.new("ImageButton")
+			satMap.Name = "SaturationValue"
+			satMap.AutoButtonColor = false
+			satMap.Size = UDim2.fromOffset(168, 168)
+			satMap.BackgroundColor3 = Color3.fromHSV(hueN, 1, 1)
+			satMap.Image = SATURATION_MAP_ASSET
+			satMap.ScaleType = Enum.ScaleType.Stretch
+			satMap.ZIndex = 2502
+			satMap.LayoutOrder = 1
+			satMap.Parent = svRow
+			corner(Theme.CornerSm).Parent = satMap
+
+			local satCursor = Instance.new("Frame")
+			satCursor.AnchorPoint = Vector2.new(0.5, 0.5)
+			satCursor.BackgroundColor3 = Color3.new(1, 1, 1)
+			satCursor.BorderSizePixel = 0
+			satCursor.Size = UDim2.fromOffset(6, 6)
+			satCursor.ZIndex = 2503
+			satCursor.Parent = satMap
+			corner(UDim.new(1, 0)).Parent = satCursor
+			stroke(Theme.Stroke, 1, 0.3).Parent = satCursor
+
+			local hueSel = Instance.new("TextButton")
+			hueSel.Name = "Hue"
+			hueSel.AutoButtonColor = false
+			hueSel.Size = UDim2.fromOffset(22, 168)
+			hueSel.Text = ""
+			hueSel.ZIndex = 2502
+			hueSel.LayoutOrder = 2
+			hueSel.Parent = svRow
+			corner(Theme.CornerSm).Parent = hueSel
+			local hueGrad = Instance.new("UIGradient")
+			hueGrad.Color = ColorPickerHueSequence
+			hueGrad.Rotation = 90
+			hueGrad.Parent = hueSel
+
+			local hueCursor = Instance.new("Frame")
+			hueCursor.AnchorPoint = Vector2.new(0.5, 0.5)
+			hueCursor.BackgroundColor3 = Color3.new(1, 1, 1)
+			hueCursor.BorderSizePixel = 0
+			hueCursor.Position = UDim2.new(0.5, 0, hueN, 0)
+			hueCursor.Size = UDim2.new(1, 4, 0, 3)
+			hueCursor.ZIndex = 2503
+			hueCursor.Parent = hueSel
+			corner(UDim.new(0, 2)).Parent = hueCursor
+			stroke(Color3.new(0, 0, 0), 1, 0.2).Parent = hueCursor
+
+			local function syncHsVisual()
+				satMap.BackgroundColor3 = Color3.fromHSV(hueN, 1, 1)
+				satCursor.Position = UDim2.fromScale(satN, 1 - valN)
+				hueCursor.Position = UDim2.new(0.5, 0, hueN, 0)
+			end
+			syncHsVisualRef = syncHsVisual
+
+			local function pointerXY(): (number, number)
+				local p = UserInputService:GetMouseLocation()
+				return p.X, p.Y
+			end
+
+			local function sampleSatVal()
+				local ax, ay = satMap.AbsolutePosition.X, satMap.AbsolutePosition.Y
+				local sx, sy = satMap.AbsoluteSize.X, satMap.AbsoluteSize.Y
+				local px, py = pointerXY()
+				satN = math.clamp((px - ax) / math.max(sx, 1e-4), 0, 1)
+				valN = 1 - math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
+				applyColor(Color3.fromHSV(hueN, satN, valN))
+				syncHsVisual()
+			end
+
+			local function sampleHue()
+				local ay = hueSel.AbsolutePosition.Y
+				local sy = hueSel.AbsoluteSize.Y
+				local _, py = pointerXY()
+				hueN = math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
+				applyColor(Color3.fromHSV(hueN, satN, valN))
+				syncHsVisual()
+			end
+
+			local function beginPressDrag(sample: () -> (), stopOn: Enum.UserInputType)
+				sample()
+				local rs: RBXScriptConnection
+				local ended: RBXScriptConnection
+				rs = RunService.RenderStepped:Connect(function()
+					sample()
+				end)
+				ended = UserInputService.InputEnded:Connect(function(i: InputObject)
+					if i.UserInputType == stopOn then
+						rs:Disconnect()
+						ended:Disconnect()
+					end
+				end)
+				table.insert(dragConns, rs)
+				table.insert(dragConns, ended)
+			end
+
+			satMap.InputBegan:Connect(function(input: InputObject)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then
+					beginPressDrag(sampleSatVal, Enum.UserInputType.MouseButton1)
+				elseif input.UserInputType == Enum.UserInputType.Touch then
+					beginPressDrag(sampleSatVal, Enum.UserInputType.Touch)
+				end
+			end)
+
+			hueSel.InputBegan:Connect(function(input: InputObject)
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then
+					beginPressDrag(sampleHue, Enum.UserInputType.MouseButton1)
+				elseif input.UserInputType == Enum.UserInputType.Touch then
+					beginPressDrag(sampleHue, Enum.UserInputType.Touch)
+				end
+			end)
 
 			local function rgbRow(labelText: string, layoutOrder: number): TextBox
 				local wrap = Instance.new("Frame")
@@ -2496,15 +2748,16 @@ function Library.new(config: WindowConfig)
 				return box
 			end
 
-			local rBox = rgbRow("R", 1)
-			local gBox = rgbRow("G", 2)
-			local bBox = rgbRow("B", 3)
+			local rBox = rgbRow("R", 2)
+			local gBox = rgbRow("G", 3)
+			local bBox = rgbRow("B", 4)
 
 			local function fillRgbBoxes()
 				rBox.Text = tostring(math.floor(col.R * 255 + 0.5))
 				gBox.Text = tostring(math.floor(col.G * 255 + 0.5))
 				bBox.Text = tostring(math.floor(col.B * 255 + 0.5))
 			end
+			fillRgbBoxesRef = fillRgbBoxes
 
 			local function tryApplyRgb()
 				local r = tonumber(rBox.Text)
@@ -2525,7 +2778,7 @@ function Library.new(config: WindowConfig)
 
 			local doneBtn = Instance.new("TextButton")
 			doneBtn.Size = UDim2.new(1, 0, 0, 26)
-			doneBtn.LayoutOrder = 4
+			doneBtn.LayoutOrder = 5
 			doneBtn.BackgroundColor3 = Theme.AccentBlue
 			doneBtn.BackgroundTransparency = 0.15
 			doneBtn.Text = "Done"
@@ -2537,9 +2790,19 @@ function Library.new(config: WindowConfig)
 			doneBtn.Parent = pop
 			corner(Theme.CornerSm).Parent = doneBtn
 
+			local function clearDragConns()
+				for _, c in dragConns do
+					pcall(function()
+						c:Disconnect()
+					end)
+				end
+				table.clear(dragConns)
+			end
+
 			local function closePop()
 				popOpen = false
 				pop.Visible = false
+				clearDragConns()
 				if popCloseConn then
 					popCloseConn:Disconnect()
 					popCloseConn = nil
@@ -2547,6 +2810,8 @@ function Library.new(config: WindowConfig)
 			end
 
 			local function openPop()
+				hueN, satN, valN = col:ToHSV()
+				syncHsVisual()
 				fillRgbBoxes()
 				local ap = swBtn.AbsolutePosition
 				local sz = swBtn.AbsoluteSize
@@ -2569,7 +2834,7 @@ function Library.new(config: WindowConfig)
 						local a, s = g.AbsolutePosition, g.AbsoluteSize
 						return p.X >= a.X and p.X <= a.X + s.X and p.Y >= a.Y and p.Y <= a.Y + s.Y
 					end
-					if inside(pop) or inside(swBtn) then
+					if inside(pop) or inside(swBtn) or inside(hexBox) then
 						return
 					end
 					closePop()
@@ -2583,6 +2848,29 @@ function Library.new(config: WindowConfig)
 					openPop()
 				end
 			end)
+
+			do
+				local lastHexTap = 0.0
+				hexBox.InputBegan:Connect(function(input: InputObject)
+					if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+						return
+					end
+					if input.UserInputState ~= Enum.UserInputState.Begin then
+						return
+					end
+					local t = os.clock()
+					if t - lastHexTap < 0.35 then
+						lastHexTap = 0
+						if popOpen then
+							closePop()
+						else
+							openPop()
+						end
+					else
+						lastHexTap = t
+					end
+				end)
+			end
 
 			doneBtn.MouseButton1Click:Connect(function()
 				tryApplyRgb()
@@ -2599,6 +2887,10 @@ function Library.new(config: WindowConfig)
 				syncSwatch()
 				hexBox.Text = string.upper(col:ToHex())
 				fillRgbBoxes()
+				if popOpen then
+					hueN, satN, valN = col:ToHSV()
+					syncHsVisual()
+				end
 			end
 			reg.SetValue = reg.SetValueRGB
 			reg.OnChanged = function(_: any, cb: (Color3) -> ())
@@ -2617,7 +2909,7 @@ function Library.new(config: WindowConfig)
 
 	function Tab:AddLeftGroupbox(
 		header: string,
-		sectionOpts: { Collapsible: boolean?, DefaultExpanded: boolean?, Tooltip: string? }?
+		sectionOpts: { Collapsible: boolean?, DefaultExpanded: boolean?, Tooltip: string?, Icon: (number | string)? }?
 	)
 		local o: any = if sectionOpts then table.clone(sectionOpts) else {}
 		if self._split then
@@ -2628,7 +2920,7 @@ function Library.new(config: WindowConfig)
 
 	function Tab:AddRightGroupbox(
 		header: string,
-		sectionOpts: { Collapsible: boolean?, DefaultExpanded: boolean?, Tooltip: string? }?
+		sectionOpts: { Collapsible: boolean?, DefaultExpanded: boolean?, Tooltip: string?, Icon: (number | string)? }?
 	)
 		local o: any = if sectionOpts then table.clone(sectionOpts) else {}
 		if self._split then
