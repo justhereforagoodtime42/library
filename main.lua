@@ -87,6 +87,52 @@ local function addStackedGlow(host: Frame, specs: { GlowLayerSpec })
 	end
 end
 
+--[[ Sidebar tabs: soft white halo; tint updated in selectTab ]]
+local function addTabStackedGlow(host: Frame, specs: { GlowLayerSpec })
+	local n = #specs
+	for i, g in specs do
+		local t = if n > 1 then (i - 1) / (n - 1) else 0
+		local layer = Instance.new("Frame")
+		layer.Name = "GlowLayer"
+		layer:SetAttribute("GlowStep", i)
+		layer.AnchorPoint = Vector2.new(0.5, 0.5)
+		layer.Position = UDim2.fromScale(0.5, 0.5)
+		layer.Size = UDim2.new(1, g.size, 1, g.size)
+		layer.BackgroundColor3 = Color3.new(1, 1, 1):Lerp(Color3.fromRGB(232, 238, 255), t * 0.4)
+		layer.BackgroundTransparency = g.transparency
+		layer.BorderSizePixel = 0
+		layer.ZIndex = 0
+		layer.Parent = host
+		local gc = Instance.new("UICorner")
+		gc.CornerRadius = UDim.new(0, g.radius)
+		gc.Parent = layer
+	end
+end
+
+local function paintTabGlowHost(tabGlowHost: Frame?, isSelected: boolean)
+	if not tabGlowHost then
+		return
+	end
+	local layers: { Frame } = {}
+	for _, c in tabGlowHost:GetChildren() do
+		if c:IsA("Frame") and c.Name == "GlowLayer" then
+			table.insert(layers, c)
+		end
+	end
+	table.sort(layers, function(a, b)
+		return (tonumber(a:GetAttribute("GlowStep")) or 0) < (tonumber(b:GetAttribute("GlowStep")) or 0)
+	end)
+	local steps = #layers - 1
+	for i, layer in layers do
+		local t = if steps > 0 then (i - 1) / steps else 0
+		if isSelected then
+			layer.BackgroundColor3 = Theme.AccentPurple:Lerp(Theme.AccentBlue, t)
+		else
+			layer.BackgroundColor3 = Color3.new(1, 1, 1):Lerp(Color3.fromRGB(232, 238, 255), t * 0.4)
+		end
+	end
+end
+
 -- ----------------------------------------------------------------------------- Lucide ([lucide.dev](https://lucide.dev) — executor loads sprite module like Obsidian)
 local LUCIDE_ROBLOX_DIRECT =
 	"https://raw.githubusercontent.com/deividcomsono/lucide-roblox-direct/refs/heads/main/source.lua"
@@ -376,11 +422,15 @@ function Library.new(config: WindowConfig)
 		activeTab = index
 		for i, btn in tabButtons do
 			local isSel = (i == index)
+			local tabSlot = btn.Parent
+			if tabSlot and tabSlot:IsA("Frame") then
+				paintTabGlowHost(tabSlot:FindFirstChild("TabGlowHost") :: Frame?, isSel)
+			end
 			local glow = btn:FindFirstChild("Glow") :: UIStroke?
 			if glow then
-				glow.Color = if isSel then Theme.AccentPurple else Theme.AccentBlue
+				glow.Color = if isSel then Theme.AccentPurple else Color3.new(1, 1, 1)
 				glow.Thickness = if isSel then 2.5 else 1.2
-				glow.Transparency = if isSel then 0.18 else 0.85
+				glow.Transparency = if isSel then 0.18 else 0.72
 			end
 			btn.BackgroundTransparency = if isSel then 0.08 else 0.45
 			local icon = btn:FindFirstChild("LucideIcon")
@@ -400,26 +450,47 @@ function Library.new(config: WindowConfig)
 		local rh = Instance.new("TextButton")
 		rh.Name = "ResizeGrip"
 		rh.AnchorPoint = Vector2.new(1, 1)
-		rh.Position = UDim2.new(1, -2, 1, -2)
-		rh.Size = UDim2.fromOffset(22, 22)
+		rh.Position = UDim2.new(1, -4, 1, -4)
+		rh.Size = UDim2.fromOffset(28, 28)
 		rh.BackgroundTransparency = 1
 		rh.Text = ""
 		rh.AutoButtonColor = false
-		rh.ZIndex = 8
+		rh.Active = true
+		rh.Selectable = false
+		rh.ZIndex = 50
 		rh.Parent = root
-		local grip = Instance.new("TextLabel")
-		grip.BackgroundTransparency = 1
-		grip.Size = UDim2.fromScale(1, 1)
-		grip.Text = "⋰"
-		grip.TextColor3 = Theme.TextDim
-		grip.TextTransparency = 0.45
-		grip.TextSize = 16
-		grip.Font = Enum.Font.GothamBold
-		grip.Parent = rh
+		local resizeIcon = Library:GetIcon("move-diagonal-2")
+		if resizeIcon and typeof(resizeIcon.Url) == "string" and resizeIcon.Url ~= "" then
+			local gripImg = Instance.new("ImageLabel")
+			gripImg.Name = "ResizeIcon"
+			gripImg.BackgroundTransparency = 1
+			gripImg.AnchorPoint = Vector2.new(1, 1)
+			gripImg.Position = UDim2.new(1, -2, 1, -2)
+			gripImg.Size = UDim2.fromOffset(18, 18)
+			gripImg.Image = resizeIcon.Url
+			gripImg.ImageRectOffset = resizeIcon.ImageRectOffset or Vector2.zero
+			gripImg.ImageRectSize = resizeIcon.ImageRectSize or Vector2.zero
+			gripImg.ImageColor3 = Theme.TextDim
+			gripImg.ImageTransparency = 0.35
+			gripImg.ScaleType = Enum.ScaleType.Fit
+			gripImg.ZIndex = 51
+			gripImg.Parent = rh
+		else
+			local grip = Instance.new("TextLabel")
+			grip.BackgroundTransparency = 1
+			grip.Size = UDim2.fromScale(1, 1)
+			grip.Text = "⋰"
+			grip.TextColor3 = Theme.TextDim
+			grip.TextTransparency = 0.45
+			grip.TextSize = 16
+			grip.Font = Enum.Font.GothamBold
+			grip.ZIndex = 51
+			grip.Parent = rh
+		end
 		resizeHandle = rh
 	end
 
-	-- dragging + resize
+	-- dragging + resize (grip uses local InputBegan — global InputBegan often has gameProcessed=true on Gui clicks)
 	local dragConn: { RBXScriptConnection } = {}
 	local function beginDrag()
 		local dragging = false
@@ -428,18 +499,40 @@ function Library.new(config: WindowConfig)
 		local startPos: UDim2
 		local resizeStart: Vector2
 		local resizeStartSize: Vector2
+		local resizeEndConn: RBXScriptConnection? = nil
 
-		local function overResize(p: Vector3): boolean
-			if not resizeHandle or not resizeHandle.Visible then
-				return false
-			end
-			local ap = resizeHandle.AbsolutePosition
-			local as = resizeHandle.AbsoluteSize
-			return p.X >= ap.X and p.X <= ap.X + as.X and p.Y >= ap.Y and p.Y <= ap.Y + as.Y
+		if resizeHandle then
+			resizeHandle.InputBegan:Connect(function(input: InputObject)
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				resizing = true
+				resizeStart = Vector2.new(input.Position.X, input.Position.Y)
+				resizeStartSize = Vector2.new(root.AbsoluteSize.X, root.AbsoluteSize.Y)
+				if resizeEndConn then
+					resizeEndConn:Disconnect()
+					resizeEndConn = nil
+				end
+				resizeEndConn = input.Changed:Connect(function()
+					if input.UserInputState == Enum.UserInputState.End then
+						resizing = false
+						if resizeEndConn then
+							resizeEndConn:Disconnect()
+							resizeEndConn = nil
+						end
+					end
+				end)
+			end)
 		end
 
 		local function inputBegan(input: InputObject, gp: boolean)
 			if gp then
+				return
+			end
+			if resizing then
 				return
 			end
 			if
@@ -449,12 +542,6 @@ function Library.new(config: WindowConfig)
 				return
 			end
 			local p = input.Position
-			if overResize(p) then
-				resizing = true
-				resizeStart = Vector2.new(p.X, p.Y)
-				resizeStartSize = Vector2.new(root.AbsoluteSize.X, root.AbsoluteSize.Y)
-				return
-			end
 			local ap = mainPanel.AbsolutePosition
 			local as = mainPanel.AbsoluteSize
 			if
@@ -479,7 +566,8 @@ function Library.new(config: WindowConfig)
 			end
 		end
 		local function inputMoved(input: InputObject, gp: boolean)
-			if gp then
+			-- Clicks on our GUI set gameProcessed; still need move events while dragging/resizing.
+			if gp and not dragging and not resizing then
 				return
 			end
 			if resizing then
@@ -580,7 +668,7 @@ function Library.new(config: WindowConfig)
 			tabGlowHost.BorderSizePixel = 0
 			tabGlowHost.ZIndex = 0
 			tabGlowHost.Parent = tabSlot
-			addStackedGlow(tabGlowHost, {
+			addTabStackedGlow(tabGlowHost, {
 				{ size = 2, transparency = 0.88, radius = 6 },
 				{ size = 6, transparency = 0.93, radius = 7 },
 				{ size = 11, transparency = 0.97, radius = 8 },
@@ -624,7 +712,7 @@ function Library.new(config: WindowConfig)
 			btn.Font = Enum.Font.GothamBold
 		end
 		corner(Theme.CornerSm).Parent = btn
-		local g = stroke(Theme.AccentBlue, 1.2, 0.85)
+		local g = stroke(Color3.new(1, 1, 1), 1.2, 0.72)
 		g.Name = "Glow"
 		g.Parent = btn
 
