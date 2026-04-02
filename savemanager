@@ -487,7 +487,9 @@ do
 	function SaveManager:BuildConfigSection(tab)
 		assert(self.Library, "Must set SaveManager.Library")
 
-		local section = tab:AddSection("Configuration")
+		local section = if typeof(tab.AddRightGroupbox) == "function"
+			then tab:AddRightGroupbox("Configuration")
+			else tab:AddSection("Configuration")
 
 		section:AddInput({
 			Text = "Config name",
