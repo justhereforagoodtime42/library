@@ -63,59 +63,6 @@ local function pad(p: number)
 	return x
 end
 
-type GlowLayerSpec = { size: number, transparency: number, radius: number }
-
---[[ Single or stacked rim frames behind a host; spills past edges when host clips are off.
-    colorAt(t) maps 0..1 across layers (one layer → t = 0); GlowIdx on each layer for tab selection tint. ]]
-local function addStackedGlow(host: Frame, specs: { GlowLayerSpec }, colorAt: ((number) -> Color3)?)
-	local steps = #specs - 1
-	host:SetAttribute("GlowSteps", #specs)
-	for i, g in specs do
-		local t = if steps > 0 then (i - 1) / steps else 0
-		local layerColor = if colorAt then colorAt(t) else Theme.AccentBlue:Lerp(Theme.Stroke, t)
-		local layer = Instance.new("Frame")
-		layer.Name = "GlowLayer"
-		layer:SetAttribute("GlowIdx", i)
-		layer.AnchorPoint = Vector2.new(0.5, 0.5)
-		layer.Position = UDim2.fromScale(0.5, 0.5)
-		layer.Size = UDim2.new(1, g.size, 1, g.size)
-		layer.BackgroundColor3 = layerColor
-		layer.BackgroundTransparency = g.transparency
-		layer.BorderSizePixel = 0
-		layer.ZIndex = 0
-		layer.LayoutOrder = i
-		layer.Parent = host
-		local gc = Instance.new("UICorner")
-		gc.CornerRadius = UDim.new(0, g.radius)
-		gc.Parent = layer
-	end
-end
-
-local function tabGlowHostColors(host: Frame?, isSelected: boolean)
-	if not host then
-		return
-	end
-	local n = host:GetAttribute("GlowSteps")
-	if typeof(n) ~= "number" or n < 1 then
-		return
-	end
-	local steps = math.max(1, n - 1)
-	for _, ch in host:GetChildren() do
-		if ch:IsA("Frame") and ch.Name == "GlowLayer" then
-			local idx = ch:GetAttribute("GlowIdx")
-			if typeof(idx) ~= "number" then
-				continue
-			end
-			local t = (idx - 1) / steps
-			if isSelected then
-				ch.BackgroundColor3 = Theme.AccentPurple:Lerp(Theme.AccentBlue, t)
-			else
-				ch.BackgroundColor3 = Color3.new(1, 1, 1):Lerp(Color3.fromRGB(210, 218, 245), t)
-			end
-		end
-	end
-end
-
 -- ----------------------------------------------------------------------------- Lucide ([lucide.dev](https://lucide.dev) — executor loads sprite module like Obsidian)
 local LUCIDE_ROBLOX_DIRECT =
 	"https://raw.githubusercontent.com/deividcomsono/lucide-roblox-direct/refs/heads/main/source.lua"
@@ -205,7 +152,6 @@ export type WindowConfig = {
 	--[[ minimum body content size (width × height below title bar); root adds mascot + 48px header ]]
 	MinSize: Vector2?,
 	Resizable: boolean?,
-	GlowEnabled: boolean?,
 }
 
 function Library.new(config: WindowConfig)
@@ -337,7 +283,7 @@ function Library.new(config: WindowConfig)
 	sideList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 	sideList.Parent = sidebar
 
-	--[[ One shell: transparent MainPanel holds glow + inner face (no extra MainPanelWrap in the tree) ]]
+	--[[ MainPanel: single rim via PanelOutline (UIStroke) on the face — no extra halo frames ]]
 	local mainPanel = Instance.new("Frame")
 	mainPanel.Name = "MainPanel"
 	mainPanel.Size = UDim2.new(1, -62, 1, 0)
@@ -346,20 +292,6 @@ function Library.new(config: WindowConfig)
 	mainPanel.BorderSizePixel = 0
 	mainPanel.ClipsDescendants = false
 	mainPanel.Parent = body
-
-	if config.GlowEnabled ~= false then
-		local panelGlowHost = Instance.new("Frame")
-		panelGlowHost.Name = "MainGlowHost"
-		panelGlowHost.Size = UDim2.fromScale(1, 1)
-		panelGlowHost.Position = UDim2.fromScale(0, 0)
-		panelGlowHost.BackgroundTransparency = 1
-		panelGlowHost.BorderSizePixel = 0
-		panelGlowHost.ZIndex = 0
-		panelGlowHost.Parent = mainPanel
-		addStackedGlow(panelGlowHost, {
-			{ size = 6, transparency = 0.76, radius = 10 },
-		})
-	end
 
 	local panelFace = Instance.new("Frame")
 	panelFace.Name = "PanelFace"
@@ -415,10 +347,6 @@ function Library.new(config: WindowConfig)
 				icon.ImageColor3 = if isSel then Color3.new(1, 1, 1) else Theme.Text
 			else
 				btn.TextColor3 = if isSel then Color3.new(1, 1, 1) else Theme.Text
-			end
-			local slot = btn.Parent
-			if slot and slot:IsA("Frame") then
-				tabGlowHostColors(slot:FindFirstChild("TabGlowHost") :: Frame?, isSel)
 			end
 		end
 		for i, sc in tabScrolls do
@@ -623,21 +551,6 @@ function Library.new(config: WindowConfig)
 		tabSlot.ClipsDescendants = false
 		tabSlot.LayoutOrder = idx
 		tabSlot.Parent = sidebar
-
-		if config.GlowEnabled ~= false then
-			local tabGlowHost = Instance.new("Frame")
-			tabGlowHost.Name = "TabGlowHost"
-			tabGlowHost.Size = UDim2.fromScale(1, 1)
-			tabGlowHost.BackgroundTransparency = 1
-			tabGlowHost.BorderSizePixel = 0
-			tabGlowHost.ZIndex = 0
-			tabGlowHost.Parent = tabSlot
-			addStackedGlow(tabGlowHost, {
-				{ size = 3, transparency = 0.82, radius = 7 },
-			}, function(t: number)
-				return Color3.new(1, 1, 1):Lerp(Color3.fromRGB(210, 218, 245), t)
-			end)
-		end
 
 		local btn = Instance.new("TextButton")
 		btn.Name = "Tab_" .. idx
