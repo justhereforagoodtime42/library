@@ -14,6 +14,8 @@ local gethui = gethui or function()
 end
 
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+--[[ Obsidian-style: PlayerMouse matches GuiObject.AbsolutePosition better than GetMouseLocation on some clients. ]]
+local PlayerMouse = LocalPlayer:GetMouse()
 
 -- ----------------------------------------------------------------------------- theme (mutable; ThemeManager / RefreshTheme)
 local Library = {}
@@ -434,6 +436,8 @@ end
 export type WindowConfig = {
 	Title: string?,
 	Subtitle: string?,
+	--[[ optional: replaces purple header dot — rbxassetid number, digit string, or rbxasset:// URL (same as tab icons) ]]
+	TitleIcon: string | number?,
 	--[[ optional rbxasset:// or http url for left mascot ]]
 	MascotImage: string?,
 	Size: Vector2?,
@@ -451,6 +455,7 @@ function Library.new(config: WindowConfig)
 	config = config or {}
 	local titleText = config.Title or "Acid Hub"
 	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
+	local titleIcon = config.TitleIcon
 	local minContent = config.MinSize or Vector2.new(380, 300)
 	local size = config.Size or Vector2.new(520, 440)
 	size = Vector2.new(math.max(size.X, minContent.X), math.max(size.Y, minContent.Y))
@@ -580,14 +585,14 @@ function Library.new(config: WindowConfig)
 					and loopTok == tooltipLoopToken
 					and showTok == tooltipToken
 				do
-					local p = UserInputService:GetMouseLocation()
+					local px, py = PlayerMouse.X, PlayerMouse.Y
 					local cam = workspace.CurrentCamera
 					local vw = if cam then cam.ViewportSize.X else 1920
 					local vh = if cam then cam.ViewportSize.Y else 1080
 					local ax = tooltipLabel.AbsoluteSize.X
 					local ay = tooltipLabel.AbsoluteSize.Y
-					local x = math.clamp(p.X + 14, 6, math.max(6, vw - ax - 6))
-					local y = math.clamp(p.Y + 14, 6, math.max(6, vh - ay - 6))
+					local x = math.clamp(px + 14, 6, math.max(6, vw - ax - 6))
+					local y = math.clamp(py + 14, 6, math.max(6, vh - ay - 6))
 					tooltipLabel.Position = UDim2.fromOffset(x, y)
 					RunService.RenderStepped:Wait()
 				end
@@ -695,13 +700,39 @@ function Library.new(config: WindowConfig)
 	pillLayout.Padding = UDim.new(0, 10)
 	pillLayout.Parent = pill
 
-	local logo = Instance.new("Frame")
-	logo.Name = "LogoDot"
-	logo.Size = UDim2.fromOffset(18, 18)
-	logo.BackgroundColor3 = Theme.AccentPurple
-	logo.LayoutOrder = 0
-	logo.Parent = pill
-	corner(UDim.new(1, 0)).Parent = logo
+	local logo: GuiObject
+	if titleIcon ~= nil then
+		local img = Instance.new("ImageLabel")
+		img.Name = "TitleIcon"
+		img.Size = UDim2.fromOffset(18, 18)
+		img.BackgroundTransparency = 1
+		img.ScaleType = Enum.ScaleType.Fit
+		img.LayoutOrder = 0
+		local parsed = Library:GetCustomIcon(titleIcon)
+		if parsed then
+			img.Image = parsed.Url
+			img.ImageRectOffset = parsed.ImageRectOffset
+			img.ImageRectSize = parsed.ImageRectSize
+			if parsed.Untinted then
+				img.ImageColor3 = Color3.new(1, 1, 1)
+			else
+				img.ImageColor3 = Theme.AccentPurple
+				img:SetAttribute("AcidImg", "AccentPurple")
+			end
+		end
+		img.Parent = pill
+		corner(UDim.new(1, 0)).Parent = img
+		logo = img
+	else
+		local fr = Instance.new("Frame")
+		fr.Name = "LogoDot"
+		fr.Size = UDim2.fromOffset(18, 18)
+		fr.BackgroundColor3 = Theme.AccentPurple
+		fr.LayoutOrder = 0
+		fr.Parent = pill
+		corner(UDim.new(1, 0)).Parent = fr
+		logo = fr
+	end
 
 	local subtitle = Instance.new("TextLabel")
 	subtitle.Name = "Subtitle"
@@ -1018,7 +1049,14 @@ function Library.new(config: WindowConfig)
 				ch.Color = Theme.Stroke
 			end
 		end
-		logo.BackgroundColor3 = Theme.AccentPurple
+		if logo:IsA("Frame") then
+			logo.BackgroundColor3 = Theme.AccentPurple
+		elseif logo:IsA("ImageLabel") then
+			local ak = logo:GetAttribute("AcidImg")
+			if typeof(ak) == "string" and typeof(Theme[ak]) == "Color3" then
+				logo.ImageColor3 = Theme[ak]
+			end
+		end
 		subtitle.TextColor3 = Theme.TextDim
 		panelFace.BackgroundColor3 = Theme.Panel
 		panelFace.BackgroundTransparency = Theme.PanelTrans
@@ -2671,8 +2709,12 @@ function Library.new(config: WindowConfig)
 			syncHsVisualRef = syncHsVisual
 
 			local function pointerXY(): (number, number)
-				local p = UserInputService:GetMouseLocation()
-				return p.X, p.Y
+				--[[ Match Obsidian / AbsolutePosition: PlayerMouse aligns with AbsolutePosition; GetMouseLocation can be offset (e.g. GuiInset). ]]
+				if UserInputService.MouseEnabled then
+					return PlayerMouse.X, PlayerMouse.Y
+				end
+				local v = UserInputService:GetMouseLocation()
+				return v.X, v.Y
 			end
 
 			local function sampleSatVal()
