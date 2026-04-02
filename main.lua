@@ -1703,7 +1703,6 @@ function Library.new(config: WindowConfig)
 		hList.FillDirection = Enum.FillDirection.Horizontal
 		hList.SortOrder = Enum.SortOrder.LayoutOrder
 		hList.Padding = UDim.new(0, 4)
-		hList.VerticalAlignment = Enum.VerticalAlignment.Center
 		hList.Parent = strip
 
 		local contentHost = Instance.new("Frame")
