@@ -217,8 +217,6 @@ do
 		if scheme.BackgroundColor then
 			local bg = self:HexToColor(scheme.BackgroundColor)
 			T.Background = bg
-			--[[ Obsidian groupbox fill uses the same key as window background ]]
-			T.Groupbox = bg
 		end
 		if scheme.MainColor then
 			local m = self:HexToColor(scheme.MainColor)
@@ -236,6 +234,8 @@ do
 		if scheme.OutlineColor then
 			T.Stroke = self:HexToColor(scheme.OutlineColor)
 		end
+		--[[ Groupbox shell: panel + accent (not window Background — matches AccentColor picker) ]]
+		T.Groupbox = T.Panel:Lerp(T.AccentBlue, 0.16)
 		T.TextDim = T.Text:Lerp(T.Background, 0.42)
 		T.ToggleOff = T.Panel:Lerp(Color3.new(0, 0, 0), 0.25)
 
@@ -397,6 +397,7 @@ do
 			Options = ThemesArray,
 			Default = 1,
 			Idx = "ThemeManager_ThemeList",
+			MaxVisibleItems = 10,
 		})
 
 		section:AddButton("Set built-in as default", function()
@@ -441,6 +442,7 @@ do
 			AllowNull = true,
 			Default = 1,
 			Idx = "ThemeManager_CustomThemeList",
+			MaxVisibleItems = 10,
 		})
 
 		section:AddButton("Load custom theme", function()
