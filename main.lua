@@ -895,6 +895,13 @@ function Library.new(config: WindowConfig)
 
 	local function paintThemedDescendants(host: Instance)
 		for _, d in host:GetDescendants() do
+			--[[ UIStroke is not a GuiObject — must run before the guard or borders never follow Theme (groupbox outline stuck on defaults). ]]
+			if d:IsA("UIStroke") then
+				local sk = d:GetAttribute("AcidStroke")
+				if typeof(sk) == "string" and typeof(Theme[sk]) == "Color3" then
+					d.Color = Theme[sk]
+				end
+			end
 			if not d:IsA("GuiObject") then
 				continue
 			end
@@ -911,10 +918,6 @@ function Library.new(config: WindowConfig)
 			local ph = d:GetAttribute("AcidPlaceholder")
 			if typeof(ph) == "string" and typeof(Theme[ph]) == "Color3" and d:IsA("TextBox") then
 				d.PlaceholderColor3 = Theme[ph]
-			end
-			local sk = d:GetAttribute("AcidStroke")
-			if typeof(sk) == "string" and typeof(Theme[sk]) == "Color3" and d:IsA("UIStroke") then
-				d.Color = Theme[sk]
 			end
 			local ik = d:GetAttribute("AcidImg")
 			if typeof(ik) == "string" and typeof(Theme[ik]) == "Color3" then
