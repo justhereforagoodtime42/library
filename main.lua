@@ -284,6 +284,7 @@ local function addStackedGlow(host: Frame, specs: { GlowLayerSpec })
 		local layerColor = themeGlowLayerColor(t)
 		local layer = Instance.new("Frame")
 		layer.Name = "GlowLayer"
+		layer:SetAttribute("GlowStep", i)
 		layer.AnchorPoint = Vector2.new(0.5, 0.5)
 		layer.Position = UDim2.fromScale(0.5, 0.5)
 		layer.Size = UDim2.new(1, g.size, 1, g.size)
@@ -373,6 +374,11 @@ local function paintMainGlowHost(mainGlowHost: Frame?)
 		end
 	end
 	table.sort(layers, function(a, b)
+		local sa = tonumber(a:GetAttribute("GlowStep"))
+		local sb = tonumber(b:GetAttribute("GlowStep"))
+		if typeof(sa) == "number" and typeof(sb) == "number" then
+			return sa < sb
+		end
 		return a.Size.X.Offset < b.Size.X.Offset
 	end)
 	local steps = #layers - 1
@@ -1162,7 +1168,14 @@ function Library.new(config: WindowConfig)
 			end
 		end
 		paintPillGlowHost(pillGlowHost)
-		paintMainGlowHost(panelGlowHost)
+		do
+			local mg = mainPanel:FindFirstChild("MainGlowHost")
+			if mg and mg:IsA("Frame") then
+				paintMainGlowHost(mg)
+			else
+				paintMainGlowHost(panelGlowHost)
+			end
+		end
 		if logo:IsA("Frame") then
 			logo.BackgroundColor3 = Theme.AccentPurple
 		elseif logo:IsA("ImageLabel") then
