@@ -894,36 +894,35 @@ function Library.new(config: WindowConfig)
 	-- Notify UI is parented after root (see below) so it stacks above the window with Global ZIndex
 
 	local function paintThemedDescendants(host: Instance)
-		local T = Library.Theme
 		for _, d in host:GetDescendants() do
-			--[[ UIStroke is not a GuiObject — handle before the GuiObject guard. ]]
+			--[[ UIStroke is not a GuiObject — must run before the guard or borders never follow Theme (groupbox outline stuck on defaults). ]]
 			if d:IsA("UIStroke") then
 				local sk = d:GetAttribute("AcidStroke")
-				if typeof(sk) == "string" and typeof(T[sk]) == "Color3" then
-					d.Color = T[sk]
+				if typeof(sk) == "string" and typeof(Theme[sk]) == "Color3" then
+					d.Color = Theme[sk]
 				end
 			end
 			if not d:IsA("GuiObject") then
 				continue
 			end
 			local bgk = d:GetAttribute("AcidBg")
-			if typeof(bgk) == "string" and typeof(T[bgk]) == "Color3" then
-				d.BackgroundColor3 = T[bgk]
+			if typeof(bgk) == "string" and typeof(Theme[bgk]) == "Color3" then
+				d.BackgroundColor3 = Theme[bgk]
 			end
 			local tx = d:GetAttribute("AcidText")
-			if typeof(tx) == "string" and typeof(T[tx]) == "Color3" then
+			if typeof(tx) == "string" and typeof(Theme[tx]) == "Color3" then
 				if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
-					d.TextColor3 = T[tx]
+					d.TextColor3 = Theme[tx]
 				end
 			end
 			local ph = d:GetAttribute("AcidPlaceholder")
-			if typeof(ph) == "string" and typeof(T[ph]) == "Color3" and d:IsA("TextBox") then
-				d.PlaceholderColor3 = T[ph]
+			if typeof(ph) == "string" and typeof(Theme[ph]) == "Color3" and d:IsA("TextBox") then
+				d.PlaceholderColor3 = Theme[ph]
 			end
 			local ik = d:GetAttribute("AcidImg")
-			if typeof(ik) == "string" and typeof(T[ik]) == "Color3" then
+			if typeof(ik) == "string" and typeof(Theme[ik]) == "Color3" then
 				if d:IsA("ImageLabel") or d:IsA("ImageButton") then
-					d.ImageColor3 = T[ik]
+					d.ImageColor3 = Theme[ik]
 				end
 			end
 		end
@@ -1541,17 +1540,9 @@ function Library.new(config: WindowConfig)
 			})
 		end
 		paintThemedDescendants(contentHost)
-		do
-			local T = Library.Theme
-			for _, d in contentHost:GetDescendants() do
-				if d:IsA("Frame") and d:GetAttribute("AcidBg") == "Groupbox" then
-					d.BackgroundTransparency = T.GroupboxTrans
-					local outline = d:FindFirstChild("GroupboxOutline")
-					if outline and outline:IsA("UIStroke") then
-						outline.Color = T.AccentBlue
-						outline.Transparency = math.clamp(T.StrokeTrans, 0.22, 0.58)
-					end
-				end
+		for _, d in contentHost:GetDescendants() do
+			if d:IsA("Frame") and d:GetAttribute("AcidBg") == "Groupbox" then
+				d.BackgroundTransparency = Theme.GroupboxTrans
 			end
 		end
 		for _, chevRefresh in sectionChevronRefreshes do
@@ -2059,8 +2050,7 @@ function Library.new(config: WindowConfig)
 		wrap:SetAttribute("AcidBg", "Groupbox")
 		wrap.Parent = parentScroll
 		corner(Theme.Corner).Parent = wrap
-		local gbStroke = stroke(Library.Theme.AccentBlue, 1, math.clamp(Library.Theme.StrokeTrans, 0.22, 0.58))
-		gbStroke.Name = "GroupboxOutline"
+		local gbStroke = stroke(Theme.AccentBlue, 1, math.clamp(Theme.StrokeTrans, 0.22, 0.58))
 		gbStroke:SetAttribute("AcidStroke", "AccentBlue")
 		gbStroke.Parent = wrap
 		local wrapOuterPad = Instance.new("UIPadding")
