@@ -397,7 +397,7 @@ do
 			Options = ThemesArray,
 			Default = 1,
 			Idx = "ThemeManager_ThemeList",
-			MaxVisibleItems = 10,
+			MaxVisibleItems = 5,
 		})
 
 		section:AddButton("Set built-in as default", function()
@@ -442,7 +442,7 @@ do
 			AllowNull = true,
 			Default = 1,
 			Idx = "ThemeManager_CustomThemeList",
-			MaxVisibleItems = 10,
+			MaxVisibleItems = 5,
 		})
 
 		section:AddButton("Load custom theme", function()
