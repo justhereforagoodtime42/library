@@ -751,36 +751,6 @@ local function addPillStackedGlow(host: Frame, specs: { GlowLayerSpec })
 	end
 end
 
---[[ Top pill height is fixed in layout; corner radius cannot exceed half-height or it squares off. ]]
-local function topPillCornerPx(radiusSetting: number, pillHeightPx: number): number
-	local half = math.max(1, math.floor(pillHeightPx / 2))
-	return math.clamp(math.floor(radiusSetting + 0.5), 0, half)
-end
-
-local function syncPillGlowCornerRadii(pillGlowHost: Frame?, baseRadiusPx: number, pillInnerHeightPx: number)
-	if not pillGlowHost then
-		return
-	end
-	for _, c in pillGlowHost:GetChildren() do
-		if not c:IsA("Frame") or c.Name ~= "PillGlowLayer" then
-			continue
-		end
-		local expand = c.Size.X.Offset
-		if typeof(expand) ~= "number" then
-			continue
-		end
-		local gc = c:FindFirstChildWhichIsA("UICorner")
-		if not gc then
-			continue
-		end
-		local outerH = pillInnerHeightPx + expand
-		local halfOuter = math.max(1, math.floor(outerH / 2))
-		local r = math.floor(baseRadiusPx + expand / 2 + 0.5)
-		r = math.min(r, halfOuter)
-		gc.CornerRadius = UDim.new(0, math.clamp(r, 0, 64))
-	end
-end
-
 local function paintPillGlowHost(pillGlowHost: Frame?)
 	if not pillGlowHost then
 		return
@@ -798,33 +768,6 @@ local function paintPillGlowHost(pillGlowHost: Frame?)
 	for i, layer in layers do
 		local t = if steps > 0 then (i - 1) / steps else 0
 		layer.BackgroundColor3 = themeGlowLayerColor(t)
-	end
-	local pillH = 36
-	local base = topPillCornerPx(Library.CornerRadius, pillH)
-	syncPillGlowCornerRadii(pillGlowHost, base, pillH)
-end
-
---[[ Glow layers are larger than the panel (Size 1, +size); keep UICorner concentric with PanelFace or the bottom/top read as a square halo. ]]
-local function syncMainGlowCornerRadii(mainGlowHost: Frame?, baseRadiusPx: number)
-	if not mainGlowHost then
-		return
-	end
-	baseRadiusPx = math.clamp(math.floor(baseRadiusPx + 0.5), 0, 64)
-	for _, c in mainGlowHost:GetChildren() do
-		if not c:IsA("Frame") or c.Name ~= "GlowLayer" then
-			continue
-		end
-		local expand = c.Size.X.Offset
-		if typeof(expand) ~= "number" then
-			continue
-		end
-		local gc = c:FindFirstChildWhichIsA("UICorner")
-		if not gc then
-			continue
-		end
-		-- Each layer is ~expand px wider/taller total; corner radius should grow by ~half that per side.
-		local r = math.floor(baseRadiusPx + expand / 2 + 0.5)
-		gc.CornerRadius = UDim.new(0, math.clamp(r, 0, 96))
 	end
 end
 
@@ -851,7 +794,20 @@ local function paintMainGlowHost(mainGlowHost: Frame?)
 		local t = if steps > 0 then (i - 1) / steps else 0
 		layer.BackgroundColor3 = themeGlowLayerColor(t)
 	end
-	syncMainGlowCornerRadii(mainGlowHost, Library.CornerRadius)
+	--[[ Match panel Theme.Corner: addStackedGlow used fixed 9–13px radii so large window corners left a square bottom behind semi-transparent panels. ]]
+	local hostCorner = mainGlowHost:FindFirstChildWhichIsA("UICorner")
+	if hostCorner then
+		hostCorner.CornerRadius = Theme.Corner
+	end
+	local baseR = Theme.Corner.Offset
+	local cornerExtras = { 0, 2, 3, 4 }
+	for i, layer in layers do
+		local gc = layer:FindFirstChildWhichIsA("UICorner")
+		if gc then
+			local extra = cornerExtras[i] or 0
+			gc.CornerRadius = UDim.new(0, math.max(0, baseR + extra))
+		end
+	end
 end
 
 local function paintTabGlowHost(tabGlowHost: Frame?, isSelected: boolean)
@@ -1311,11 +1267,8 @@ function Library.new(config: WindowConfig)
 			{ size = 10, transparency = 0.91, radius = 0 },
 			{ size = 16, transparency = 0.95, radius = 0 },
 		})
-		local _pillHInit = 36
-		syncPillGlowCornerRadii(gh, topPillCornerPx(Library.CornerRadius, _pillHInit), _pillHInit)
 	end
 
-	local topPillHeightPx = 36
 	local pill = Instance.new("Frame")
 	pill.Name = "TopPill"
 	pill.Size = UDim2.fromScale(1, 1)
@@ -1325,11 +1278,7 @@ function Library.new(config: WindowConfig)
 	pill.BackgroundTransparency = 0
 	pill.BorderSizePixel = 0
 	pill.Parent = pillOuter
-	do
-		local pc = Instance.new("UICorner")
-		pc.CornerRadius = UDim.new(0, topPillCornerPx(Library.CornerRadius, topPillHeightPx))
-		pc.Parent = pill
-	end
+	corner(UDim.new(1, 0)).Parent = pill
 	stroke(Theme.Stroke, 1, 0.65).Parent = pill
 	pad(12).Parent = pill
 
@@ -1422,14 +1371,8 @@ function Library.new(config: WindowConfig)
 	mainPanel.LayoutOrder = 1
 	mainPanel.BackgroundTransparency = 1
 	mainPanel.BorderSizePixel = 0
-	--[[ ScrollingFrames use square fills; clip at this shell so bottom matches top rounded corners (panelFace alone often leaves a square bottom). ]]
-	mainPanel.ClipsDescendants = true
+	mainPanel.ClipsDescendants = false
 	mainPanel.Parent = body
-	do
-		local mpc = Instance.new("UICorner")
-		mpc.CornerRadius = Theme.Corner
-		mpc.Parent = mainPanel
-	end
 
 	local panelGlowHost: Frame? = nil
 	if config.GlowEnabled ~= false then
@@ -1448,7 +1391,9 @@ function Library.new(config: WindowConfig)
 			{ size = 17, transparency = 0.95, radius = 12 },
 			{ size = 22, transparency = 0.98, radius = 13 },
 		})
-		syncMainGlowCornerRadii(gh, Library.CornerRadius)
+		gh.ClipsDescendants = true
+		corner(Theme.Corner).Parent = gh
+		paintMainGlowHost(gh)
 	end
 
 	local panelFace = Instance.new("Frame")
@@ -1464,6 +1409,12 @@ function Library.new(config: WindowConfig)
 	local panelOutline = stroke(Theme.Stroke, 2, math.clamp(Theme.StrokeTrans - 0.15, 0.2, 0.55))
 	panelOutline.Name = "PanelOutline"
 	panelOutline.Parent = panelFace
+
+	--[[ Rounded clip on the shell so glow + face share the same corner curve (fixes flat bottom when radius > glow’s fixed 9–13px corners). ]]
+	mainPanel.ClipsDescendants = true
+	if mainPanel:FindFirstChildWhichIsA("UICorner") == nil then
+		corner(Theme.Corner).Parent = mainPanel
+	end
 
 	local panelTitle = Instance.new("TextLabel")
 	panelTitle.Name = "WindowTitle"
@@ -1766,6 +1717,10 @@ function Library.new(config: WindowConfig)
 		end
 		paintPillGlowHost(pillGlowHost)
 		do
+			local mpc = mainPanel:FindFirstChildWhichIsA("UICorner")
+			if mpc then
+				mpc.CornerRadius = Theme.Corner
+			end
 			local mg = mainPanel:FindFirstChild("MainGlowHost")
 			if mg and mg:IsA("Frame") then
 				paintMainGlowHost(mg)
@@ -1916,21 +1871,17 @@ function Library.new(config: WindowConfig)
 		if pf then
 			pf.CornerRadius = Theme.Corner
 		end
-		local mg = mainPanel:FindFirstChild("MainGlowHost")
-		if mg and mg:IsA("Frame") then
-			syncMainGlowCornerRadii(mg, n)
-		end
 		local mpc = mainPanel:FindFirstChildWhichIsA("UICorner")
 		if mpc then
 			mpc.CornerRadius = Theme.Corner
 		end
-		local pillR = topPillCornerPx(n, topPillHeightPx)
-		local pillC = pill:FindFirstChildWhichIsA("UICorner")
-		if pillC then
-			pillC.CornerRadius = UDim.new(0, pillR)
-		end
-		if pillGlowHost then
-			syncPillGlowCornerRadii(pillGlowHost, pillR, topPillHeightPx)
+		do
+			local mg = mainPanel:FindFirstChild("MainGlowHost")
+			if mg and mg:IsA("Frame") then
+				paintMainGlowHost(mg)
+			elseif panelGlowHost then
+				paintMainGlowHost(panelGlowHost)
+			end
 		end
 	end
 
