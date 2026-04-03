@@ -75,6 +75,68 @@ local function pad(p: number)
 	return x
 end
 
+--[[ Section / groupbox widget density (Obsidian-style: ~14px text, ~18–21px controls) ]]
+local UID = {
+	SectionHeaderH = 26,
+	SectionOuterPad = 6,
+	SectionHeaderInnerPad = 6,
+	SectionIcon = 16,
+	SectionTitle = 12,
+	BodyListPad = 8,
+	Chevron = 14,
+	--
+	ToggleRowH = 20,
+	ToggleTrackW = 32,
+	ToggleTrackH = 16,
+	ToggleKnob = 12,
+	ToggleLabelReserve = 38,
+	FontWidget = 14,
+	--
+	SliderRowH = 34,
+	SliderTopH = 14,
+	SliderValW = 44,
+	SliderValH = 18,
+	SliderTrackY = 22,
+	SliderTrackH = 8,
+	SliderLblText = 13,
+	SliderValText = 12,
+	--
+	DropLblH = 14,
+	DropBtnH = 21,
+	DropBtnY = 15,
+	DropListY = 37,
+	DropBtnPad = 7,
+	DropBtnText = 13,
+	DropOptRow = 21,
+	DropSearchH = 24,
+	DropChev = 14,
+	--
+	InputRowH = 40,
+	InputLblH = 14,
+	InputBoxH = 21,
+	InputBoxY = 15,
+	InputBoxPad = 7,
+	InputLblText = 12,
+	InputBoxText = 13,
+	--
+	ButtonH = 28,
+	KeyRowH = 30,
+	KeyCapW = 100,
+	KeyCapH = 22,
+	AddLabelH = 16,
+	AddLabelText = 13,
+	--
+	ColorRowH = 38,
+	ColorLblH = 14,
+	ColorBarH = 21,
+	ColorBarY = 15,
+	ColorSwatch = 34,
+	--
+	TabboxStripH = 28,
+	TabboxBtnH = 20,
+	TabboxBtnText = 12,
+}
+
 Library.Toggles = {} :: { [string]: any }
 Library.Options = {} :: { [string]: any }
 --[[ When true, AddDropdown uses Multi = true unless the option explicitly sets Multi = false ]]
@@ -1826,7 +1888,7 @@ function Library.new(config: WindowConfig)
 		strip.BackgroundColor3 = Theme.Background
 		strip.BackgroundTransparency = 0.35
 		strip.BorderSizePixel = 0
-		strip.Size = UDim2.new(1, 0, 0, 30)
+		strip.Size = UDim2.new(1, 0, 0, UID.TabboxStripH)
 		strip.LayoutOrder = nextLo
 		nextLo += 1
 		strip:SetAttribute("AcidBg", "Background")
@@ -1891,10 +1953,10 @@ function Library.new(config: WindowConfig)
 			local btn = Instance.new("TextButton")
 			btn.Name = "SubTab_" .. name
 			btn.AutoButtonColor = false
-			btn.Size = UDim2.new(0, 0, 0, 22)
+			btn.Size = UDim2.new(0, 0, 0, UID.TabboxBtnH)
 			btn.AutomaticSize = Enum.AutomaticSize.X
 			btn.Font = Enum.Font.GothamMedium
-			btn.TextSize = 12
+			btn.TextSize = UID.TabboxBtnText
 			btn.Text = name
 			btn.BackgroundColor3 = Theme.Background
 			btn.BackgroundTransparency = 0.55
@@ -2203,10 +2265,10 @@ function Library.new(config: WindowConfig)
 		gbStroke:SetAttribute("AcidStroke", "AccentBlue")
 		gbStroke.Parent = wrap
 		local wrapOuterPad = Instance.new("UIPadding")
-		wrapOuterPad.PaddingLeft = UDim.new(0, 7)
-		wrapOuterPad.PaddingRight = UDim.new(0, 7)
-		wrapOuterPad.PaddingTop = UDim.new(0, 7)
-		wrapOuterPad.PaddingBottom = UDim.new(0, 7)
+		wrapOuterPad.PaddingLeft = UDim.new(0, UID.SectionOuterPad)
+		wrapOuterPad.PaddingRight = UDim.new(0, UID.SectionOuterPad)
+		wrapOuterPad.PaddingTop = UDim.new(0, UID.SectionOuterPad)
+		wrapOuterPad.PaddingBottom = UDim.new(0, UID.SectionOuterPad)
 		wrapOuterPad.Parent = wrap
 
 		local wrapList = Instance.new("UIListLayout")
@@ -2219,7 +2281,7 @@ function Library.new(config: WindowConfig)
 		if collapsible then
 			local hb = Instance.new("TextButton")
 			hb.Name = "Header"
-			hb.Size = UDim2.new(1, 0, 0, 28)
+			hb.Size = UDim2.new(1, 0, 0, UID.SectionHeaderH)
 			hb.BackgroundTransparency = 1
 			hb.Text = ""
 			hb.AutoButtonColor = false
@@ -2229,13 +2291,13 @@ function Library.new(config: WindowConfig)
 		else
 			local hf = Instance.new("Frame")
 			hf.Name = "Header"
-			hf.Size = UDim2.new(1, 0, 0, 28)
+			hf.Size = UDim2.new(1, 0, 0, UID.SectionHeaderH)
 			hf.BackgroundTransparency = 1
 			hf.LayoutOrder = 1
 			hf.Parent = wrap
 			headerRow = hf
 		end
-		pad(8).Parent = headerRow
+		pad(UID.SectionHeaderInnerPad).Parent = headerRow
 
 		local hLayout = Instance.new("UIListLayout")
 		hLayout.FillDirection = Enum.FillDirection.Horizontal
@@ -2244,7 +2306,7 @@ function Library.new(config: WindowConfig)
 		end)
 		hLayout.SortOrder = Enum.SortOrder.LayoutOrder
 		hLayout.VerticalAlignment = Enum.VerticalAlignment.Center
-		hLayout.Padding = UDim.new(0, 8)
+		hLayout.Padding = UDim.new(0, 6)
 		hLayout.Parent = headerRow
 
 		local headerLayoutNext = 0
@@ -2292,7 +2354,7 @@ function Library.new(config: WindowConfig)
 				local img = Instance.new("ImageLabel")
 				img.Name = "SectionIcon"
 				img.BackgroundTransparency = 1
-				img.Size = UDim2.fromOffset(18, 18)
+				img.Size = UDim2.fromOffset(UID.SectionIcon, UID.SectionIcon)
 				img.Image = spec.Url
 				img.ImageRectOffset = spec.ImageRectOffset
 				img.ImageRectSize = spec.ImageRectSize
@@ -2314,7 +2376,7 @@ function Library.new(config: WindowConfig)
 		hText.AutomaticSize = Enum.AutomaticSize.X
 		hText.BackgroundTransparency = 1
 		hText.Font = Enum.Font.GothamBold
-		hText.TextSize = 13
+		hText.TextSize = UID.SectionTitle
 		hText.TextColor3 = Theme.Text
 		hText.TextXAlignment = Enum.TextXAlignment.Left
 		hText.Text = string.upper(header)
@@ -2360,7 +2422,7 @@ function Library.new(config: WindowConfig)
 			btn.Name = "Chevron"
 			btn.AutoButtonColor = false
 			btn.BackgroundTransparency = 1
-			btn.Size = UDim2.fromOffset(16, 16)
+			btn.Size = UDim2.fromOffset(UID.Chevron, UID.Chevron)
 			btn.ImageColor3 = Theme.TextDim
 			btn.LayoutOrder = headerLayoutNext
 			btn.ScaleType = Enum.ScaleType.Fit
@@ -2403,7 +2465,7 @@ function Library.new(config: WindowConfig)
 
 		local bodyList = Instance.new("UIListLayout")
 		bodyList.SortOrder = Enum.SortOrder.LayoutOrder
-		bodyList.Padding = UDim.new(0, 10)
+		bodyList.Padding = UDim.new(0, UID.BodyListPad)
 		bodyList.Parent = bodyF
 
 		local sectionExpanded = expanded
@@ -2451,16 +2513,22 @@ function Library.new(config: WindowConfig)
 		}
 
 		function section:AddToggle(o: { Text: string, Default: boolean?, Callback: ((boolean) -> ())?, Tooltip: string?, Idx: string? })
+			local TW, TH = UID.ToggleTrackW, UID.ToggleTrackH
+			local K = UID.ToggleKnob
+			local knobHalf = K / 2
+			local kOff = UDim2.new(0, 2, 0.5, -knobHalf)
+			local kOn = UDim2.new(1, -(2 + K), 0.5, -knobHalf)
+
 			local row = Instance.new("Frame")
 			row.BackgroundTransparency = 1
-			row.Size = UDim2.new(1, 0, 0, 32)
+			row.Size = UDim2.new(1, 0, 0, UID.ToggleRowH)
 			row.Parent = bodyF
 
 			local label = Instance.new("TextLabel")
-			label.Size = UDim2.new(1, -54, 1, 0)
+			label.Size = UDim2.new(1, -UID.ToggleLabelReserve, 1, 0)
 			label.BackgroundTransparency = 1
 			label.Font = Enum.Font.GothamMedium
-			label.TextSize = 14
+			label.TextSize = UID.FontWidget
 			label.TextColor3 = Theme.Text
 			label.TextXAlignment = Enum.TextXAlignment.Left
 			label.Text = o.Text
@@ -2470,16 +2538,16 @@ function Library.new(config: WindowConfig)
 			local on = o.Default == true
 			local track = Instance.new("TextButton")
 			track.AutoButtonColor = false
-			track.Size = UDim2.fromOffset(46, 24)
-			track.Position = UDim2.new(1, -46, 0.5, -12)
+			track.Size = UDim2.fromOffset(TW, TH)
+			track.Position = UDim2.new(1, -TW, 0.5, -TH / 2)
 			track.BackgroundColor3 = if on then Theme.ToggleOn else Theme.ToggleOff
 			track.Text = ""
 			track.Parent = row
 			corner(UDim.new(1, 0)).Parent = track
 
 			local knob = Instance.new("Frame")
-			knob.Size = UDim2.fromOffset(20, 20)
-			knob.Position = if on then UDim2.new(1, -22, 0.5, -10) else UDim2.new(0, 2, 0.5, -10)
+			knob.Size = UDim2.fromOffset(K, K)
+			knob.Position = if on then kOn else kOff
 			knob.BackgroundColor3 = Color3.new(1, 1, 1)
 			knob.Parent = track
 			corner(UDim.new(1, 0)).Parent = knob
@@ -2504,7 +2572,7 @@ function Library.new(config: WindowConfig)
 					BackgroundColor3 = if on then Theme.ToggleOn else Theme.ToggleOff,
 				}):Play()
 				tween(knob, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
-					Position = if on then UDim2.new(1, -22, 0.5, -10) else UDim2.new(0, 2, 0.5, -10),
+					Position = if on then kOn else kOff,
 				}):Play()
 				for _, cb in changeCbs do
 					task.spawn(cb, on)
@@ -2556,19 +2624,19 @@ function Library.new(config: WindowConfig)
 
 			local row = Instance.new("Frame")
 			row.BackgroundTransparency = 1
-			row.Size = UDim2.new(1, 0, 0, 52)
+			row.Size = UDim2.new(1, 0, 0, UID.SliderRowH)
 			row.Parent = bodyF
 
 			local top = Instance.new("Frame")
-			top.Size = UDim2.new(1, 0, 0, 18)
+			top.Size = UDim2.new(1, 0, 0, UID.SliderTopH)
 			top.BackgroundTransparency = 1
 			top.Parent = row
 
 			local lbl = Instance.new("TextLabel")
-			lbl.Size = UDim2.new(1, -48, 1, 0)
+			lbl.Size = UDim2.new(1, -(UID.SliderValW + 4), 1, 0)
 			lbl.BackgroundTransparency = 1
 			lbl.Font = Enum.Font.GothamMedium
-			lbl.TextSize = 13
+			lbl.TextSize = UID.SliderLblText
 			lbl.TextColor3 = Theme.Text
 			lbl.TextXAlignment = Enum.TextXAlignment.Left
 			lbl.Text = o.Text
@@ -2576,12 +2644,12 @@ function Library.new(config: WindowConfig)
 			lbl.Parent = top
 
 			local valBox = Instance.new("TextBox")
-			valBox.Size = UDim2.fromOffset(52, 22)
-			valBox.Position = UDim2.new(1, -52, 0, -2)
+			valBox.Size = UDim2.fromOffset(UID.SliderValW, UID.SliderValH)
+			valBox.Position = UDim2.new(1, -UID.SliderValW, 0, -2)
 			valBox.BackgroundColor3 = Theme.Background
 			valBox.BackgroundTransparency = 0.15
 			valBox.Font = Enum.Font.GothamBold
-			valBox.TextSize = 12
+			valBox.TextSize = UID.SliderValText
 			valBox.TextColor3 = Theme.Text
 			valBox.Text = tostring(val)
 			valBox.ClearTextOnFocus = false
@@ -2599,8 +2667,8 @@ function Library.new(config: WindowConfig)
 
 			local track = Instance.new("Frame")
 			track.Name = "Track"
-			track.Size = UDim2.new(1, 0, 0, 10)
-			track.Position = UDim2.new(0, 0, 0, 32)
+			track.Size = UDim2.new(1, 0, 0, UID.SliderTrackH)
+			track.Position = UDim2.new(0, 0, 0, UID.SliderTrackY)
 			track.BackgroundColor3 = Theme.SliderTrack
 			track:SetAttribute("AcidBg", "SliderTrack")
 			track.Parent = row
@@ -2832,10 +2900,10 @@ function Library.new(config: WindowConfig)
 			row.Parent = bodyF
 
 			local lbl = Instance.new("TextLabel")
-			lbl.Size = UDim2.new(1, 0, 0, 16)
+			lbl.Size = UDim2.new(1, 0, 0, UID.DropLblH)
 			lbl.BackgroundTransparency = 1
 			lbl.Font = Enum.Font.GothamMedium
-			lbl.TextSize = 12
+			lbl.TextSize = UID.InputLblText
 			lbl.TextColor3 = Theme.TextDim
 			lbl.TextXAlignment = Enum.TextXAlignment.Left
 			lbl.Text = o.Text
@@ -2843,13 +2911,13 @@ function Library.new(config: WindowConfig)
 			lbl.Parent = row
 
 			local btn = Instance.new("TextButton")
-			btn.Size = UDim2.new(1, 0, 0, 34)
-			btn.Position = UDim2.new(0, 0, 0, 20)
+			btn.Size = UDim2.new(1, 0, 0, UID.DropBtnH)
+			btn.Position = UDim2.new(0, 0, 0, UID.DropBtnY)
 			btn.BackgroundColor3 = Theme.Elevated
 			btn.BackgroundTransparency = 0.1
 			btn.AutoButtonColor = false
 			btn.Font = Enum.Font.GothamMedium
-			btn.TextSize = 13
+			btn.TextSize = UID.DropBtnText
 			btn.TextColor3 = Theme.Text
 			btn.TextXAlignment = Enum.TextXAlignment.Left
 			btn.Text = "  " .. summary()
@@ -2857,11 +2925,11 @@ function Library.new(config: WindowConfig)
 			btn:SetAttribute("AcidText", "Text")
 			btn.Parent = row
 			corner(Theme.CornerSm).Parent = btn
-			pad(10).Parent = btn
+			pad(UID.DropBtnPad).Parent = btn
 
 			local chev = Instance.new("TextLabel")
-			chev.Size = UDim2.fromOffset(24, 24)
-			chev.Position = UDim2.new(1, -28, 0.5, -12)
+			chev.Size = UDim2.fromOffset(UID.DropChev, UID.DropChev)
+			chev.Position = UDim2.new(1, -(UID.DropChev + 4), 0.5, -UID.DropChev / 2)
 			chev.BackgroundTransparency = 1
 			chev.Text = "▼"
 			chev.TextSize = 10
@@ -2872,7 +2940,7 @@ function Library.new(config: WindowConfig)
 			local listF = Instance.new("Frame")
 			listF.Size = UDim2.new(1, 0, 0, 0)
 			listF.AutomaticSize = Enum.AutomaticSize.Y
-			listF.Position = UDim2.new(0, 0, 0, 56)
+			listF.Position = UDim2.new(0, 0, 0, UID.DropListY)
 			listF.BackgroundColor3 = Theme.Background
 			listF.BackgroundTransparency = 0.05
 			listF.Visible = false
@@ -2911,7 +2979,7 @@ function Library.new(config: WindowConfig)
 			innerList.Padding = UDim.new(0, 2)
 			innerList.Parent = scrollList
 
-			local OPT_ROW_H = 28
+			local OPT_ROW_H = UID.DropOptRow
 			local LIST_GAP = 2
 			local function optionsBlockHeight(n: number): number
 				if n <= 0 then
@@ -2937,7 +3005,7 @@ function Library.new(config: WindowConfig)
 				local searchRow = Instance.new("Frame")
 				searchRow.Name = "DropdownSearch"
 				searchRow.BackgroundTransparency = 1
-				searchRow.Size = UDim2.new(1, -12, 0, 30)
+				searchRow.Size = UDim2.new(1, -12, 0, UID.DropSearchH)
 				searchRow.LayoutOrder = 1
 				searchRow.Parent = listF
 				local sb = Instance.new("TextBox")
@@ -3017,14 +3085,14 @@ function Library.new(config: WindowConfig)
 					optBtn.Size = UDim2.new(1, -12, 0, OPT_ROW_H)
 					optBtn.AutoButtonColor = false
 					optBtn.Font = Enum.Font.GothamMedium
-					optBtn.TextSize = 12
+					optBtn.TextSize = UID.DropBtnText
 					optBtn.TextXAlignment = Enum.TextXAlignment.Left
 					optBtn.ZIndex = 7
 					optBtn:SetAttribute("AcidBg", "Elevated")
 					optBtn:SetAttribute("AcidText", "Text")
 					optBtn.Parent = scrollList
 					corner(UDim.new(0, 4)).Parent = optBtn
-					pad(8).Parent = optBtn
+					pad(UID.DropBtnPad).Parent = optBtn
 					optionButtonMap[opt] = optBtn
 					styleOptionRow(optBtn, opt)
 					optBtn.MouseButton1Click:Connect(function()
@@ -3141,14 +3209,14 @@ function Library.new(config: WindowConfig)
 		})
 			local row = Instance.new("Frame")
 			row.BackgroundTransparency = 1
-			row.Size = UDim2.new(1, 0, 0, 52)
+			row.Size = UDim2.new(1, 0, 0, UID.InputRowH)
 			row.Parent = bodyF
 
 			local lbl = Instance.new("TextLabel")
-			lbl.Size = UDim2.new(1, 0, 0, 16)
+			lbl.Size = UDim2.new(1, 0, 0, UID.InputLblH)
 			lbl.BackgroundTransparency = 1
 			lbl.Font = Enum.Font.GothamMedium
-			lbl.TextSize = 12
+			lbl.TextSize = UID.InputLblText
 			lbl.TextColor3 = Theme.TextDim
 			lbl.TextXAlignment = Enum.TextXAlignment.Left
 			lbl.Text = o.Text
@@ -3156,13 +3224,13 @@ function Library.new(config: WindowConfig)
 			lbl.Parent = row
 
 			local box = Instance.new("TextBox")
-			box.Size = UDim2.new(1, 0, 0, 32)
-			box.Position = UDim2.new(0, 0, 0, 22)
+			box.Size = UDim2.new(1, 0, 0, UID.InputBoxH)
+			box.Position = UDim2.new(0, 0, 0, UID.InputBoxY)
 			box.BackgroundColor3 = Theme.Elevated
 			box.BackgroundTransparency = 0.1
 			box.ClearTextOnFocus = false
 			box.Font = Enum.Font.GothamMedium
-			box.TextSize = 13
+			box.TextSize = UID.InputBoxText
 			box.TextColor3 = Theme.Text
 			box.PlaceholderText = o.Placeholder or ""
 			box.PlaceholderColor3 = Theme.TextDim
@@ -3172,7 +3240,7 @@ function Library.new(config: WindowConfig)
 			box:SetAttribute("AcidPlaceholder", "TextDim")
 			box.Parent = row
 			corner(Theme.CornerSm).Parent = box
-			pad(10).Parent = box
+			pad(UID.InputBoxPad).Parent = box
 
 			local inputCbs: { (string) -> () } = {}
 			local reg: any = { Type = "Input", Value = box.Text }
@@ -3243,12 +3311,12 @@ function Library.new(config: WindowConfig)
 			local lab = Instance.new("TextLabel")
 			lab.BackgroundTransparency = 1
 			lab.Font = Enum.Font.GothamMedium
-			lab.TextSize = 13
+			lab.TextSize = UID.AddLabelText
 			lab.TextColor3 = Theme.TextDim
 			lab.TextXAlignment = Enum.TextXAlignment.Left
 			lab.TextWrapped = doesWrap
 			lab.AutomaticSize = if doesWrap then Enum.AutomaticSize.Y else Enum.AutomaticSize.None
-			lab.Size = UDim2.new(1, 0, 0, if doesWrap then 0 else 18)
+			lab.Size = UDim2.new(1, 0, 0, if doesWrap then 0 else UID.AddLabelH)
 			lab.Text = text
 			lab:SetAttribute("AcidText", "TextDim")
 			lab.Parent = bodyF
@@ -3279,13 +3347,13 @@ function Library.new(config: WindowConfig)
 				fn = func
 			end
 			local b = Instance.new("TextButton")
-			b.Size = UDim2.new(1, 0, 0, 34)
+			b.Size = UDim2.new(1, 0, 0, UID.ButtonH)
 			b.BackgroundColor3 = Theme.Elevated
 			b.BackgroundTransparency = 0.1
 			b.AutoButtonColor = not disabled
 			b.Text = text
 			b.Font = Enum.Font.GothamMedium
-			b.TextSize = 13
+			b.TextSize = UID.DropBtnText
 			b.TextColor3 = if disabled then Theme.TextDim else Theme.Text
 			b:SetAttribute("AcidBg", "Elevated")
 			b:SetAttribute("AcidText", if disabled then "TextDim" else "Text")
@@ -3316,26 +3384,26 @@ function Library.new(config: WindowConfig)
 			local kc = Enum.KeyCode[keyName] or Enum.KeyCode.RightShift
 			local row = Instance.new("Frame")
 			row.BackgroundTransparency = 1
-			row.Size = UDim2.new(1, 0, 0, 34)
+			row.Size = UDim2.new(1, 0, 0, UID.KeyRowH)
 			row.Parent = bodyF
 			local lbl = Instance.new("TextLabel")
-			lbl.Size = UDim2.new(1, -120, 1, 0)
+			lbl.Size = UDim2.new(1, -(UID.KeyCapW + 12), 1, 0)
 			lbl.BackgroundTransparency = 1
 			lbl.Font = Enum.Font.GothamMedium
-			lbl.TextSize = 13
+			lbl.TextSize = UID.FontWidget
 			lbl.TextColor3 = Theme.Text
 			lbl.TextXAlignment = Enum.TextXAlignment.Left
 			lbl.Text = o.Text or "Keybind"
 			lbl:SetAttribute("AcidText", "Text")
 			lbl.Parent = row
 			local capBtn = Instance.new("TextButton")
-			capBtn.Size = UDim2.fromOffset(112, 28)
-			capBtn.Position = UDim2.new(1, -112, 0.5, -14)
+			capBtn.Size = UDim2.fromOffset(UID.KeyCapW, UID.KeyCapH)
+			capBtn.Position = UDim2.new(1, -UID.KeyCapW, 0.5, -UID.KeyCapH / 2)
 			capBtn.BackgroundColor3 = Theme.Background
 			capBtn.BackgroundTransparency = 0.15
 			capBtn.Text = keyName
 			capBtn.Font = Enum.Font.GothamBold
-			capBtn.TextSize = 12
+			capBtn.TextSize = UID.SliderValText
 			capBtn.TextColor3 = Theme.Text
 			capBtn.AutoButtonColor = false
 			capBtn:SetAttribute("AcidBg", "Background")
@@ -3426,14 +3494,14 @@ function Library.new(config: WindowConfig)
 
 			local row = Instance.new("Frame")
 			row.BackgroundTransparency = 1
-			row.Size = UDim2.new(1, 0, 0, 52)
+			row.Size = UDim2.new(1, 0, 0, UID.ColorRowH)
 			row.Parent = bodyF
 
 			local lbl = Instance.new("TextLabel")
-			lbl.Size = UDim2.new(1, 0, 0, 16)
+			lbl.Size = UDim2.new(1, 0, 0, UID.ColorLblH)
 			lbl.BackgroundTransparency = 1
 			lbl.Font = Enum.Font.GothamMedium
-			lbl.TextSize = 12
+			lbl.TextSize = UID.InputLblText
 			lbl.TextColor3 = Theme.TextDim
 			lbl.TextXAlignment = Enum.TextXAlignment.Left
 			lbl.Text = o.Text or "Color"
@@ -3443,12 +3511,12 @@ function Library.new(config: WindowConfig)
 			local bar = Instance.new("Frame")
 			bar.Name = "ColorBar"
 			bar.BackgroundTransparency = 1
-			bar.Size = UDim2.new(1, 0, 0, 28)
-			bar.Position = UDim2.new(0, 0, 0, 22)
+			bar.Size = UDim2.new(1, 0, 0, UID.ColorBarH)
+			bar.Position = UDim2.new(0, 0, 0, UID.ColorBarY)
 			bar.Parent = row
 
 			local hexBox = Instance.new("TextBox")
-			hexBox.Size = UDim2.new(1, -48, 1, 0)
+			hexBox.Size = UDim2.new(1, -(UID.ColorSwatch + 6), 1, 0)
 			hexBox.Position = UDim2.fromScale(0, 0)
 			hexBox.BackgroundColor3 = Theme.Elevated
 			hexBox.BackgroundTransparency = 0.1
@@ -3469,7 +3537,7 @@ function Library.new(config: WindowConfig)
 			local swBtn = Instance.new("TextButton")
 			swBtn.Name = "Swatch"
 			swBtn.AnchorPoint = Vector2.new(1, 0)
-			swBtn.Size = UDim2.fromOffset(40, 28)
+			swBtn.Size = UDim2.fromOffset(UID.ColorSwatch, UID.ColorBarH)
 			swBtn.Position = UDim2.new(1, 0, 0, 0)
 			swBtn.BackgroundColor3 = col
 			swBtn.BackgroundTransparency = 1 - alpha
