@@ -355,31 +355,41 @@ do
 
 	function ThemeManager:CreateThemeManager(section)
 		local T = self.Library.Theme
+		--[[ Callback: same path as library ColorPicker Obsidian-style pickerUpdate (hex/RGB/drag).
+		    SetValueRGB from ApplyScheme / save load does not fire Callback — ApplyScheme calls RefreshTheme. ]]
+		local function onThemeColorChanged()
+			self:ThemeUpdate()
+		end
 
 		section:AddColorPicker({
 			Text = "Background color",
 			Default = T.Background,
 			Idx = "BackgroundColor",
+			Callback = onThemeColorChanged,
 		})
 		section:AddColorPicker({
 			Text = "Main color",
 			Default = T.Panel,
 			Idx = "MainColor",
+			Callback = onThemeColorChanged,
 		})
 		section:AddColorPicker({
 			Text = "Accent color",
 			Default = T.AccentBlue,
 			Idx = "AccentColor",
+			Callback = onThemeColorChanged,
 		})
 		section:AddColorPicker({
 			Text = "Outline color",
 			Default = T.Stroke,
 			Idx = "OutlineColor",
+			Callback = onThemeColorChanged,
 		})
 		section:AddColorPicker({
 			Text = "Font color",
 			Default = T.Text,
 			Idx = "FontColor",
+			Callback = onThemeColorChanged,
 		})
 
 		local ThemesArray = {}
@@ -493,15 +503,6 @@ do
 			end
 			self.Library:Notify({ Title = "Theme", Description = "default.txt cleared", Time = 2 })
 		end)
-
-		for _, field in ThemeFields do
-			local opt = self.Library.Options[field]
-			if opt and opt.OnChanged then
-				opt:OnChanged(function()
-					self:ThemeUpdate()
-				end)
-			end
-		end
 
 		self:LoadDefault()
 		self.AppliedToTab = true
