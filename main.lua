@@ -794,20 +794,6 @@ local function paintMainGlowHost(mainGlowHost: Frame?)
 		local t = if steps > 0 then (i - 1) / steps else 0
 		layer.BackgroundColor3 = themeGlowLayerColor(t)
 	end
-	--[[ Match panel Theme.Corner: addStackedGlow used fixed 9–13px radii so large window corners left a square bottom behind semi-transparent panels. ]]
-	local hostCorner = mainGlowHost:FindFirstChildWhichIsA("UICorner")
-	if hostCorner then
-		hostCorner.CornerRadius = Theme.Corner
-	end
-	local baseR = Theme.Corner.Offset
-	local cornerExtras = { 0, 2, 3, 4 }
-	for i, layer in layers do
-		local gc = layer:FindFirstChildWhichIsA("UICorner")
-		if gc then
-			local extra = cornerExtras[i] or 0
-			gc.CornerRadius = UDim.new(0, math.max(0, baseR + extra))
-		end
-	end
 end
 
 local function paintTabGlowHost(tabGlowHost: Frame?, isSelected: boolean)
@@ -1391,9 +1377,6 @@ function Library.new(config: WindowConfig)
 			{ size = 17, transparency = 0.95, radius = 12 },
 			{ size = 22, transparency = 0.98, radius = 13 },
 		})
-		gh.ClipsDescendants = true
-		corner(Theme.Corner).Parent = gh
-		paintMainGlowHost(gh)
 	end
 
 	local panelFace = Instance.new("Frame")
@@ -1409,12 +1392,9 @@ function Library.new(config: WindowConfig)
 	local panelOutline = stroke(Theme.Stroke, 2, math.clamp(Theme.StrokeTrans - 0.15, 0.2, 0.55))
 	panelOutline.Name = "PanelOutline"
 	panelOutline.Parent = panelFace
-
-	--[[ Rounded clip on the shell so glow + face share the same corner curve (fixes flat bottom when radius > glow’s fixed 9–13px corners). ]]
-	mainPanel.ClipsDescendants = true
-	if mainPanel:FindFirstChildWhichIsA("UICorner") == nil then
-		corner(Theme.Corner).Parent = mainPanel
-	end
+	pcall(function()
+		panelOutline.LineJoinMode = Enum.LineJoinMode.Round
+	end)
 
 	local panelTitle = Instance.new("TextLabel")
 	panelTitle.Name = "WindowTitle"
@@ -1717,10 +1697,6 @@ function Library.new(config: WindowConfig)
 		end
 		paintPillGlowHost(pillGlowHost)
 		do
-			local mpc = mainPanel:FindFirstChildWhichIsA("UICorner")
-			if mpc then
-				mpc.CornerRadius = Theme.Corner
-			end
 			local mg = mainPanel:FindFirstChild("MainGlowHost")
 			if mg and mg:IsA("Frame") then
 				paintMainGlowHost(mg)
@@ -1748,8 +1724,8 @@ function Library.new(config: WindowConfig)
 		panelTitle.TextColor3 = Theme.Text
 		for _, sc in tabScrolls do
 			local function styleScroll(sf: ScrollingFrame)
-				sf.BackgroundColor3 = Theme.Panel
-				sf.BackgroundTransparency = Theme.PanelTrans
+				--[[ Transparent: PanelFace already draws the rounded shell; an opaque rect here covers the bottom corners. ]]
+				sf.BackgroundTransparency = 1
 				sf.ScrollBarImageColor3 = Theme.AccentBlue
 			end
 			if sc:IsA("ScrollingFrame") then
@@ -1870,18 +1846,6 @@ function Library.new(config: WindowConfig)
 		local pf = panelFace:FindFirstChildWhichIsA("UICorner")
 		if pf then
 			pf.CornerRadius = Theme.Corner
-		end
-		local mpc = mainPanel:FindFirstChildWhichIsA("UICorner")
-		if mpc then
-			mpc.CornerRadius = Theme.Corner
-		end
-		do
-			local mg = mainPanel:FindFirstChild("MainGlowHost")
-			if mg and mg:IsA("Frame") then
-				paintMainGlowHost(mg)
-			elseif panelGlowHost then
-				paintMainGlowHost(panelGlowHost)
-			end
 		end
 	end
 
@@ -2169,8 +2133,7 @@ function Library.new(config: WindowConfig)
 				sc.Name = name
 				sc.Size = UDim2.new(0.5, -7, 1, 0)
 				sc.Position = UDim2.new(xScale, xOffset, 0, 0)
-				sc.BackgroundColor3 = Theme.Panel
-				sc.BackgroundTransparency = Theme.PanelTrans
+				sc.BackgroundTransparency = 1
 				sc.BorderSizePixel = 0
 				sc.ScrollBarThickness = 4
 				sc.ScrollBarImageColor3 = Theme.AccentBlue
@@ -2204,8 +2167,7 @@ function Library.new(config: WindowConfig)
 			local sc = Instance.new("ScrollingFrame")
 			sc.Name = "TabContent_" .. idx
 			sc.Size = UDim2.fromScale(1, 1)
-			sc.BackgroundColor3 = Theme.Panel
-			sc.BackgroundTransparency = Theme.PanelTrans
+			sc.BackgroundTransparency = 1
 			sc.BorderSizePixel = 0
 			sc.ScrollBarThickness = 4
 			sc.ScrollBarImageColor3 = Theme.AccentBlue
