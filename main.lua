@@ -701,7 +701,6 @@ local function addStackedGlow(host: Frame, specs: { GlowLayerSpec })
 		layer.BorderSizePixel = 0
 		layer.ZIndex = 0
 		layer.Parent = host
-		layer:SetAttribute("GlowBaseRadius", g.radius)
 		local gc = Instance.new("UICorner")
 		gc.CornerRadius = UDim.new(0, g.radius)
 		gc.Parent = layer
@@ -772,6 +771,30 @@ local function paintPillGlowHost(pillGlowHost: Frame?)
 	end
 end
 
+--[[ Glow layers are larger than the panel (Size 1, +size); keep UICorner concentric with PanelFace or the bottom/top read as a square halo. ]]
+local function syncMainGlowCornerRadii(mainGlowHost: Frame?, baseRadiusPx: number)
+	if not mainGlowHost then
+		return
+	end
+	baseRadiusPx = math.clamp(math.floor(baseRadiusPx + 0.5), 0, 64)
+	for _, c in mainGlowHost:GetChildren() do
+		if not c:IsA("Frame") or c.Name ~= "GlowLayer" then
+			continue
+		end
+		local expand = c.Size.X.Offset
+		if typeof(expand) ~= "number" then
+			continue
+		end
+		local gc = c:FindFirstChildWhichIsA("UICorner")
+		if not gc then
+			continue
+		end
+		-- Each layer is ~expand px wider/taller total; corner radius should grow by ~half that per side.
+		local r = math.floor(baseRadiusPx + expand / 2 + 0.5)
+		gc.CornerRadius = UDim.new(0, math.clamp(r, 0, 96))
+	end
+end
+
 local function paintMainGlowHost(mainGlowHost: Frame?)
 	if not mainGlowHost then
 		return
@@ -795,6 +818,7 @@ local function paintMainGlowHost(mainGlowHost: Frame?)
 		local t = if steps > 0 then (i - 1) / steps else 0
 		layer.BackgroundColor3 = themeGlowLayerColor(t)
 	end
+	syncMainGlowCornerRadii(mainGlowHost, Library.CornerRadius)
 end
 
 local function paintTabGlowHost(tabGlowHost: Frame?, isSelected: boolean)
@@ -1378,6 +1402,7 @@ function Library.new(config: WindowConfig)
 			{ size = 17, transparency = 0.95, radius = 12 },
 			{ size = 22, transparency = 0.98, radius = 13 },
 		})
+		syncMainGlowCornerRadii(gh, Library.CornerRadius)
 	end
 
 	local panelFace = Instance.new("Frame")
@@ -1678,24 +1703,6 @@ function Library.new(config: WindowConfig)
 	end
 	beginDrag()
 
-	local function syncMainGlowCorners(radius: number)
-		local mg = mainPanel:FindFirstChild("MainGlowHost")
-		if not mg or not mg:IsA("Frame") then
-			return
-		end
-		for _, c in mg:GetChildren() do
-			if c:IsA("Frame") and c.Name == "GlowLayer" then
-				local base = tonumber(c:GetAttribute("GlowBaseRadius"))
-				if typeof(base) == "number" then
-					local gc = c:FindFirstChildWhichIsA("UICorner")
-					if gc then
-						gc.CornerRadius = UDim.new(0, math.max(0, radius + (base - 8)))
-					end
-				end
-			end
-		end
-	end
-
 	local refreshThemeFn: () -> ()
 	refreshThemeFn = function()
 		tooltipLabel.BackgroundColor3 = Theme.Elevated
@@ -1740,7 +1747,8 @@ function Library.new(config: WindowConfig)
 		panelTitle.TextColor3 = Theme.Text
 		for _, sc in tabScrolls do
 			local function styleScroll(sf: ScrollingFrame)
-				sf.BackgroundTransparency = 1
+				sf.BackgroundColor3 = Theme.Panel
+				sf.BackgroundTransparency = Theme.PanelTrans
 				sf.ScrollBarImageColor3 = Theme.AccentBlue
 			end
 			if sc:IsA("ScrollingFrame") then
@@ -1774,11 +1782,6 @@ function Library.new(config: WindowConfig)
 		for _, chevRefresh in sectionChevronRefreshes do
 			pcall(chevRefresh)
 		end
-		local pfc = panelFace:FindFirstChildWhichIsA("UICorner")
-		if pfc then
-			pfc.CornerRadius = Theme.Corner
-		end
-		syncMainGlowCorners(Theme.Corner.Offset)
 		selectTab(activeTab)
 		if resizeHandle then
 			local grip = resizeHandle:FindFirstChild("ResizeIcon")
@@ -1867,7 +1870,10 @@ function Library.new(config: WindowConfig)
 		if pf then
 			pf.CornerRadius = Theme.Corner
 		end
-		syncMainGlowCorners(n)
+		local mg = mainPanel:FindFirstChild("MainGlowHost")
+		if mg and mg:IsA("Frame") then
+			syncMainGlowCornerRadii(mg, n)
+		end
 	end
 
 	-- Tab API
@@ -2154,8 +2160,8 @@ function Library.new(config: WindowConfig)
 				sc.Name = name
 				sc.Size = UDim2.new(0.5, -7, 1, 0)
 				sc.Position = UDim2.new(xScale, xOffset, 0, 0)
-				--[[ Transparent: PanelFace under contentHost already fills with rounded UICorner; opaque scroll bg draws a square and hides bottom curve. ]]
-				sc.BackgroundTransparency = 1
+				sc.BackgroundColor3 = Theme.Panel
+				sc.BackgroundTransparency = Theme.PanelTrans
 				sc.BorderSizePixel = 0
 				sc.ScrollBarThickness = 4
 				sc.ScrollBarImageColor3 = Theme.AccentBlue
@@ -2189,8 +2195,8 @@ function Library.new(config: WindowConfig)
 			local sc = Instance.new("ScrollingFrame")
 			sc.Name = "TabContent_" .. idx
 			sc.Size = UDim2.fromScale(1, 1)
-			--[[ See makeColumn: keep transparent so PanelFace rounding stays visible at bottom. ]]
-			sc.BackgroundTransparency = 1
+			sc.BackgroundColor3 = Theme.Panel
+			sc.BackgroundTransparency = Theme.PanelTrans
 			sc.BorderSizePixel = 0
 			sc.ScrollBarThickness = 4
 			sc.ScrollBarImageColor3 = Theme.AccentBlue
@@ -3599,34 +3605,26 @@ function Library.new(config: WindowConfig)
 
 			local popOpen = false
 
-			local function fireColorCallbacks()
+			local function applyColor(c: Color3)
+				col = c
+				reg.Value = col
+				syncSwatch()
+				hexBox.Text = string.upper(col:ToHex())
+				if popOpen then
+					hueN, satN, valN = col:ToHSV()
+					if syncHsVisualRef then
+						syncHsVisualRef()
+					end
+					if fillRgbBoxesRef then
+						fillRgbBoxesRef()
+					end
+				end
 				for _, cb in colorCbs do
 					task.spawn(cb, col)
 				end
 				if o.Callback then
 					o.Callback(col)
 				end
-			end
-
-			local function syncTextFieldsFromColor()
-				hexBox.Text = string.upper(col:ToHex())
-				if fillRgbBoxesRef then
-					fillRgbBoxesRef()
-				end
-			end
-
-			local function applyColor(c: Color3)
-				col = c
-				reg.Value = col
-				syncSwatch()
-				syncTextFieldsFromColor()
-				if popOpen then
-					hueN, satN, valN = col:ToHSV()
-					if syncHsVisualRef then
-						syncHsVisualRef()
-					end
-				end
-				fireColorCallbacks()
 			end
 
 			local function tryParseHexInput()
@@ -3645,6 +3643,7 @@ function Library.new(config: WindowConfig)
 			--[[ Obsidian-style HSV surface (rbxassetid://4155801252 saturation map) + RGB fields ]]
 			local SATURATION_MAP_ASSET = "rbxassetid://4155801252"
 			local popCloseConn: RBXScriptConnection? = nil
+			local dragConns: { RBXScriptConnection } = {}
 
 			local pop = Instance.new("Frame")
 			pop.Name = "ColorPickerPop"
@@ -3735,21 +3734,6 @@ function Library.new(config: WindowConfig)
 			end
 			syncHsVisualRef = syncHsVisual
 
-			--[[ Obsidian: IsMouseInput / IsDragInput + Update only when HSV changes; drag loop uses RenderStepped:Wait ]]
-			local function isMouseInput(inp: InputObject): boolean
-				return inp.UserInputType == Enum.UserInputType.MouseButton1
-					or inp.UserInputType == Enum.UserInputType.Touch
-			end
-
-			local function isDragInput(inp: InputObject): boolean
-				return isMouseInput(inp)
-					and (
-						inp.UserInputState == Enum.UserInputState.Begin
-						or inp.UserInputState == Enum.UserInputState.Change
-					)
-					and Library.IsRobloxFocused
-			end
-
 			local function pointerXY(): (number, number)
 				--[[ Match Obsidian / AbsolutePosition: PlayerMouse aligns with AbsolutePosition; GetMouseLocation can be offset (e.g. GuiInset). ]]
 				if UserInputService.MouseEnabled then
@@ -3759,75 +3743,56 @@ function Library.new(config: WindowConfig)
 				return v.X, v.Y
 			end
 
-			local function pickerUpdate()
-				col = Color3.fromHSV(hueN, satN, valN)
-				reg.Value = col
-				syncSwatch()
-				syncHsVisual()
-				syncTextFieldsFromColor()
-				fireColorCallbacks()
-			end
-
 			local function sampleSatVal()
 				local ax, ay = satMap.AbsolutePosition.X, satMap.AbsolutePosition.Y
 				local sx, sy = satMap.AbsoluteSize.X, satMap.AbsoluteSize.Y
 				local px, py = pointerXY()
-				local oldSat, oldVal = satN, valN
 				satN = math.clamp((px - ax) / math.max(sx, 1e-4), 0, 1)
 				valN = 1 - math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
-				if satN ~= oldSat or valN ~= oldVal then
-					pickerUpdate()
-				end
+				applyColor(Color3.fromHSV(hueN, satN, valN))
+				syncHsVisual()
 			end
 
 			local function sampleHue()
 				local ay = hueSel.AbsolutePosition.Y
 				local sy = hueSel.AbsoluteSize.Y
 				local _, py = pointerXY()
-				local oldHue = hueN
 				hueN = math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
-				if hueN ~= oldHue then
-					pickerUpdate()
-				end
+				applyColor(Color3.fromHSV(hueN, satN, valN))
+				syncHsVisual()
 			end
 
-			--[[ Obsidian uses while IsDragInput(Input); on some clients mouse InputObject does not stay Begin/Change while moving,
-			    so we treat M1 like Obsidian’s executor builds do: held = IsMouseButtonPressed. Touch keeps isDragInput. ]]
-			local function stillDraggingForPicker(inp: InputObject): boolean
-				if not Library.IsRobloxFocused then
-					return false
-				end
-				if inp.UserInputType == Enum.UserInputType.Touch then
-					return isDragInput(inp)
-				end
-				return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
-			end
-
-			local function beginObsidianDrag(sample: () -> (), input: InputObject)
-				if not isDragInput(input) then
-					return
-				end
+			local function beginPressDrag(sample: () -> (), stopOn: Enum.UserInputType)
 				sample()
-				task.spawn(function()
-					while popOpen and pop.Visible and stillDraggingForPicker(input) do
-						sample()
-						RunService.RenderStepped:Wait()
+				local rs: RBXScriptConnection
+				local ended: RBXScriptConnection
+				rs = RunService.RenderStepped:Connect(function()
+					sample()
+				end)
+				ended = UserInputService.InputEnded:Connect(function(i: InputObject)
+					if i.UserInputType == stopOn then
+						rs:Disconnect()
+						ended:Disconnect()
 					end
 				end)
+				table.insert(dragConns, rs)
+				table.insert(dragConns, ended)
 			end
 
 			satMap.InputBegan:Connect(function(input: InputObject)
-				if not isMouseInput(input) then
-					return
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then
+					beginPressDrag(sampleSatVal, Enum.UserInputType.MouseButton1)
+				elseif input.UserInputType == Enum.UserInputType.Touch then
+					beginPressDrag(sampleSatVal, Enum.UserInputType.Touch)
 				end
-				beginObsidianDrag(sampleSatVal, input)
 			end)
 
 			hueSel.InputBegan:Connect(function(input: InputObject)
-				if not isMouseInput(input) then
-					return
+				if input.UserInputType == Enum.UserInputType.MouseButton1 then
+					beginPressDrag(sampleHue, Enum.UserInputType.MouseButton1)
+				elseif input.UserInputType == Enum.UserInputType.Touch then
+					beginPressDrag(sampleHue, Enum.UserInputType.Touch)
 				end
-				beginObsidianDrag(sampleHue, input)
 			end)
 
 			local function rgbRow(labelText: string, layoutOrder: number): TextBox
@@ -3905,9 +3870,19 @@ function Library.new(config: WindowConfig)
 			doneBtn.Parent = pop
 			corner(Theme.CornerSm).Parent = doneBtn
 
+			local function clearDragConns()
+				for _, c in dragConns do
+					pcall(function()
+						c:Disconnect()
+					end)
+				end
+				table.clear(dragConns)
+			end
+
 			local function closePop()
 				popOpen = false
 				pop.Visible = false
+				clearDragConns()
 				if popCloseConn then
 					popCloseConn:Disconnect()
 					popCloseConn = nil
