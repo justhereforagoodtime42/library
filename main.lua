@@ -17,8 +17,45 @@ local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 --[[ Obsidian-style: PlayerMouse matches GuiObject.AbsolutePosition better than GetMouseLocation on some clients. ]]
 local PlayerMouse = LocalPlayer:GetMouse()
 
--- ----------------------------------------------------------------------------- theme (mutable; ThemeManager / RefreshTheme)
+-- ----------------------------------------------------------------------------- mobile / focus (Obsidian-style)
 local Library = {}
+
+Library.DevicePlatform = nil
+Library.IsMobile = false
+Library.IsRobloxFocused = true
+
+if RunService:IsStudio() then
+	if UserInputService.TouchEnabled and not UserInputService.MouseEnabled then
+		Library.IsMobile = true
+	end
+else
+	pcall(function()
+		Library.DevicePlatform = UserInputService:GetPlatform()
+	end)
+	if
+		Library.DevicePlatform == Enum.Platform.Android
+		or Library.DevicePlatform == Enum.Platform.IOS
+	then
+		Library.IsMobile = true
+	end
+end
+
+UserInputService.WindowFocused:Connect(function()
+	Library.IsRobloxFocused = true
+end)
+UserInputService.WindowFocusReleased:Connect(function()
+	Library.IsRobloxFocused = false
+end)
+
+local function pointerScreenXY(): (number, number)
+	if UserInputService.MouseEnabled then
+		return PlayerMouse.X, PlayerMouse.Y
+	end
+	local v = UserInputService:GetMouseLocation()
+	return v.X, v.Y
+end
+
+-- ----------------------------------------------------------------------------- theme (mutable; ThemeManager / RefreshTheme)
 
 Library.Theme = {
 	Background = Color3.new(0, 0, 0),
@@ -118,7 +155,6 @@ function Library:SetNotifySide(side: string)
 end
 
 function Library:SetDPIScale(_scale: number)
-	-- Reserved: AcidHub uses fixed scale; hook here if you add DPI scaling later.
 end
 
 function Library:Notify(payload: any, duration: number?)
@@ -850,6 +886,12 @@ export type WindowConfig = {
 	TabGlowEnabled: boolean?,
 	--[[ Dropdowns default to Multi when Multi is omitted (Obsidian-style) ]]
 	MultiDropdownByDefault: boolean?,
+	--[[ Touch / phone: show floating Toggle + Lock (keyboard bind alone is not enough). Default true when Library.IsMobile. ]]
+	ShowMobileToggleButtons: boolean?,
+	--[[ "Left" | "Right" — corner stack for mobile HUD buttons ]]
+	MobileButtonsSide: string?,
+	--[[ Fullscreen modal behind window while menu is open — blocks game taps (Obsidian-style). Default true. ]]
+	UnlockMouseWhileOpen: boolean?,
 }
 
 function Library.new(config: WindowConfig)
@@ -860,6 +902,18 @@ function Library.new(config: WindowConfig)
 	local minContent = config.MinSize or Vector2.new(380, 300)
 	local size = config.Size or Vector2.new(520, 440)
 	size = Vector2.new(math.max(size.X, minContent.X), math.max(size.Y, minContent.Y))
+	local unlockMouseWhileOpen = config.UnlockMouseWhileOpen ~= false
+	local mobileButtonsSideStr = string.lower(tostring(config.MobileButtonsSide or "left"))
+	local mobileButtonsSide = if mobileButtonsSideStr == "right" then "Right" else "Left"
+	local showMobileHud = Library.IsMobile and (config.ShowMobileToggleButtons ~= false)
+	if workspace.CurrentCamera and Library.IsMobile then
+		local vw = workspace.CurrentCamera.ViewportSize.X
+		local vh = workspace.CurrentCamera.ViewportSize.Y
+		size = Vector2.new(
+			math.min(size.X, math.max(minContent.X, vw - 16)),
+			math.min(size.Y, math.max(math.min(minContent.Y, 280), vh - 96))
+		)
+	end
 	local mascotId = config.MascotImage
 	local mascotOffset = if mascotId then 72 else 0
 	local minRootW = minContent.X + mascotOffset
@@ -881,6 +935,21 @@ function Library.new(config: WindowConfig)
 	if not parentOk or not screenGui.Parent then
 		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
 	end
+
+	local modalBackdrop = Instance.new("TextButton")
+	modalBackdrop.Name = "AcidModalBackdrop"
+	modalBackdrop.Size = UDim2.fromScale(1, 1)
+	modalBackdrop.Position = UDim2.new(0, 0, 0, 0)
+	modalBackdrop.BackgroundTransparency = 1
+	modalBackdrop.Text = ""
+	modalBackdrop.AutoButtonColor = false
+	modalBackdrop.ZIndex = 0
+	modalBackdrop.Visible = false
+	modalBackdrop.Modal = false
+	modalBackdrop.Active = true
+	modalBackdrop.Parent = screenGui
+
+	local hudDragLocked = false
 
 	Library.Unloaded = false
 	table.clear(Library.Toggles)
@@ -993,7 +1062,7 @@ function Library.new(config: WindowConfig)
 					and loopTok == tooltipLoopToken
 					and showTok == tooltipToken
 				do
-					local px, py = PlayerMouse.X, PlayerMouse.Y
+					local px, py = pointerScreenXY()
 					local cam = workspace.CurrentCamera
 					local vw = if cam then cam.ViewportSize.X else 1920
 					local vh = if cam then cam.ViewportSize.Y else 1080
@@ -1024,7 +1093,25 @@ function Library.new(config: WindowConfig)
 	root.Position = UDim2.new(0.5, 0, 0.5, 0)
 	root.Size = UDim2.fromOffset(size.X + mascotOffset, size.Y + 48)
 	root.BackgroundTransparency = 1
+	root.ZIndex = 1
 	root.Parent = screenGui
+
+	local function syncModalBackdrop()
+		if not unlockMouseWhileOpen then
+			modalBackdrop.Visible = false
+			modalBackdrop.Modal = false
+			return
+		end
+		if root.Visible then
+			modalBackdrop.Visible = true
+			modalBackdrop.Modal = true
+		else
+			modalBackdrop.Visible = false
+			modalBackdrop.Modal = false
+		end
+	end
+	syncModalBackdrop()
+	root:GetPropertyChangedSignal("Visible"):Connect(syncModalBackdrop)
 
 	-- Toasts: created after root so with Sibling ZIndex they stack above the window; high ZIndex vs root (0)
 	local notifyHost = Instance.new("Frame")
@@ -1360,6 +1447,9 @@ function Library.new(config: WindowConfig)
 
 		if resizeHandle then
 			resizeHandle.InputBegan:Connect(function(input: InputObject)
+				if hudDragLocked then
+					return
+				end
 				if
 					input.UserInputType ~= Enum.UserInputType.MouseButton1
 					and input.UserInputType ~= Enum.UserInputType.Touch
@@ -1387,6 +1477,9 @@ function Library.new(config: WindowConfig)
 
 		local function inputBegan(input: InputObject, gp: boolean)
 			if gp then
+				return
+			end
+			if hudDragLocked then
 				return
 			end
 			if resizing then
@@ -1472,8 +1565,69 @@ function Library.new(config: WindowConfig)
 	end
 	beginDrag()
 
+	local mobileHudToggle: TextButton? = nil
+	local mobileHudLock: TextButton? = nil
+	if showMobileHud then
+		local function makeHudButton(label: string, order: number): TextButton
+			local b = Instance.new("TextButton")
+			b.Name = "AcidMobileHud_" .. label
+			b.Size = UDim2.fromOffset(76, 34)
+			b.BackgroundColor3 = Theme.Background
+			b.BackgroundTransparency = 0.05
+			b.TextColor3 = Theme.Text
+			b.TextSize = 13
+			b.Font = Enum.Font.GothamBold
+			b.Text = label
+			b.AutoButtonColor = false
+			b.ZIndex = 850
+			b.LayoutOrder = order
+			b:SetAttribute("AcidBg", "Background")
+			b:SetAttribute("AcidText", "Text")
+			corner(Theme.CornerSm).Parent = b
+			stroke(Theme.Stroke, 1, 0.5).Parent = b
+			pad(4).Parent = b
+			b.Parent = screenGui
+			if mobileButtonsSide == "Right" then
+				b.AnchorPoint = Vector2.new(1, 0)
+				b.Position = UDim2.new(1, -8, 0, 8 + (order - 1) * 42)
+			else
+				b.AnchorPoint = Vector2.new(0, 0)
+				b.Position = UDim2.new(0, 8, 0, 8 + (order - 1) * 42)
+			end
+			return b
+		end
+		mobileHudToggle = makeHudButton("Toggle", 1)
+		mobileHudLock = makeHudButton("Lock", 2)
+		mobileHudToggle.MouseButton1Click:Connect(function()
+			root.Visible = not root.Visible
+			syncModalBackdrop()
+		end)
+		mobileHudLock.MouseButton1Click:Connect(function()
+			hudDragLocked = not hudDragLocked
+			mobileHudLock.Text = hudDragLocked and "Unlock" or "Lock"
+		end)
+	end
+
 	local refreshThemeFn: () -> ()
 	refreshThemeFn = function()
+		if mobileHudToggle then
+			mobileHudToggle.BackgroundColor3 = Theme.Background
+			mobileHudToggle.TextColor3 = Theme.Text
+			for _, ch in mobileHudToggle:GetChildren() do
+				if ch:IsA("UIStroke") then
+					ch.Color = Theme.Stroke
+				end
+			end
+		end
+		if mobileHudLock then
+			mobileHudLock.BackgroundColor3 = Theme.Background
+			mobileHudLock.TextColor3 = Theme.Text
+			for _, ch in mobileHudLock:GetChildren() do
+				if ch:IsA("UIStroke") then
+					ch.Color = Theme.Stroke
+				end
+			end
+		end
 		tooltipLabel.BackgroundColor3 = Theme.Elevated
 		tooltipLabel.TextColor3 = Theme.Text
 		for _, ch in tooltipLabel:GetChildren() do
@@ -1583,6 +1737,7 @@ function Library.new(config: WindowConfig)
 			return
 		end
 		root.Visible = not root.Visible
+		syncModalBackdrop()
 	end)
 
 	local window = {
@@ -3485,12 +3640,7 @@ function Library.new(config: WindowConfig)
 			syncHsVisualRef = syncHsVisual
 
 			local function pointerXY(): (number, number)
-				--[[ Match Obsidian / AbsolutePosition: PlayerMouse aligns with AbsolutePosition; GetMouseLocation can be offset (e.g. GuiInset). ]]
-				if UserInputService.MouseEnabled then
-					return PlayerMouse.X, PlayerMouse.Y
-				end
-				local v = UserInputService:GetMouseLocation()
-				return v.X, v.Y
+				return pointerScreenXY()
 			end
 
 			local function sampleSatVal()
@@ -3681,8 +3831,11 @@ function Library.new(config: WindowConfig)
 
 			do
 				local lastHexTap = 0.0
-				hexBox.InputBegan:Connect(function(input: InputObject)
-					if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+				local function onHexTapInput(input: InputObject)
+					if
+						input.UserInputType ~= Enum.UserInputType.MouseButton1
+						and input.UserInputType ~= Enum.UserInputType.Touch
+					then
 						return
 					end
 					if input.UserInputState ~= Enum.UserInputState.Begin then
@@ -3699,7 +3852,8 @@ function Library.new(config: WindowConfig)
 					else
 						lastHexTap = t
 					end
-				end)
+				end
+				hexBox.InputBegan:Connect(onHexTapInput)
 			end
 
 			doneBtn.MouseButton1Click:Connect(function()
