@@ -291,18 +291,16 @@ do
 		end
 	end
 
-	--[[ Obsidian ThemeManager:ThemeUpdate — Scheme[field] = Options[field].Value; UpdateColorsUsingRegistry() only (no full window refresh / tab reselect). ]]
+	--[[ Obsidian ThemeUpdate: Scheme[field] = Options[field].Value, then UpdateColorsUsingRegistry (sync, like Obsidian). ]]
 	function ThemeManager:ThemeUpdate()
 		local Lib = self.Library
-		if not Lib or not Lib.Theme or not Lib.Options or not Lib.Scheme then
+		if not Lib or not Lib.Theme or not Lib.Options or not Lib.Scheme or Lib.Unloaded then
 			return
 		end
 		for _, field in ThemeFields do
-			if Lib.Options[field] then
-				local opt = Lib.Options[field]
-				if typeof(opt.Value) == "Color3" then
-					Lib.Scheme[field] = opt.Value
-				end
+			local opt = Lib.Options[field]
+			if opt and typeof(opt.Value) == "Color3" then
+				Lib.Scheme[field] = opt.Value
 			end
 		end
 		local partial: { [string]: Color3 } = {}
@@ -407,7 +405,6 @@ do
 
 	function ThemeManager:CreateThemeManager(section)
 		local T = self.Library.Theme
-		--[[ Obsidian: Options[field]:OnChanged(ThemeUpdate) — no Callback on theme color pickers. ]]
 		local function themeUpdate()
 			self:ThemeUpdate()
 		end
