@@ -1422,8 +1422,14 @@ function Library.new(config: WindowConfig)
 	mainPanel.LayoutOrder = 1
 	mainPanel.BackgroundTransparency = 1
 	mainPanel.BorderSizePixel = 0
-	mainPanel.ClipsDescendants = false
+	--[[ ScrollingFrames use square fills; clip at this shell so bottom matches top rounded corners (panelFace alone often leaves a square bottom). ]]
+	mainPanel.ClipsDescendants = true
 	mainPanel.Parent = body
+	do
+		local mpc = Instance.new("UICorner")
+		mpc.CornerRadius = Theme.Corner
+		mpc.Parent = mainPanel
+	end
 
 	local panelGlowHost: Frame? = nil
 	if config.GlowEnabled ~= false then
@@ -1913,6 +1919,10 @@ function Library.new(config: WindowConfig)
 		local mg = mainPanel:FindFirstChild("MainGlowHost")
 		if mg and mg:IsA("Frame") then
 			syncMainGlowCornerRadii(mg, n)
+		end
+		local mpc = mainPanel:FindFirstChildWhichIsA("UICorner")
+		if mpc then
+			mpc.CornerRadius = Theme.Corner
 		end
 		local pillR = topPillCornerPx(n, topPillHeightPx)
 		local pillC = pill:FindFirstChildWhichIsA("UICorner")
