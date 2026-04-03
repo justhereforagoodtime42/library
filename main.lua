@@ -155,6 +155,7 @@ function Library:SetNotifySide(side: string)
 end
 
 function Library:SetDPIScale(_scale: number)
+	-- Reserved: AcidHub uses fixed scale; hook here if you add DPI scaling later.
 end
 
 function Library:Notify(payload: any, duration: number?)
@@ -1097,7 +1098,10 @@ function Library.new(config: WindowConfig)
 	root.Parent = screenGui
 
 	local function syncModalBackdrop()
-		if not unlockMouseWhileOpen then
+		--[[ Modal fullscreen + UserInputService.InputBegan uses gameProcessed: on PC, Modal can mark
+			clicks as processed so our window drag (which returns when gp) never starts. Keep modal
+			only on touch-first clients where it blocks world taps without breaking mouse drag. ]]
+		if not unlockMouseWhileOpen or not Library.IsMobile then
 			modalBackdrop.Visible = false
 			modalBackdrop.Modal = false
 			return
@@ -1475,8 +1479,32 @@ function Library.new(config: WindowConfig)
 			end)
 		end
 
+		local function pointInDragChrome(p: Vector2): boolean
+			local ap = mainPanel.AbsolutePosition
+			local as = mainPanel.AbsoluteSize
+			if
+				p.X >= ap.X
+				and p.X <= ap.X + as.X
+				and p.Y >= ap.Y
+				and p.Y <= ap.Y + 44
+			then
+				return true
+			end
+			if
+				pill.AbsolutePosition.X <= p.X
+				and p.X <= pill.AbsolutePosition.X + pill.AbsoluteSize.X
+				and pill.AbsolutePosition.Y <= p.Y
+				and p.Y <= pill.AbsolutePosition.Y + pill.AbsoluteSize.Y
+			then
+				return true
+			end
+			return false
+		end
+
 		local function inputBegan(input: InputObject, gp: boolean)
-			if gp then
+			--[[ GUI clicks often set gameProcessed; still start drag when pointer is on title/pill chrome. ]]
+			local p = Vector2.new(input.Position.X, input.Position.Y)
+			if gp and not pointInDragChrome(p) then
 				return
 			end
 			if hudDragLocked then
@@ -1491,27 +1519,9 @@ function Library.new(config: WindowConfig)
 			then
 				return
 			end
-			local p = input.Position
-			local ap = mainPanel.AbsolutePosition
-			local as = mainPanel.AbsoluteSize
-			if
-				p.X >= ap.X
-				and p.X <= ap.X + as.X
-				and p.Y >= ap.Y
-				and p.Y <= ap.Y + 44
-			then
+			if pointInDragChrome(p) then
 				dragging = true
-				dragStart = Vector2.new(p.X, p.Y)
-				startPos = root.Position
-			end
-			if
-				pill.AbsolutePosition.X <= p.X
-				and p.X <= pill.AbsolutePosition.X + pill.AbsoluteSize.X
-				and pill.AbsolutePosition.Y <= p.Y
-				and p.Y <= pill.AbsolutePosition.Y + pill.AbsoluteSize.Y
-			then
-				dragging = true
-				dragStart = Vector2.new(p.X, p.Y)
+				dragStart = p
 				startPos = root.Position
 			end
 		end
