@@ -92,6 +92,34 @@ Library._updateNotifyLayout = nil :: (() -> ())?
 Library._windowDestroy = nil :: (() -> ())?
 --[[ Per-toast refresh callbacks so notifications follow Library.Theme after ThemeManager:ApplyTheme ]]
 Library._notifyThemeRefreshes = {} :: { () -> () }
+Library._acidFocusConn = nil :: RBXScriptConnection?
+Library._acidFocusReleasedConn = nil :: RBXScriptConnection?
+
+--[[ Mobile / focus (Obsidian-style): touch clients, floating controls, drag lock ]]
+Library.IsMobile = false
+Library.DevicePlatform = nil :: Enum.Platform?
+Library.IsRobloxFocused = true
+Library.CantDragForced = false
+
+do
+	if RunService:IsStudio() then
+		Library.IsMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+	else
+		pcall(function()
+			Library.DevicePlatform = UserInputService:GetPlatform()
+		end)
+		Library.IsMobile = (Library.DevicePlatform == Enum.Platform.Android or Library.DevicePlatform == Enum.Platform.IOS)
+	end
+end
+
+if Library._acidFocusConn == nil then
+	Library._acidFocusConn = UserInputService.WindowFocused:Connect(function()
+		Library.IsRobloxFocused = true
+	end)
+	Library._acidFocusReleasedConn = UserInputService.WindowFocusReleased:Connect(function()
+		Library.IsRobloxFocused = false
+	end)
+end
 
 function Library:OnUnload(fn: () -> ())
 	if typeof(fn) == "function" then
@@ -527,6 +555,7 @@ function Library:Unload()
 	table.clear(self.Toggles)
 	table.clear(self.Options)
 	self.ToggleKeybind = nil
+	self.CantDragForced = false
 end
 
 --[[ Works when Color3.fromHex is missing or picky; accepts #RGB, #RRGGBB ]]
@@ -850,6 +879,10 @@ export type WindowConfig = {
 	TabGlowEnabled: boolean?,
 	--[[ Dropdowns default to Multi when Multi is omitted (Obsidian-style) ]]
 	MultiDropdownByDefault: boolean?,
+	--[[ Mobile: "Left" | "Right" — floating Menu / Lock chips ]]
+	MobileButtonsSide: string?,
+	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
+	UnlockMouseWhileOpen: boolean?,
 }
 
 function Library.new(config: WindowConfig)
@@ -857,9 +890,23 @@ function Library.new(config: WindowConfig)
 	local titleText = config.Title or "Acid Hub"
 	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
 	local titleIcon = config.TitleIcon
-	local minContent = config.MinSize or Vector2.new(380, 300)
-	local size = config.Size or Vector2.new(520, 440)
+	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Left"))
+	if mobileSide ~= "right" then
+		mobileSide = "left"
+	end
+	local unlockMouseWhileOpen = config.UnlockMouseWhileOpen ~= false
+	local defaultMin = if Library.IsMobile then Vector2.new(300, 200) else Vector2.new(380, 300)
+	local minContent = config.MinSize or defaultMin
+	local size = config.Size or (if Library.IsMobile then Vector2.new(480, 360) else Vector2.new(520, 440))
 	size = Vector2.new(math.max(size.X, minContent.X), math.max(size.Y, minContent.Y))
+	local cam0 = workspace.CurrentCamera
+	if cam0 then
+		local vs = cam0.ViewportSize
+		local margin = 28
+		local maxW = math.max(minContent.X, vs.X - margin)
+		local maxH = math.max(minContent.Y, vs.Y - margin)
+		size = Vector2.new(math.clamp(size.X, minContent.X, maxW), math.clamp(size.Y, minContent.Y, maxH))
+	end
 	local mascotId = config.MascotImage
 	local mascotOffset = if mascotId then 72 else 0
 	local minRootW = minContent.X + mascotOffset
@@ -881,6 +928,20 @@ function Library.new(config: WindowConfig)
 	if not parentOk or not screenGui.Parent then
 		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
 	end
+
+	--[[ Obsidian-style 0×0 modal sink: improves camera / world input while GUI is open on mobile ]]
+	local modalSink = Instance.new("TextButton")
+	modalSink.Name = "AcidModalSink"
+	modalSink.BackgroundTransparency = 1
+	modalSink.Text = ""
+	modalSink.Size = UDim2.fromOffset(0, 0)
+	modalSink.AnchorPoint = Vector2.zero
+	modalSink.Position = UDim2.fromScale(0, 0)
+	modalSink.Modal = false
+	modalSink.ZIndex = -500
+	modalSink.Active = false
+	modalSink.AutoButtonColor = false
+	modalSink.Parent = screenGui
 
 	Library.Unloaded = false
 	table.clear(Library.Toggles)
@@ -993,7 +1054,16 @@ function Library.new(config: WindowConfig)
 					and loopTok == tooltipLoopToken
 					and showTok == tooltipToken
 				do
-					local px, py = PlayerMouse.X, PlayerMouse.Y
+					local px: number
+					local py: number
+					if Library.IsMobile then
+						local ml = UserInputService:GetMouseLocation()
+						px = ml.X
+						py = ml.Y
+					else
+						px = PlayerMouse.X
+						py = PlayerMouse.Y
+					end
 					local cam = workspace.CurrentCamera
 					local vw = if cam then cam.ViewportSize.X else 1920
 					local vh = if cam then cam.ViewportSize.Y else 1080
@@ -1025,6 +1095,13 @@ function Library.new(config: WindowConfig)
 	root.Size = UDim2.fromOffset(size.X + mascotOffset, size.Y + 48)
 	root.BackgroundTransparency = 1
 	root.Parent = screenGui
+
+	local function setRootVisible(v: boolean)
+		root.Visible = v
+		if unlockMouseWhileOpen and Library.IsMobile then
+			modalSink.Modal = v
+		end
+	end
 
 	-- Toasts: created after root so with Sibling ZIndex they stack above the window; high ZIndex vs root (0)
 	local notifyHost = Instance.new("Frame")
@@ -1347,6 +1424,54 @@ function Library.new(config: WindowConfig)
 		resizeHandle = rh
 	end
 
+	--[[ Floating Menu / Lock (Obsidian-style) — keyboard toggle is unreliable on pure touch clients ]]
+	if Library.IsMobile then
+		local chipOuter = Instance.new("Frame")
+		chipOuter.Name = "AcidMobileTools"
+		chipOuter.BackgroundTransparency = 1
+		chipOuter.Size = UDim2.fromOffset(92, 78)
+		chipOuter.ZIndex = 950
+		chipOuter.Parent = screenGui
+		if mobileSide == "right" then
+			chipOuter.AnchorPoint = Vector2.new(1, 0)
+			chipOuter.Position = UDim2.new(1, -10, 0, 10)
+		else
+			chipOuter.Position = UDim2.fromOffset(10, 10)
+		end
+		local _chipList = Instance.new("UIListLayout")
+		_chipList.Padding = UDim.new(0, 6)
+		_chipList.Parent = chipOuter
+
+		local function makeMobileChip(label: string): TextButton
+			local b = Instance.new("TextButton")
+			b.Size = UDim2.fromOffset(86, 34)
+			b.BackgroundColor3 = Theme.Elevated
+			b.BackgroundTransparency = 0.08
+			b.Text = label
+			b.TextColor3 = Theme.Text
+			b.TextSize = 13
+			b.Font = Enum.Font.GothamMedium
+			b.AutoButtonColor = false
+			b.BorderSizePixel = 0
+			b.Parent = chipOuter
+			corner(Theme.CornerSm).Parent = b
+			stroke(Theme.Stroke, 1, 0.5).Parent = b
+			return b
+		end
+
+		makeMobileChip("Menu").MouseButton1Click:Connect(function()
+			setRootVisible(not root.Visible)
+		end)
+
+		local lockChip = makeMobileChip("Lock")
+		lockChip.MouseButton1Click:Connect(function()
+			Library.CantDragForced = not Library.CantDragForced
+			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
+		end)
+	end
+
+	setRootVisible(true)
+
 	-- dragging + resize (grip uses local InputBegan — global InputBegan often has gameProcessed=true on Gui clicks)
 	local dragConn: { RBXScriptConnection } = {}
 	local function beginDrag()
@@ -1360,6 +1485,9 @@ function Library.new(config: WindowConfig)
 
 		if resizeHandle then
 			resizeHandle.InputBegan:Connect(function(input: InputObject)
+				if Library.CantDragForced then
+					return
+				end
 				if
 					input.UserInputType ~= Enum.UserInputType.MouseButton1
 					and input.UserInputType ~= Enum.UserInputType.Touch
@@ -1386,7 +1514,7 @@ function Library.new(config: WindowConfig)
 		end
 
 		local function inputBegan(input: InputObject, gp: boolean)
-			if gp then
+			if Library.CantDragForced then
 				return
 			end
 			if resizing then
@@ -1398,31 +1526,46 @@ function Library.new(config: WindowConfig)
 			then
 				return
 			end
-			local p = input.Position
-			local ap = mainPanel.AbsolutePosition
-			local as = mainPanel.AbsoluteSize
-			if
-				p.X >= ap.X
-				and p.X <= ap.X + as.X
-				and p.Y >= ap.Y
-				and p.Y <= ap.Y + 44
-			then
-				dragging = true
-				dragStart = Vector2.new(p.X, p.Y)
-				startPos = root.Position
+			local p = Vector2.new(input.Position.X, input.Position.Y)
+			local function inDragRegion(): boolean
+				local ap = mainPanel.AbsolutePosition
+				local as = mainPanel.AbsoluteSize
+				if
+					p.X >= ap.X
+					and p.X <= ap.X + as.X
+					and p.Y >= ap.Y
+					and p.Y <= ap.Y + 44
+				then
+					return true
+				end
+				local pap = pill.AbsolutePosition
+				local pas = pill.AbsoluteSize
+				if
+					pap.X <= p.X
+					and p.X <= pap.X + pas.X
+					and pap.Y <= p.Y
+					and p.Y <= pap.Y + pas.Y
+				then
+					return true
+				end
+				return false
 			end
-			if
-				pill.AbsolutePosition.X <= p.X
-				and p.X <= pill.AbsolutePosition.X + pill.AbsoluteSize.X
-				and pill.AbsolutePosition.Y <= p.Y
-				and p.Y <= pill.AbsolutePosition.Y + pill.AbsoluteSize.Y
-			then
-				dragging = true
-				dragStart = Vector2.new(p.X, p.Y)
-				startPos = root.Position
+			if gp and not inDragRegion() then
+				return
 			end
+			if not inDragRegion() then
+				return
+			end
+			dragging = true
+			dragStart = p
+			startPos = root.Position
 		end
 		local function inputMoved(input: InputObject, gp: boolean)
+			if Library.CantDragForced then
+				dragging = false
+				resizing = false
+				return
+			end
 			-- Clicks on our GUI set gameProcessed; still need move events while dragging/resizing.
 			if gp and not dragging and not resizing then
 				return
@@ -1572,6 +1715,9 @@ function Library.new(config: WindowConfig)
 		if gameProcessed or Library.Unloaded then
 			return
 		end
+		if not Library.IsRobloxFocused then
+			return
+		end
 		local tb = Library.ToggleKeybind
 		if not tb or typeof(tb.Value) ~= "EnumItem" then
 			return
@@ -1582,7 +1728,7 @@ function Library.new(config: WindowConfig)
 		if input.KeyCode ~= tb.Value then
 			return
 		end
-		root.Visible = not root.Visible
+		setRootVisible(not root.Visible)
 	end)
 
 	local window = {
