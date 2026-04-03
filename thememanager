@@ -265,6 +265,7 @@ do
 			if opt and typeof(opt.Value) == "Color3" then
 				sch[field] = opt.Value:ToHex()
 			end
+
 		end
 		self:ApplyScheme(sch)
 	end
