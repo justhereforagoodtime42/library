@@ -3766,6 +3766,9 @@ function Library.new(config: WindowConfig)
 			satCursor.BorderSizePixel = 0
 			satCursor.Size = UDim2.fromOffset(6, 6)
 			satCursor.ZIndex = 2503
+			--[[ Must not absorb clicks — otherwise InputBegan never reaches satMap (Roblox hits topmost Active child). ]]
+			satCursor.Active = false
+			satCursor.Selectable = false
 			satCursor.Parent = satMap
 			corner(UDim.new(1, 0)).Parent = satCursor
 			stroke(Theme.Stroke, 1, 0.3).Parent = satCursor
@@ -3791,6 +3794,8 @@ function Library.new(config: WindowConfig)
 			hueCursor.Position = UDim2.new(0.5, 0, hueN, 0)
 			hueCursor.Size = UDim2.new(1, 4, 0, 3)
 			hueCursor.ZIndex = 2503
+			hueCursor.Active = false
+			hueCursor.Selectable = false
 			hueCursor.Parent = hueSel
 			corner(UDim.new(0, 2)).Parent = hueCursor
 			stroke(Color3.new(0, 0, 0), 1, 0.2).Parent = hueCursor
@@ -3808,17 +3813,17 @@ function Library.new(config: WindowConfig)
 					or inp.UserInputType == Enum.UserInputType.Touch
 			end
 
-			local function isDragInput(inp: InputObject): boolean
+			--[[ Picker: do not gate on IsRobloxFocused — many clients/executors leave it false while GUI is usable. ]]
+			local function isDragInputForPicker(inp: InputObject): boolean
 				return isMouseInput(inp)
 					and (
 						inp.UserInputState == Enum.UserInputState.Begin
 						or inp.UserInputState == Enum.UserInputState.Change
 					)
-					and Library.IsRobloxFocused
 			end
 
 			local function pointerXY(): (number, number)
-				--[[ Match Obsidian / AbsolutePosition: PlayerMouse aligns with AbsolutePosition; GetMouseLocation can be offset (e.g. GuiInset). ]]
+				--[[ Match GuiObject.AbsolutePosition; PlayerMouse often aligns better than raw GetMouseLocation on some clients. ]]
 				if UserInputService.MouseEnabled then
 					return PlayerMouse.X, PlayerMouse.Y
 				end
@@ -3852,17 +3857,14 @@ function Library.new(config: WindowConfig)
 			--[[ Obsidian uses while IsDragInput(Input); on some clients mouse InputObject does not stay Begin/Change while moving,
 			    so we treat M1 like Obsidian’s executor builds do: held = IsMouseButtonPressed. Touch keeps isDragInput. ]]
 			local function stillDraggingForPicker(inp: InputObject): boolean
-				if not Library.IsRobloxFocused then
-					return false
-				end
 				if inp.UserInputType == Enum.UserInputType.Touch then
-					return isDragInput(inp)
+					return isDragInputForPicker(inp)
 				end
 				return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
 			end
 
 			local function beginObsidianDrag(sample: () -> (), input: InputObject)
-				if not isDragInput(input) then
+				if not isDragInputForPicker(input) then
 					return
 				end
 				sample()
