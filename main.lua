@@ -1386,7 +1386,21 @@ function Library.new(config: WindowConfig)
 	mainPanel.Parent = body
 
 	local panelGlowHost: Frame? = nil
+	--[[ Rounded clip mask: glow layers extend past PanelFace; without this their square AABBs show past the curve. ]]
+	local mainGlowClip: Frame? = nil
 	if config.GlowEnabled ~= false then
+		local clip = Instance.new("Frame")
+		clip.Name = "MainGlowClip"
+		clip.Size = UDim2.fromScale(1, 1)
+		clip.Position = UDim2.fromScale(0, 0)
+		clip.BackgroundTransparency = 1
+		clip.BorderSizePixel = 0
+		clip.ClipsDescendants = true
+		clip.ZIndex = 0
+		clip.Parent = mainPanel
+		corner(Theme.Corner).Parent = clip
+		mainGlowClip = clip
+
 		local gh = Instance.new("Frame")
 		gh.Name = "MainGlowHost"
 		gh.Size = UDim2.fromScale(1, 1)
@@ -1394,7 +1408,7 @@ function Library.new(config: WindowConfig)
 		gh.BackgroundTransparency = 1
 		gh.BorderSizePixel = 0
 		gh.ZIndex = 0
-		gh.Parent = mainPanel
+		gh.Parent = clip
 		panelGlowHost = gh
 		addStackedGlow(gh, {
 			{ size = 5, transparency = 0.82, radius = 9 },
@@ -1720,12 +1734,13 @@ function Library.new(config: WindowConfig)
 		end
 		paintPillGlowHost(pillGlowHost)
 		do
-			local mg = mainPanel:FindFirstChild("MainGlowHost")
-			if mg and mg:IsA("Frame") then
-				paintMainGlowHost(mg)
-			else
-				paintMainGlowHost(panelGlowHost)
+			if mainGlowClip then
+				local cc = mainGlowClip:FindFirstChildWhichIsA("UICorner")
+				if cc then
+					cc.CornerRadius = Theme.Corner
+				end
 			end
+			paintMainGlowHost(panelGlowHost)
 		end
 		if logo:IsA("Frame") then
 			logo.BackgroundColor3 = Theme.AccentPurple
@@ -1870,9 +1885,14 @@ function Library.new(config: WindowConfig)
 		if pf then
 			pf.CornerRadius = Theme.Corner
 		end
-		local mg = mainPanel:FindFirstChild("MainGlowHost")
-		if mg and mg:IsA("Frame") then
-			syncMainGlowCornerRadii(mg, n)
+		if mainGlowClip then
+			local cc = mainGlowClip:FindFirstChildWhichIsA("UICorner")
+			if cc then
+				cc.CornerRadius = Theme.Corner
+			end
+		end
+		if panelGlowHost then
+			syncMainGlowCornerRadii(panelGlowHost, n)
 		end
 	end
 
