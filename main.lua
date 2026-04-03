@@ -139,10 +139,6 @@ local UID = {
 
 Library.Toggles = {} :: { [string]: any }
 Library.Options = {} :: { [string]: any }
---[[ Obsidian: Scheme[field] = Options[field].Value; Registry drives UpdateColorsUsingRegistry. ]]
-Library.Scheme = {} :: { [string]: Color3 }
-Library.Registry = {} :: { [Instance]: { [string]: any } }
-Library._applyThemeColorsFromWindow = nil :: (() -> ())?
 --[[ When true, AddDropdown uses Multi = true unless the option explicitly sets Multi = false ]]
 Library.MultiDropdownByDefault = false
 Library.Unloaded = false
@@ -160,6 +156,7 @@ Library._windowDestroy = nil :: (() -> ())?
 Library._notifyThemeRefreshes = {} :: { () -> () }
 Library._acidFocusConn = nil :: RBXScriptConnection?
 Library._acidFocusReleasedConn = nil :: RBXScriptConnection?
+
 --[[ Mobile / focus (Obsidian-style): touch clients, floating controls, drag lock ]]
 Library.IsMobile = false
 Library.DevicePlatform = nil :: Enum.Platform?
@@ -189,51 +186,6 @@ end
 function Library:OnUnload(fn: () -> ())
 	if typeof(fn) == "function" then
 		table.insert(self._unloadCallbacks, fn)
-	end
-end
-
-function Library:GetSchemeValue(index: any): Color3?
-	if typeof(index) == "function" then
-		return index()
-	end
-	if typeof(index) ~= "string" then
-		return nil
-	end
-	local s = self.Scheme[index]
-	if typeof(s) == "Color3" then
-		return s
-	end
-	local t = self.Theme[index]
-	if typeof(t) == "Color3" then
-		return t
-	end
-	return nil
-end
-
-function Library:AddToRegistry(instance: Instance, properties: { [string]: any })
-	self.Registry[instance] = properties
-end
-
-function Library:RemoveFromRegistry(instance: Instance)
-	self.Registry[instance] = nil
-end
-
---[[ Obsidian Library:UpdateColorsUsingRegistry — apply Registry + window color paint + notification chrome. ]]
-function Library:UpdateColorsUsingRegistry()
-	if next(self.Registry) ~= nil then
-		for instance, properties in pairs(self.Registry) do
-			if instance.Parent then
-				for prop, index in pairs(properties) do
-					local schemeValue = self:GetSchemeValue(index)
-					if typeof(schemeValue) == "Color3" then
-						(instance :: any)[prop] = schemeValue
-					end
-				end
-			end
-		end
-	end
-	if self._applyThemeColorsFromWindow then
-		pcall(self._applyThemeColorsFromWindow)
 	end
 end
 
@@ -664,8 +616,6 @@ function Library:Unload()
 	table.clear(self._notifyThemeRefreshes)
 	table.clear(self.Toggles)
 	table.clear(self.Options)
-	table.clear(self.Registry)
-	self._applyThemeColorsFromWindow = nil
 	self.ToggleKeybind = nil
 	self.CantDragForced = false
 end
@@ -1059,7 +1009,6 @@ function Library.new(config: WindowConfig)
 	Library.Unloaded = false
 	table.clear(Library.Toggles)
 	table.clear(Library.Options)
-	table.clear(Library.Registry)
 
 	local toggleThemeRows: { { track: Frame, getOn: () -> boolean } } = {}
 	local sliderGradients: { UIGradient } = {}
@@ -1068,20 +1017,14 @@ function Library.new(config: WindowConfig)
 
 	-- Notify UI is parented after root (see below) so it stacks above the window with Global ZIndex
 
-	--[[ Single GetDescendants pass: Acid* attrs + groupbox transparency + dropdown scroll (was two passes). ]]
 	local function paintThemedDescendants(host: Instance)
 		for _, d in host:GetDescendants() do
+			--[[ UIStroke is not a GuiObject — must run before the guard or borders never follow Theme (groupbox outline stuck on defaults). ]]
 			if d:IsA("UIStroke") then
 				local sk = d:GetAttribute("AcidStroke")
 				if typeof(sk) == "string" and typeof(Theme[sk]) == "Color3" then
 					d.Color = Theme[sk]
 				end
-			end
-			if d:IsA("Frame") and d:GetAttribute("AcidBg") == "Groupbox" then
-				d.BackgroundTransparency = Theme.GroupboxTrans
-			end
-			if d.Name == "DropdownScroll" and d:IsA("ScrollingFrame") then
-				d.ScrollBarImageColor3 = Theme.AccentBlue
 			end
 			if not d:IsA("GuiObject") then
 				continue
@@ -1753,7 +1696,8 @@ function Library.new(config: WindowConfig)
 		end
 	end
 
-	local function applyThemedColorsOnly()
+	local refreshThemeFn: () -> ()
+	refreshThemeFn = function()
 		tooltipLabel.BackgroundColor3 = Theme.Elevated
 		tooltipLabel.TextColor3 = Theme.Text
 		for _, ch in tooltipLabel:GetChildren() do
@@ -1819,9 +1763,23 @@ function Library.new(config: WindowConfig)
 			})
 		end
 		paintThemedDescendants(contentHost)
+		for _, d in contentHost:GetDescendants() do
+			if d:IsA("Frame") and d:GetAttribute("AcidBg") == "Groupbox" then
+				d.BackgroundTransparency = Theme.GroupboxTrans
+			end
+			if d.Name == "DropdownScroll" and d:IsA("ScrollingFrame") then
+				d.ScrollBarImageColor3 = Theme.AccentBlue
+			end
+		end
 		for _, chevRefresh in sectionChevronRefreshes do
 			pcall(chevRefresh)
 		end
+		local pfc = panelFace:FindFirstChildWhichIsA("UICorner")
+		if pfc then
+			pfc.CornerRadius = Theme.Corner
+		end
+		syncMainGlowCorners(Theme.Corner.Offset)
+		selectTab(activeTab)
 		if resizeHandle then
 			local grip = resizeHandle:FindFirstChild("ResizeIcon")
 			if grip and grip:IsA("ImageLabel") then
@@ -1832,19 +1790,6 @@ function Library.new(config: WindowConfig)
 				g2.TextColor3 = Theme.TextDim
 			end
 		end
-	end
-
-	Library._applyThemeColorsFromWindow = applyThemedColorsOnly
-
-	local refreshThemeFn: () -> ()
-	refreshThemeFn = function()
-		Library:UpdateColorsUsingRegistry()
-		local pfc = panelFace:FindFirstChildWhichIsA("UICorner")
-		if pfc then
-			pfc.CornerRadius = Theme.Corner
-		end
-		syncMainGlowCorners(Theme.Corner.Offset)
-		selectTab(activeTab)
 	end
 
 	if Library._menuInputConn then
@@ -1893,7 +1838,6 @@ function Library.new(config: WindowConfig)
 				break
 			end
 		end
-		Library._applyThemeColorsFromWindow = nil
 		if screenGui.Parent then
 			screenGui:Destroy()
 		end
@@ -3655,13 +3599,12 @@ function Library.new(config: WindowConfig)
 
 			local popOpen = false
 
-			--[[ Obsidian SafeCallback: synchronous OnChanged/Callback so ThemeUpdate coalesces correctly (task.spawn broke live theme drag). ]]
 			local function fireColorCallbacks()
 				for _, cb in colorCbs do
-					pcall(cb, col)
+					task.spawn(cb, col)
 				end
 				if o.Callback then
-					pcall(o.Callback, col)
+					o.Callback(col)
 				end
 			end
 
@@ -3670,16 +3613,6 @@ function Library.new(config: WindowConfig)
 				if fillRgbBoxesRef then
 					fillRgbBoxesRef()
 				end
-			end
-
-			--[[ Obsidian ColorPicker:Update — live swatch, HSV UI, hex/RGB fields, and callbacks every change. ]]
-			local function pickerUpdateFromHsv()
-				col = Color3.fromHSV(hueN, satN, valN)
-				reg.Value = col
-				syncSwatch()
-				syncHsVisual()
-				syncTextFieldsFromColor()
-				fireColorCallbacks()
 			end
 
 			local function applyColor(c: Color3)
@@ -3766,9 +3699,6 @@ function Library.new(config: WindowConfig)
 			satCursor.BorderSizePixel = 0
 			satCursor.Size = UDim2.fromOffset(6, 6)
 			satCursor.ZIndex = 2503
-			--[[ Must not absorb clicks — otherwise InputBegan never reaches satMap (Roblox hits topmost Active child). ]]
-			satCursor.Active = false
-			satCursor.Selectable = false
 			satCursor.Parent = satMap
 			corner(UDim.new(1, 0)).Parent = satCursor
 			stroke(Theme.Stroke, 1, 0.3).Parent = satCursor
@@ -3794,8 +3724,6 @@ function Library.new(config: WindowConfig)
 			hueCursor.Position = UDim2.new(0.5, 0, hueN, 0)
 			hueCursor.Size = UDim2.new(1, 4, 0, 3)
 			hueCursor.ZIndex = 2503
-			hueCursor.Active = false
-			hueCursor.Selectable = false
 			hueCursor.Parent = hueSel
 			corner(UDim.new(0, 2)).Parent = hueCursor
 			stroke(Color3.new(0, 0, 0), 1, 0.2).Parent = hueCursor
@@ -3807,73 +3735,99 @@ function Library.new(config: WindowConfig)
 			end
 			syncHsVisualRef = syncHsVisual
 
-			--[[ Obsidian Library.lua color picker: IsMouseInput / IsDragInput + clamp(Mouse) + RenderStepped:Wait.
-			    Loop condition: published Obsidian uses while IsDragInput(Input); some clients drop Begin/Change on M1 move,
-			    so mouse uses IsMouseButtonPressed (Obsidian comment / executor pattern); touch keeps IsDragInput. ]]
+			--[[ Obsidian: IsMouseInput / IsDragInput + Update only when HSV changes; drag loop uses RenderStepped:Wait ]]
 			local function isMouseInput(inp: InputObject): boolean
 				return inp.UserInputType == Enum.UserInputType.MouseButton1
 					or inp.UserInputType == Enum.UserInputType.Touch
 			end
 
 			local function isDragInput(inp: InputObject): boolean
-				local stateOk = inp.UserInputState == Enum.UserInputState.Begin
-					or inp.UserInputState == Enum.UserInputState.Change
-				if inp.UserInputType == Enum.UserInputType.Touch then
-					return isMouseInput(inp) and stateOk
-				end
-				return isMouseInput(inp) and stateOk and Library.IsRobloxFocused
+				return isMouseInput(inp)
+					and (
+						inp.UserInputState == Enum.UserInputState.Begin
+						or inp.UserInputState == Enum.UserInputState.Change
+					)
+					and Library.IsRobloxFocused
 			end
 
-			local function colorPickerStillDragging(inp: InputObject): boolean
+			local function pointerXY(): (number, number)
+				--[[ Match Obsidian / AbsolutePosition: PlayerMouse aligns with AbsolutePosition; GetMouseLocation can be offset (e.g. GuiInset). ]]
+				if UserInputService.MouseEnabled then
+					return PlayerMouse.X, PlayerMouse.Y
+				end
+				local v = UserInputService:GetMouseLocation()
+				return v.X, v.Y
+			end
+
+			local function pickerUpdate()
+				col = Color3.fromHSV(hueN, satN, valN)
+				reg.Value = col
+				syncSwatch()
+				syncHsVisual()
+				syncTextFieldsFromColor()
+				fireColorCallbacks()
+			end
+
+			local function sampleSatVal()
+				local ax, ay = satMap.AbsolutePosition.X, satMap.AbsolutePosition.Y
+				local sx, sy = satMap.AbsoluteSize.X, satMap.AbsoluteSize.Y
+				local px, py = pointerXY()
+				local oldSat, oldVal = satN, valN
+				satN = math.clamp((px - ax) / math.max(sx, 1e-4), 0, 1)
+				valN = 1 - math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
+				if satN ~= oldSat or valN ~= oldVal then
+					pickerUpdate()
+				end
+			end
+
+			local function sampleHue()
+				local ay = hueSel.AbsolutePosition.Y
+				local sy = hueSel.AbsoluteSize.Y
+				local _, py = pointerXY()
+				local oldHue = hueN
+				hueN = math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
+				if hueN ~= oldHue then
+					pickerUpdate()
+				end
+			end
+
+			--[[ Obsidian uses while IsDragInput(Input); on some clients mouse InputObject does not stay Begin/Change while moving,
+			    so we treat M1 like Obsidian’s executor builds do: held = IsMouseButtonPressed. Touch keeps isDragInput. ]]
+			local function stillDraggingForPicker(inp: InputObject): boolean
+				if not Library.IsRobloxFocused then
+					return false
+				end
 				if inp.UserInputType == Enum.UserInputType.Touch then
 					return isDragInput(inp)
 				end
 				return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
 			end
 
+			local function beginObsidianDrag(sample: () -> (), input: InputObject)
+				if not isDragInput(input) then
+					return
+				end
+				sample()
+				task.spawn(function()
+					while popOpen and pop.Visible and stillDraggingForPicker(input) do
+						sample()
+						RunService.RenderStepped:Wait()
+					end
+				end)
+			end
+
 			satMap.InputBegan:Connect(function(input: InputObject)
 				if not isMouseInput(input) then
 					return
 				end
-				while popOpen and pop.Visible and colorPickerStillDragging(input) do
-					local minX = satMap.AbsolutePosition.X
-					local maxX = minX + satMap.AbsoluteSize.X
-					local locX = math.clamp(PlayerMouse.X, minX, maxX)
-
-					local minY = satMap.AbsolutePosition.Y
-					local maxY = minY + satMap.AbsoluteSize.Y
-					local locY = math.clamp(PlayerMouse.Y, minY, maxY)
-
-					local oldSat, oldVal = satN, valN
-					satN = (locX - minX) / math.max(maxX - minX, 1e-4)
-					valN = 1 - ((locY - minY) / math.max(maxY - minY, 1e-4))
-
-					if satN ~= oldSat or valN ~= oldVal then
-						pickerUpdateFromHsv()
-					end
-
-					RunService.RenderStepped:Wait()
-				end
+				beginObsidianDrag(sampleSatVal, input)
 			end)
 
 			hueSel.InputBegan:Connect(function(input: InputObject)
 				if not isMouseInput(input) then
 					return
 				end
-				while popOpen and pop.Visible and colorPickerStillDragging(input) do
-					local minY = hueSel.AbsolutePosition.Y
-					local maxY = minY + hueSel.AbsoluteSize.Y
-					local locY = math.clamp(PlayerMouse.Y, minY, maxY)
-
-					local oldHue = hueN
-					hueN = (locY - minY) / math.max(maxY - minY, 1e-4)
-
-					if hueN ~= oldHue then
-						pickerUpdateFromHsv()
-					end
-
-					RunService.RenderStepped:Wait()
-				end
+				beginObsidianDrag(sampleHue, input)
 			end)
 
 			local function rgbRow(labelText: string, layoutOrder: number): TextBox
