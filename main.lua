@@ -3599,26 +3599,34 @@ function Library.new(config: WindowConfig)
 
 			local popOpen = false
 
-			local function applyColor(c: Color3)
-				col = c
-				reg.Value = col
-				syncSwatch()
-				hexBox.Text = string.upper(col:ToHex())
-				if popOpen then
-					hueN, satN, valN = col:ToHSV()
-					if syncHsVisualRef then
-						syncHsVisualRef()
-					end
-					if fillRgbBoxesRef then
-						fillRgbBoxesRef()
-					end
-				end
+			local function fireColorCallbacks()
 				for _, cb in colorCbs do
 					task.spawn(cb, col)
 				end
 				if o.Callback then
 					o.Callback(col)
 				end
+			end
+
+			local function syncTextFieldsFromColor()
+				hexBox.Text = string.upper(col:ToHex())
+				if fillRgbBoxesRef then
+					fillRgbBoxesRef()
+				end
+			end
+
+			local function applyColor(c: Color3)
+				col = c
+				reg.Value = col
+				syncSwatch()
+				syncTextFieldsFromColor()
+				if popOpen then
+					hueN, satN, valN = col:ToHSV()
+					if syncHsVisualRef then
+						syncHsVisualRef()
+					end
+				end
+				fireColorCallbacks()
 			end
 
 			local function tryParseHexInput()
@@ -3637,7 +3645,6 @@ function Library.new(config: WindowConfig)
 			--[[ Obsidian-style HSV surface (rbxassetid://4155801252 saturation map) + RGB fields ]]
 			local SATURATION_MAP_ASSET = "rbxassetid://4155801252"
 			local popCloseConn: RBXScriptConnection? = nil
-			local dragConns: { RBXScriptConnection } = {}
 
 			local pop = Instance.new("Frame")
 			pop.Name = "ColorPickerPop"
@@ -3728,6 +3735,21 @@ function Library.new(config: WindowConfig)
 			end
 			syncHsVisualRef = syncHsVisual
 
+			--[[ Obsidian: IsMouseInput / IsDragInput + Update only when HSV changes; drag loop uses RenderStepped:Wait ]]
+			local function isMouseInput(inp: InputObject): boolean
+				return inp.UserInputType == Enum.UserInputType.MouseButton1
+					or inp.UserInputType == Enum.UserInputType.Touch
+			end
+
+			local function isDragInput(inp: InputObject): boolean
+				return isMouseInput(inp)
+					and (
+						inp.UserInputState == Enum.UserInputState.Begin
+						or inp.UserInputState == Enum.UserInputState.Change
+					)
+					and Library.IsRobloxFocused
+			end
+
 			local function pointerXY(): (number, number)
 				--[[ Match Obsidian / AbsolutePosition: PlayerMouse aligns with AbsolutePosition; GetMouseLocation can be offset (e.g. GuiInset). ]]
 				if UserInputService.MouseEnabled then
@@ -3737,56 +3759,75 @@ function Library.new(config: WindowConfig)
 				return v.X, v.Y
 			end
 
+			local function pickerUpdate()
+				col = Color3.fromHSV(hueN, satN, valN)
+				reg.Value = col
+				syncSwatch()
+				syncHsVisual()
+				syncTextFieldsFromColor()
+				fireColorCallbacks()
+			end
+
 			local function sampleSatVal()
 				local ax, ay = satMap.AbsolutePosition.X, satMap.AbsolutePosition.Y
 				local sx, sy = satMap.AbsoluteSize.X, satMap.AbsoluteSize.Y
 				local px, py = pointerXY()
+				local oldSat, oldVal = satN, valN
 				satN = math.clamp((px - ax) / math.max(sx, 1e-4), 0, 1)
 				valN = 1 - math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
-				applyColor(Color3.fromHSV(hueN, satN, valN))
-				syncHsVisual()
+				if satN ~= oldSat or valN ~= oldVal then
+					pickerUpdate()
+				end
 			end
 
 			local function sampleHue()
 				local ay = hueSel.AbsolutePosition.Y
 				local sy = hueSel.AbsoluteSize.Y
 				local _, py = pointerXY()
+				local oldHue = hueN
 				hueN = math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
-				applyColor(Color3.fromHSV(hueN, satN, valN))
-				syncHsVisual()
+				if hueN ~= oldHue then
+					pickerUpdate()
+				end
 			end
 
-			local function beginPressDrag(sample: () -> (), stopOn: Enum.UserInputType)
+			--[[ Obsidian uses while IsDragInput(Input); on some clients mouse InputObject does not stay Begin/Change while moving,
+			    so we treat M1 like Obsidian’s executor builds do: held = IsMouseButtonPressed. Touch keeps isDragInput. ]]
+			local function stillDraggingForPicker(inp: InputObject): boolean
+				if not Library.IsRobloxFocused then
+					return false
+				end
+				if inp.UserInputType == Enum.UserInputType.Touch then
+					return isDragInput(inp)
+				end
+				return UserInputService:IsMouseButtonPressed(Enum.UserInputType.MouseButton1)
+			end
+
+			local function beginObsidianDrag(sample: () -> (), input: InputObject)
+				if not isDragInput(input) then
+					return
+				end
 				sample()
-				local rs: RBXScriptConnection
-				local ended: RBXScriptConnection
-				rs = RunService.RenderStepped:Connect(function()
-					sample()
-				end)
-				ended = UserInputService.InputEnded:Connect(function(i: InputObject)
-					if i.UserInputType == stopOn then
-						rs:Disconnect()
-						ended:Disconnect()
+				task.spawn(function()
+					while popOpen and pop.Visible and stillDraggingForPicker(input) do
+						sample()
+						RunService.RenderStepped:Wait()
 					end
 				end)
-				table.insert(dragConns, rs)
-				table.insert(dragConns, ended)
 			end
 
 			satMap.InputBegan:Connect(function(input: InputObject)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 then
-					beginPressDrag(sampleSatVal, Enum.UserInputType.MouseButton1)
-				elseif input.UserInputType == Enum.UserInputType.Touch then
-					beginPressDrag(sampleSatVal, Enum.UserInputType.Touch)
+				if not isMouseInput(input) then
+					return
 				end
+				beginObsidianDrag(sampleSatVal, input)
 			end)
 
 			hueSel.InputBegan:Connect(function(input: InputObject)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 then
-					beginPressDrag(sampleHue, Enum.UserInputType.MouseButton1)
-				elseif input.UserInputType == Enum.UserInputType.Touch then
-					beginPressDrag(sampleHue, Enum.UserInputType.Touch)
+				if not isMouseInput(input) then
+					return
 				end
+				beginObsidianDrag(sampleHue, input)
 			end)
 
 			local function rgbRow(labelText: string, layoutOrder: number): TextBox
@@ -3864,19 +3905,9 @@ function Library.new(config: WindowConfig)
 			doneBtn.Parent = pop
 			corner(Theme.CornerSm).Parent = doneBtn
 
-			local function clearDragConns()
-				for _, c in dragConns do
-					pcall(function()
-						c:Disconnect()
-					end)
-				end
-				table.clear(dragConns)
-			end
-
 			local function closePop()
 				popOpen = false
 				pop.Visible = false
-				clearDragConns()
 				if popCloseConn then
 					popCloseConn:Disconnect()
 					popCloseConn = nil
