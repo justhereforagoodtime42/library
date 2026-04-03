@@ -220,12 +220,14 @@ end
 
 --[[ Obsidian Library:UpdateColorsUsingRegistry — apply Registry + window color paint + notification chrome. ]]
 function Library:UpdateColorsUsingRegistry()
-	for instance, properties in pairs(self.Registry) do
-		if instance.Parent then
-			for prop, index in pairs(properties) do
-				local schemeValue = self:GetSchemeValue(index)
-				if typeof(schemeValue) == "Color3" then
-					(instance :: any)[prop] = schemeValue
+	if next(self.Registry) ~= nil then
+		for instance, properties in pairs(self.Registry) do
+			if instance.Parent then
+				for prop, index in pairs(properties) do
+					local schemeValue = self:GetSchemeValue(index)
+					if typeof(schemeValue) == "Color3" then
+						(instance :: any)[prop] = schemeValue
+					end
 				end
 			end
 		end
@@ -1066,14 +1068,20 @@ function Library.new(config: WindowConfig)
 
 	-- Notify UI is parented after root (see below) so it stacks above the window with Global ZIndex
 
+	--[[ Single GetDescendants pass: Acid* attrs + groupbox transparency + dropdown scroll (was two passes). ]]
 	local function paintThemedDescendants(host: Instance)
 		for _, d in host:GetDescendants() do
-			--[[ UIStroke is not a GuiObject — must run before the guard or borders never follow Theme (groupbox outline stuck on defaults). ]]
 			if d:IsA("UIStroke") then
 				local sk = d:GetAttribute("AcidStroke")
 				if typeof(sk) == "string" and typeof(Theme[sk]) == "Color3" then
 					d.Color = Theme[sk]
 				end
+			end
+			if d:IsA("Frame") and d:GetAttribute("AcidBg") == "Groupbox" then
+				d.BackgroundTransparency = Theme.GroupboxTrans
+			end
+			if d.Name == "DropdownScroll" and d:IsA("ScrollingFrame") then
+				d.ScrollBarImageColor3 = Theme.AccentBlue
 			end
 			if not d:IsA("GuiObject") then
 				continue
@@ -1811,14 +1819,6 @@ function Library.new(config: WindowConfig)
 			})
 		end
 		paintThemedDescendants(contentHost)
-		for _, d in contentHost:GetDescendants() do
-			if d:IsA("Frame") and d:GetAttribute("AcidBg") == "Groupbox" then
-				d.BackgroundTransparency = Theme.GroupboxTrans
-			end
-			if d.Name == "DropdownScroll" and d:IsA("ScrollingFrame") then
-				d.ScrollBarImageColor3 = Theme.AccentBlue
-			end
-		end
 		for _, chevRefresh in sectionChevronRefreshes do
 			pcall(chevRefresh)
 		end
@@ -3655,12 +3655,13 @@ function Library.new(config: WindowConfig)
 
 			local popOpen = false
 
+			--[[ Obsidian SafeCallback: synchronous OnChanged/Callback so ThemeUpdate coalesces correctly (task.spawn broke live theme drag). ]]
 			local function fireColorCallbacks()
 				for _, cb in colorCbs do
-					task.spawn(cb, col)
+					pcall(cb, col)
 				end
 				if o.Callback then
-					o.Callback(col)
+					pcall(o.Callback, col)
 				end
 			end
 
