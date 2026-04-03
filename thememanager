@@ -208,73 +208,40 @@ do
 		end
 	end
 
-	--[[ Apply partial Color3 keys to Library.Theme (shared by hex ApplyScheme and live ThemeUpdate). ]]
-	function ThemeManager:_applyPartialThemeColors(partial: { [string]: Color3 })
+	--[[ Maps Obsidian-style scheme keys onto AcidHub Library.Theme ]]
+	function ThemeManager:ApplyScheme(scheme: { [string]: string })
 		local T = self.Library.Theme
-		if partial.FontColor then
-			T.Text = partial.FontColor
+		if scheme.FontColor then
+			T.Text = self:HexToColor(scheme.FontColor)
 		end
-		if partial.BackgroundColor then
-			T.Background = partial.BackgroundColor
+		if scheme.BackgroundColor then
+			local bg = self:HexToColor(scheme.BackgroundColor)
+			T.Background = bg
 		end
-		if partial.MainColor then
-			local m = partial.MainColor
+		if scheme.MainColor then
+			local m = self:HexToColor(scheme.MainColor)
 			T.Panel = m
 			T.Elevated = m:Lerp(Color3.new(1, 1, 1), 0.12)
 			T.SliderTrack = m:Lerp(Color3.new(0, 0, 0), 0.35)
 		end
-		if partial.AccentColor then
-			local a = partial.AccentColor
+		if scheme.AccentColor then
+			local a = self:HexToColor(scheme.AccentColor)
 			T.AccentBlue = a
 			T.AccentPurple = a:Lerp(Color3.fromRGB(255, 120, 255), 0.22)
 			T.ToggleOn = a
 			T.SectionDot = a:Lerp(Color3.fromRGB(90, 220, 150), 0.4)
 		end
-		if partial.OutlineColor then
-			T.Stroke = partial.OutlineColor
+		if scheme.OutlineColor then
+			T.Stroke = self:HexToColor(scheme.OutlineColor)
 		end
+		--[[ Groupbox shell: panel + accent (not window Background — matches AccentColor picker) ]]
 		T.Groupbox = T.Panel:Lerp(T.AccentBlue, 0.16)
 		T.TextDim = T.Text:Lerp(T.Background, 0.42)
 		T.ToggleOff = T.Panel:Lerp(Color3.new(0, 0, 0), 0.25)
-	end
-
-	--[[ Maps Obsidian-style hex scheme onto AcidHub Library.Theme; syncs pickers + full window refresh. ]]
-	function ThemeManager:ApplyScheme(scheme: { [string]: string })
-		local partial: { [string]: Color3 } = {}
-		if scheme.FontColor then
-			partial.FontColor = self:HexToColor(scheme.FontColor)
-		end
-		if scheme.BackgroundColor then
-			partial.BackgroundColor = self:HexToColor(scheme.BackgroundColor)
-		end
-		if scheme.MainColor then
-			partial.MainColor = self:HexToColor(scheme.MainColor)
-		end
-		if scheme.AccentColor then
-			partial.AccentColor = self:HexToColor(scheme.AccentColor)
-		end
-		if scheme.OutlineColor then
-			partial.OutlineColor = self:HexToColor(scheme.OutlineColor)
-		end
-		self:_applyPartialThemeColors(partial)
-		self:_syncSchemeFromTheme()
 
 		self:SyncThemeColorPickersFromTheme()
-		self.Library:RefreshTheme()
-	end
 
-	function ThemeManager:_syncSchemeFromTheme()
-		local Lib = self.Library
-		if not Lib or not Lib.Theme or not Lib.Scheme then
-			return
-		end
-		local T = Lib.Theme
-		local S = Lib.Scheme
-		S.FontColor = T.Text
-		S.BackgroundColor = T.Background
-		S.MainColor = T.Panel
-		S.AccentColor = T.AccentBlue
-		S.OutlineColor = T.Stroke
+		self.Library:RefreshTheme()
 	end
 
 	function ThemeManager:ApplyTheme(themeName: string)
@@ -291,32 +258,15 @@ do
 		end
 	end
 
-	--[[ Obsidian ThemeUpdate: Scheme[field] = Options[field].Value, then UpdateColorsUsingRegistry (sync, like Obsidian). ]]
 	function ThemeManager:ThemeUpdate()
-		local Lib = self.Library
-		if not Lib or not Lib.Theme or not Lib.Options or not Lib.Scheme or Lib.Unloaded then
-			return
-		end
+		local sch: { [string]: string } = {}
 		for _, field in ThemeFields do
-			local opt = Lib.Options[field]
+			local opt = self.Library.Options[field]
 			if opt and typeof(opt.Value) == "Color3" then
-				Lib.Scheme[field] = opt.Value
+				sch[field] = opt.Value:ToHex()
 			end
 		end
-		local partial: { [string]: Color3 } = {}
-		for _, field in ThemeFields do
-			local c = Lib.Scheme[field]
-			if typeof(c) == "Color3" then
-				partial[field] = c
-			end
-		end
-		self:_applyPartialThemeColors(partial)
-		pcall(function()
-			Lib:UpdateColorsUsingRegistry()
-		end)
-		for _, fn in Lib._notifyThemeRefreshes do
-			pcall(fn)
-		end
+		self:ApplyScheme(sch)
 	end
 
 	function ThemeManager:GetCustomTheme(file: string): any
@@ -405,9 +355,6 @@ do
 
 	function ThemeManager:CreateThemeManager(section)
 		local T = self.Library.Theme
-		local function themeUpdate()
-			self:ThemeUpdate()
-		end
 
 		section:AddColorPicker({
 			Text = "Background color",
@@ -434,13 +381,6 @@ do
 			Default = T.Text,
 			Idx = "FontColor",
 		})
-
-		for _, field in ThemeFields do
-			local opt = self.Library.Options[field]
-			if opt and typeof(opt.OnChanged) == "function" then
-				opt:OnChanged(themeUpdate)
-			end
-		end
 
 		local ThemesArray = {}
 		for Name in pairs(self.BuiltInThemes) do
@@ -553,6 +493,15 @@ do
 			end
 			self.Library:Notify({ Title = "Theme", Description = "default.txt cleared", Time = 2 })
 		end)
+
+		for _, field in ThemeFields do
+			local opt = self.Library.Options[field]
+			if opt and opt.OnChanged then
+				opt:OnChanged(function()
+					self:ThemeUpdate()
+				end)
+			end
+		end
 
 		self:LoadDefault()
 		self.AppliedToTab = true
