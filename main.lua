@@ -139,6 +139,10 @@ local UID = {
 
 Library.Toggles = {} :: { [string]: any }
 Library.Options = {} :: { [string]: any }
+--[[ Obsidian: Scheme[field] = Options[field].Value; Registry drives UpdateColorsUsingRegistry. ]]
+Library.Scheme = {} :: { [string]: Color3 }
+Library.Registry = {} :: { [Instance]: { [string]: any } }
+Library._applyThemeColorsFromWindow = nil :: (() -> ())?
 --[[ When true, AddDropdown uses Multi = true unless the option explicitly sets Multi = false ]]
 Library.MultiDropdownByDefault = false
 Library.Unloaded = false
@@ -156,7 +160,6 @@ Library._windowDestroy = nil :: (() -> ())?
 Library._notifyThemeRefreshes = {} :: { () -> () }
 Library._acidFocusConn = nil :: RBXScriptConnection?
 Library._acidFocusReleasedConn = nil :: RBXScriptConnection?
-
 --[[ Mobile / focus (Obsidian-style): touch clients, floating controls, drag lock ]]
 Library.IsMobile = false
 Library.DevicePlatform = nil :: Enum.Platform?
@@ -186,6 +189,49 @@ end
 function Library:OnUnload(fn: () -> ())
 	if typeof(fn) == "function" then
 		table.insert(self._unloadCallbacks, fn)
+	end
+end
+
+function Library:GetSchemeValue(index: any): Color3?
+	if typeof(index) == "function" then
+		return index()
+	end
+	if typeof(index) ~= "string" then
+		return nil
+	end
+	local s = self.Scheme[index]
+	if typeof(s) == "Color3" then
+		return s
+	end
+	local t = self.Theme[index]
+	if typeof(t) == "Color3" then
+		return t
+	end
+	return nil
+end
+
+function Library:AddToRegistry(instance: Instance, properties: { [string]: any })
+	self.Registry[instance] = properties
+end
+
+function Library:RemoveFromRegistry(instance: Instance)
+	self.Registry[instance] = nil
+end
+
+--[[ Obsidian Library:UpdateColorsUsingRegistry — apply Registry + window color paint + notification chrome. ]]
+function Library:UpdateColorsUsingRegistry()
+	for instance, properties in pairs(self.Registry) do
+		if instance.Parent then
+			for prop, index in pairs(properties) do
+				local schemeValue = self:GetSchemeValue(index)
+				if typeof(schemeValue) == "Color3" then
+					(instance :: any)[prop] = schemeValue
+				end
+			end
+		end
+	end
+	if self._applyThemeColorsFromWindow then
+		pcall(self._applyThemeColorsFromWindow)
 	end
 end
 
@@ -616,6 +662,8 @@ function Library:Unload()
 	table.clear(self._notifyThemeRefreshes)
 	table.clear(self.Toggles)
 	table.clear(self.Options)
+	table.clear(self.Registry)
+	self._applyThemeColorsFromWindow = nil
 	self.ToggleKeybind = nil
 	self.CantDragForced = false
 end
@@ -1009,6 +1057,7 @@ function Library.new(config: WindowConfig)
 	Library.Unloaded = false
 	table.clear(Library.Toggles)
 	table.clear(Library.Options)
+	table.clear(Library.Registry)
 
 	local toggleThemeRows: { { track: Frame, getOn: () -> boolean } } = {}
 	local sliderGradients: { UIGradient } = {}
@@ -1696,8 +1745,7 @@ function Library.new(config: WindowConfig)
 		end
 	end
 
-	local refreshThemeFn: () -> ()
-	refreshThemeFn = function()
+	local function applyThemedColorsOnly()
 		tooltipLabel.BackgroundColor3 = Theme.Elevated
 		tooltipLabel.TextColor3 = Theme.Text
 		for _, ch in tooltipLabel:GetChildren() do
@@ -1774,12 +1822,6 @@ function Library.new(config: WindowConfig)
 		for _, chevRefresh in sectionChevronRefreshes do
 			pcall(chevRefresh)
 		end
-		local pfc = panelFace:FindFirstChildWhichIsA("UICorner")
-		if pfc then
-			pfc.CornerRadius = Theme.Corner
-		end
-		syncMainGlowCorners(Theme.Corner.Offset)
-		selectTab(activeTab)
 		if resizeHandle then
 			local grip = resizeHandle:FindFirstChild("ResizeIcon")
 			if grip and grip:IsA("ImageLabel") then
@@ -1790,6 +1832,19 @@ function Library.new(config: WindowConfig)
 				g2.TextColor3 = Theme.TextDim
 			end
 		end
+	end
+
+	Library._applyThemeColorsFromWindow = applyThemedColorsOnly
+
+	local refreshThemeFn: () -> ()
+	refreshThemeFn = function()
+		Library:UpdateColorsUsingRegistry()
+		local pfc = panelFace:FindFirstChildWhichIsA("UICorner")
+		if pfc then
+			pfc.CornerRadius = Theme.Corner
+		end
+		syncMainGlowCorners(Theme.Corner.Offset)
+		selectTab(activeTab)
 	end
 
 	if Library._menuInputConn then
@@ -1838,6 +1893,7 @@ function Library.new(config: WindowConfig)
 				break
 			end
 		end
+		Library._applyThemeColorsFromWindow = nil
 		if screenGui.Parent then
 			screenGui:Destroy()
 		end
@@ -3615,6 +3671,16 @@ function Library.new(config: WindowConfig)
 				end
 			end
 
+			--[[ Obsidian ColorPicker:Update — live swatch, HSV UI, hex/RGB fields, and callbacks every change. ]]
+			local function pickerUpdateFromHsv()
+				col = Color3.fromHSV(hueN, satN, valN)
+				reg.Value = col
+				syncSwatch()
+				syncHsVisual()
+				syncTextFieldsFromColor()
+				fireColorCallbacks()
+			end
+
 			local function applyColor(c: Color3)
 				col = c
 				reg.Value = col
@@ -3759,15 +3825,6 @@ function Library.new(config: WindowConfig)
 				return v.X, v.Y
 			end
 
-			local function pickerUpdate()
-				col = Color3.fromHSV(hueN, satN, valN)
-				reg.Value = col
-				syncSwatch()
-				syncHsVisual()
-				syncTextFieldsFromColor()
-				fireColorCallbacks()
-			end
-
 			local function sampleSatVal()
 				local ax, ay = satMap.AbsolutePosition.X, satMap.AbsolutePosition.Y
 				local sx, sy = satMap.AbsoluteSize.X, satMap.AbsoluteSize.Y
@@ -3776,7 +3833,7 @@ function Library.new(config: WindowConfig)
 				satN = math.clamp((px - ax) / math.max(sx, 1e-4), 0, 1)
 				valN = 1 - math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
 				if satN ~= oldSat or valN ~= oldVal then
-					pickerUpdate()
+					pickerUpdateFromHsv()
 				end
 			end
 
@@ -3787,7 +3844,7 @@ function Library.new(config: WindowConfig)
 				local oldHue = hueN
 				hueN = math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
 				if hueN ~= oldHue then
-					pickerUpdate()
+					pickerUpdateFromHsv()
 				end
 			end
 
