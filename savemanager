@@ -136,7 +136,12 @@ do
 		KeyPicker = {
 			Save = function(idx, object)
 				local k = object.Value
-				local keyStr = if typeof(k) == "EnumItem" then k.Name else tostring(k)
+				local keyStr = ""
+				if typeof(k) == "EnumItem" and k.EnumType == Enum.KeyCode then
+					keyStr = if k == Enum.KeyCode.Unknown then "" else k.Name
+				else
+					keyStr = tostring(k)
+				end
 				return {
 					type = "KeyPicker",
 					idx = idx,
