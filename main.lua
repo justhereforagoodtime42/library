@@ -2603,6 +2603,21 @@ function Library.new(config: WindowConfig)
 		--[[ Forward declare: toggle :AddColorPicker calls this before the assignment below. ]]
 		local mountColorPicker: (any, any) -> any
 
+		--[[ Save files / other UIs use "None" for unbound; Enum.KeyCode has no None (indexing errors). ]]
+		local function enumKeyCodeFromString(raw: string): (Enum.KeyCode, string)
+			local t = raw:gsub("^%s+", ""):gsub("%s+$", "")
+			if t == "" or string.lower(t) == "none" then
+				return Enum.KeyCode.Unknown, ""
+			end
+			local ok, k = pcall(function()
+				return Enum.KeyCode[t]
+			end)
+			if ok and typeof(k) == "EnumItem" and k.EnumType == Enum.KeyCode then
+				return k, k.Name
+			end
+			return Enum.KeyCode.Unknown, ""
+		end
+
 		--[[ nil / omitted Default -> RightShift; false, "", or whitespace-only -> unbound (Unknown). ]]
 		local function resolveKeybindDefault(defaultField: any): (Enum.KeyCode, string)
 			if defaultField == false then
@@ -2612,15 +2627,7 @@ function Library.new(config: WindowConfig)
 				return Enum.KeyCode.RightShift, "RightShift"
 			end
 			if typeof(defaultField) == "string" then
-				local s = (defaultField :: string):gsub("^%s+", ""):gsub("%s+$", "")
-				if s == "" then
-					return Enum.KeyCode.Unknown, ""
-				end
-				local k = Enum.KeyCode[s]
-				if k then
-					return k, s
-				end
-				return Enum.KeyCode.Unknown, ""
+				return enumKeyCodeFromString(defaultField :: string)
 			end
 			return Enum.KeyCode.RightShift, "RightShift"
 		end
@@ -2738,15 +2745,8 @@ function Library.new(config: WindowConfig)
 
 			keyReg.SetValue = function(_: any, v: any)
 				if type(v) == "table" and typeof(v[1]) == "string" then
-					local nm = v[1]
-					if nm == "" then
-						applyKey(Enum.KeyCode.Unknown, "")
-						return
-					end
-					local nk = Enum.KeyCode[nm]
-					if nk then
-						applyKey(nk, nm)
-					end
+					local kc2, nm2 = enumKeyCodeFromString(v[1])
+					applyKey(kc2, nm2)
 				end
 			end
 			keyReg.OnChanged = function(_: any, cb: () -> ())
@@ -3803,15 +3803,8 @@ function Library.new(config: WindowConfig)
 
 			reg.SetValue = function(_: any, v: any)
 				if type(v) == "table" and typeof(v[1]) == "string" then
-					local nm = v[1]
-					if nm == "" then
-						applyKey(Enum.KeyCode.Unknown, "")
-						return
-					end
-					local nk = Enum.KeyCode[nm]
-					if nk then
-						applyKey(nk, nm)
-					end
+					local kc2, nm2 = enumKeyCodeFromString(v[1])
+					applyKey(kc2, nm2)
 				end
 			end
 			reg.OnChanged = function(_: any, cb: () -> ())
