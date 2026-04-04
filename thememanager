@@ -68,6 +68,17 @@ do
 	ThemeManager._themeRefreshBlockedUntil = 0.0
 	ThemeManager._pendingThemeRefresh = false
 	ThemeManager._themeRefreshFlushTask = nil
+	--[[ Last theme picker fingerprint (ordered hexes); skips ThemeUpdate when Library color pickers match (same idea as library applyColor hex dedupe). ]]
+	ThemeManager._lastThemePickerSignature = nil :: string?
+
+	local function themePickerSignature(lib: any): string
+		local parts = table.create(#ThemeFields)
+		for i, field in ipairs(ThemeFields) do
+			local opt = lib.Options[field]
+			parts[i] = (opt and typeof(opt.Value) == "Color3") and opt.Value:ToHex() or ""
+		end
+		return table.concat(parts, "|")
+	end
 
 	ThemeManager.BuiltInThemes = {
 		["Default"] = {
@@ -213,7 +224,7 @@ do
 		end
 	end
 
-	--[[ Coalesces full UI repaints while color pickers fire every RenderStepped (large scripts were unusable). ]]
+	--[[ Coalesces Library:RefreshTheme while theme colors change (picker uses while+RenderStepped:Wait + hex dedupe; this caps repaint rate). ]]
 	function ThemeManager:ScheduleThrottledThemeRefresh()
 		local Lib = self.Library
 		if not Lib or not Lib.RefreshTheme then
@@ -302,6 +313,9 @@ do
 			end
 			self.Library:RefreshTheme()
 		end
+		if self.Library then
+			self._lastThemePickerSignature = themePickerSignature(self.Library)
+		end
 	end
 
 	function ThemeManager:ApplyTheme(themeName: string)
@@ -319,9 +333,17 @@ do
 	end
 
 	function ThemeManager:ThemeUpdate()
+		local Lib = self.Library
+		if not Lib or not Lib.Options then
+			return
+		end
+		local sig = themePickerSignature(Lib)
+		if sig == self._lastThemePickerSignature then
+			return
+		end
 		local sch: { [string]: string } = {}
 		for _, field in ThemeFields do
-			local opt = self.Library.Options[field]
+			local opt = Lib.Options[field]
 			if opt and typeof(opt.Value) == "Color3" then
 				sch[field] = opt.Value:ToHex()
 			end
