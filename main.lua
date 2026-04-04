@@ -1868,6 +1868,9 @@ function Library.new(config: WindowConfig)
 		if not tb or typeof(tb.Value) ~= "EnumItem" then
 			return
 		end
+		if tb.Value == Enum.KeyCode.Unknown then
+			return
+		end
 		if input.UserInputType ~= Enum.UserInputType.Keyboard then
 			return
 		end
@@ -2594,6 +2597,35 @@ function Library.new(config: WindowConfig)
 			_frame = bodyF,
 		}
 
+		--[[ nil / omitted Default -> RightShift; false, "", or whitespace-only -> unbound (Unknown). ]]
+		local function resolveKeybindDefault(defaultField: any): (Enum.KeyCode, string)
+			if defaultField == false then
+				return Enum.KeyCode.Unknown, ""
+			end
+			if defaultField == nil then
+				return Enum.KeyCode.RightShift, "RightShift"
+			end
+			if typeof(defaultField) == "string" then
+				local s = (defaultField :: string):gsub("^%s+", ""):gsub("%s+$", "")
+				if s == "" then
+					return Enum.KeyCode.Unknown, ""
+				end
+				local k = Enum.KeyCode[s]
+				if k then
+					return k, s
+				end
+				return Enum.KeyCode.Unknown, ""
+			end
+			return Enum.KeyCode.RightShift, "RightShift"
+		end
+
+		local function keyCapLabel(kcode: Enum.KeyCode, name: string): string
+			if kcode == Enum.KeyCode.Unknown or name == "" then
+				return "-"
+			end
+			return name
+		end
+
 		--[[ Obsidian-style: compact key cap on the toggle row; optional SyncToggleState (default true). ]]
 		local function attachInlineKeybindToToggle(
 			row: Frame,
@@ -2607,8 +2639,7 @@ function Library.new(config: WindowConfig)
 				return toggleReg._inlineKeyReg
 			end
 			ko = ko or {}
-			local keyName = ko.Default or "RightShift"
-			local kc = Enum.KeyCode[keyName] or Enum.KeyCode.RightShift
+			local kc, keyName = resolveKeybindDefault(ko.Default)
 			local TW, TH = UID.ToggleTrackW, UID.ToggleTrackH
 			local keyW, keyH = UID.ToggleInlineKeyW, UID.ToggleInlineKeyH
 			local gapK = UID.ToggleInlineKeyGap
@@ -2623,7 +2654,7 @@ function Library.new(config: WindowConfig)
 			capBtn.Position = UDim2.new(1, -(TW + gapK + keyW), 0.5, -keyH / 2)
 			capBtn.BackgroundColor3 = Theme.Background
 			capBtn.BackgroundTransparency = 0.15
-			capBtn.Text = keyName
+			capBtn.Text = keyCapLabel(kc, keyName)
 			capBtn.Font = Enum.Font.GothamBold
 			capBtn.TextSize = UID.SliderValText
 			capBtn.TextColor3 = Theme.Text
@@ -2652,7 +2683,7 @@ function Library.new(config: WindowConfig)
 				kc = newK
 				keyName = name
 				keyReg.Value = kc
-				capBtn.Text = name
+				capBtn.Text = keyCapLabel(kc, keyName)
 				for _, cb in keyCbs do
 					task.spawn(cb)
 				end
@@ -2661,6 +2692,10 @@ function Library.new(config: WindowConfig)
 			keyReg.SetValue = function(_: any, v: any)
 				if type(v) == "table" and typeof(v[1]) == "string" then
 					local nm = v[1]
+					if nm == "" then
+						applyKey(Enum.KeyCode.Unknown, "")
+						return
+					end
 					local nk = Enum.KeyCode[nm]
 					if nk then
 						applyKey(nk, nm)
@@ -2685,15 +2720,26 @@ function Library.new(config: WindowConfig)
 					if gp then
 						return
 					end
-					if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode ~= Enum.KeyCode.Unknown then
-						if capConn then
-							capConn:Disconnect()
-							capConn = nil
+					if input.UserInputType == Enum.UserInputType.Keyboard then
+						if input.KeyCode == Enum.KeyCode.Escape then
+							if capConn then
+								capConn:Disconnect()
+								capConn = nil
+							end
+							listening = false
+							capBtn.Text = keyCapLabel(kc, keyName)
+							return
 						end
-						listening = false
-						applyKey(input.KeyCode, input.KeyCode.Name)
-						if ko.Idx == "MenuKeybind" or ko.NoUI then
-							Library.ToggleKeybind = keyReg
+						if input.KeyCode ~= Enum.KeyCode.Unknown then
+							if capConn then
+								capConn:Disconnect()
+								capConn = nil
+							end
+							listening = false
+							applyKey(input.KeyCode, input.KeyCode.Name)
+							if ko.Idx == "MenuKeybind" or ko.NoUI then
+								Library.ToggleKeybind = keyReg
+							end
 						end
 					end
 				end)
@@ -2702,6 +2748,9 @@ function Library.new(config: WindowConfig)
 			if syncToggle then
 				UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
 					if listening or gp then
+						return
+					end
+					if kc == Enum.KeyCode.Unknown then
 						return
 					end
 					if input.UserInputType ~= Enum.UserInputType.Keyboard then
@@ -3628,8 +3677,7 @@ function Library.new(config: WindowConfig)
 			NoUI: boolean?,
 		})
 			o = o or {}
-			local keyName = o.Default or "RightShift"
-			local kc = Enum.KeyCode[keyName] or Enum.KeyCode.RightShift
+			local kc, keyName = resolveKeybindDefault(o.Default)
 			local row = Instance.new("Frame")
 			row.BackgroundTransparency = 1
 			row.Size = UDim2.new(1, 0, 0, UID.KeyRowH)
@@ -3649,7 +3697,7 @@ function Library.new(config: WindowConfig)
 			capBtn.Position = UDim2.new(1, -UID.KeyCapW, 0.5, -UID.KeyCapH / 2)
 			capBtn.BackgroundColor3 = Theme.Background
 			capBtn.BackgroundTransparency = 0.15
-			capBtn.Text = keyName
+			capBtn.Text = keyCapLabel(kc, keyName)
 			capBtn.Font = Enum.Font.GothamBold
 			capBtn.TextSize = UID.SliderValText
 			capBtn.TextColor3 = Theme.Text
@@ -3672,7 +3720,7 @@ function Library.new(config: WindowConfig)
 				kc = newK
 				keyName = name
 				reg.Value = kc
-				capBtn.Text = name
+				capBtn.Text = keyCapLabel(kc, keyName)
 				for _, cb in keyCbs do
 					task.spawn(cb)
 				end
@@ -3681,6 +3729,10 @@ function Library.new(config: WindowConfig)
 			reg.SetValue = function(_: any, v: any)
 				if type(v) == "table" and typeof(v[1]) == "string" then
 					local nm = v[1]
+					if nm == "" then
+						applyKey(Enum.KeyCode.Unknown, "")
+						return
+					end
 					local nk = Enum.KeyCode[nm]
 					if nk then
 						applyKey(nk, nm)
@@ -3705,15 +3757,26 @@ function Library.new(config: WindowConfig)
 					if gp then
 						return
 					end
-					if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode ~= Enum.KeyCode.Unknown then
-						if capConn then
-							capConn:Disconnect()
-							capConn = nil
+					if input.UserInputType == Enum.UserInputType.Keyboard then
+						if input.KeyCode == Enum.KeyCode.Escape then
+							if capConn then
+								capConn:Disconnect()
+								capConn = nil
+							end
+							listening = false
+							capBtn.Text = keyCapLabel(kc, keyName)
+							return
 						end
-						listening = false
-						applyKey(input.KeyCode, input.KeyCode.Name)
-						if o.Idx == "MenuKeybind" or o.NoUI then
-							Library.ToggleKeybind = reg
+						if input.KeyCode ~= Enum.KeyCode.Unknown then
+							if capConn then
+								capConn:Disconnect()
+								capConn = nil
+							end
+							listening = false
+							applyKey(input.KeyCode, input.KeyCode.Name)
+							if o.Idx == "MenuKeybind" or o.NoUI then
+								Library.ToggleKeybind = reg
+							end
 						end
 					end
 				end)
