@@ -46,7 +46,7 @@ Library.Theme = {
 local Theme = Library.Theme
 Theme.Groupbox = Theme.Panel:Lerp(Theme.AccentBlue, 0.16)
 
--- ----------------------------------------------------------------------------- helpers (must be above Library:Notify — it uses corner/stroke)
+----------------------------------------------------------------------------- helpers (must be above Library:Notify — it uses corner/stroke)
 local function tween(inst: Instance, ti: TweenInfo, props: { [string]: any })
 	return TweenService:Create(inst, ti, props)
 end
@@ -154,13 +154,13 @@ Library._updateNotifyLayout = nil :: (() -> ())?
 Library._windowDestroy = nil :: (() -> ())?
 --[[ Per-toast refresh callbacks so notifications follow Library.Theme after ThemeManager:ApplyTheme ]]
 Library._notifyThemeRefreshes = {} :: { () -> () }
-Library._acidFocusConn = nil :: RBXScriptConnection?
-Library._acidFocusReleasedConn = nil :: RBXScriptConnection?
+Library._libFocusConn = nil :: RBXScriptConnection?
+Library._libFocusReleasedConn = nil :: RBXScriptConnection?
 
---[[ Obsidian-style theme paint: cache instances that use Acid* attrs instead of GetDescendants every RefreshTheme. ]]
+--[[ Theme paint cache: instances tagged with Ui* attrs; rebuilt on descendant changes (no full GetDescendants each RefreshTheme). ]]
 Library._themePaintHost = nil :: Instance?
 Library._themePaintValid = false
-Library._themePaintAcid = {} :: { { any } }
+Library._themePaintTagged = {} :: { { any } }
 Library._themePaintGroupbox = {} :: { Frame }
 Library._themePaintDropdownScroll = {} :: { ScrollingFrame }
 Library._themePaintSubConns = {} :: { RBXScriptConnection }
@@ -182,11 +182,11 @@ do
 	end
 end
 
-if Library._acidFocusConn == nil then
-	Library._acidFocusConn = UserInputService.WindowFocused:Connect(function()
+if Library._libFocusConn == nil then
+	Library._libFocusConn = UserInputService.WindowFocused:Connect(function()
 		Library.IsRobloxFocused = true
 	end)
-	Library._acidFocusReleasedConn = UserInputService.WindowFocusReleased:Connect(function()
+	Library._libFocusReleasedConn = UserInputService.WindowFocusReleased:Connect(function()
 		Library.IsRobloxFocused = false
 	end)
 end
@@ -234,39 +234,39 @@ end
 
 function Library:_rebuildThemePaintList(host: Instance)
 	local T = self.Theme
-	table.clear(self._themePaintAcid)
+	table.clear(self._themePaintTagged)
 	table.clear(self._themePaintGroupbox)
 	table.clear(self._themePaintDropdownScroll)
 	for _, d in host:GetDescendants() do
 		if d:IsA("UIStroke") then
-			local sk = d:GetAttribute("AcidStroke")
+			local sk = d:GetAttribute("UiStroke")
 			if typeof(sk) == "string" and typeof(T[sk]) == "Color3" then
-				table.insert(self._themePaintAcid, { "stroke", d, sk })
+				table.insert(self._themePaintTagged, { "stroke", d, sk })
 			end
 		end
 		if d:IsA("GuiObject") then
-			local bgk = d:GetAttribute("AcidBg")
+			local bgk = d:GetAttribute("UiBg")
 			if typeof(bgk) == "string" and typeof(T[bgk]) == "Color3" then
-				table.insert(self._themePaintAcid, { "bg", d, bgk })
+				table.insert(self._themePaintTagged, { "bg", d, bgk })
 			end
-			local tx = d:GetAttribute("AcidText")
+			local tx = d:GetAttribute("UiText")
 			if typeof(tx) == "string" and typeof(T[tx]) == "Color3" then
 				if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
-					table.insert(self._themePaintAcid, { "text", d, tx })
+					table.insert(self._themePaintTagged, { "text", d, tx })
 				end
 			end
-			local ph = d:GetAttribute("AcidPlaceholder")
+			local ph = d:GetAttribute("UiPlaceholder")
 			if typeof(ph) == "string" and typeof(T[ph]) == "Color3" and d:IsA("TextBox") then
-				table.insert(self._themePaintAcid, { "ph", d, ph })
+				table.insert(self._themePaintTagged, { "ph", d, ph })
 			end
-			local ik = d:GetAttribute("AcidImg")
+			local ik = d:GetAttribute("UiImg")
 			if typeof(ik) == "string" and typeof(T[ik]) == "Color3" then
 				if d:IsA("ImageLabel") or d:IsA("ImageButton") then
-					table.insert(self._themePaintAcid, { "img", d, ik })
+					table.insert(self._themePaintTagged, { "img", d, ik })
 				end
 			end
 		end
-		if d:IsA("Frame") and d:GetAttribute("AcidBg") == "Groupbox" then
+		if d:IsA("Frame") and d:GetAttribute("UiBg") == "Groupbox" then
 			table.insert(self._themePaintGroupbox, d)
 		end
 		if d.Name == "DropdownScroll" and d:IsA("ScrollingFrame") then
@@ -282,7 +282,7 @@ function Library:_paintThemeContentHost(host: Instance)
 		self:_subscribeThemePaintHost(host)
 		self:_rebuildThemePaintList(host)
 	end
-	for _, e in self._themePaintAcid do
+	for _, e in self._themePaintTagged do
 		local kind, d, k = e[1], e[2], e[3]
 		pcall(function()
 			if kind == "stroke" and d:IsA("UIStroke") then
@@ -322,7 +322,7 @@ function Library:SetNotifySide(side: string)
 end
 
 function Library:SetDPIScale(_scale: number)
-	-- Reserved: AcidHub uses fixed scale; hook here if you add DPI scaling later.
+	-- Reserved: fixed scale for now; hook here if you add DPI scaling later.
 end
 
 function Library:Notify(payload: any, duration: number?)
@@ -727,7 +727,7 @@ function Library:Unload()
 	self:_disconnectThemePaintSubscribers()
 	self._themePaintHost = nil
 	self:InvalidateThemePaintCache()
-	table.clear(self._themePaintAcid)
+	table.clear(self._themePaintTagged)
 	table.clear(self._themePaintGroupbox)
 	table.clear(self._themePaintDropdownScroll)
 	self._notifyList = nil
@@ -1069,7 +1069,7 @@ export type WindowConfig = {
 
 function Library.new(config: WindowConfig)
 	config = config or {}
-	local titleText = config.Title or "Acid Hub"
+	local titleText = config.Title or "UI"
 	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
 	local titleIcon = config.TitleIcon
 	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Left"))
@@ -1098,7 +1098,7 @@ function Library.new(config: WindowConfig)
 	Library.MultiDropdownByDefault = dropdownMultiDefault
 
 	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "AcidHubUI"
+	screenGui.Name = "HubUI"
 	screenGui.ResetOnSpawn = false
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screenGui.IgnoreGuiInset = true
@@ -1113,7 +1113,7 @@ function Library.new(config: WindowConfig)
 
 	--[[ Obsidian-style 0×0 modal sink: improves camera / world input while GUI is open on mobile ]]
 	local modalSink = Instance.new("TextButton")
-	modalSink.Name = "AcidModalSink"
+	modalSink.Name = "ModalSink"
 	modalSink.BackgroundTransparency = 1
 	modalSink.Text = ""
 	modalSink.Size = UDim2.fromOffset(0, 0)
@@ -1138,7 +1138,7 @@ function Library.new(config: WindowConfig)
 
 	-- Tooltips (hover label / tab — same idea as Obsidian AddTooltip)
 	local tooltipLabel = Instance.new("TextLabel")
-	tooltipLabel.Name = "AcidTooltip"
+	tooltipLabel.Name = "LibTooltip"
 	tooltipLabel.BackgroundColor3 = Theme.Elevated
 	tooltipLabel.BackgroundTransparency = 0.08
 	tooltipLabel.TextColor3 = Theme.Text
@@ -1377,7 +1377,7 @@ function Library.new(config: WindowConfig)
 				img.ImageColor3 = Color3.new(1, 1, 1)
 			else
 				img.ImageColor3 = Theme.AccentPurple
-				img:SetAttribute("AcidImg", "AccentPurple")
+				img:SetAttribute("UiImg", "AccentPurple")
 			end
 		end
 		img.Parent = pill
@@ -1515,7 +1515,7 @@ function Library.new(config: WindowConfig)
 			btn.BackgroundTransparency = if isSel then 0.08 else 0.45
 			local icon = btn:FindFirstChild("LucideIcon")
 			if icon and icon:IsA("ImageLabel") then
-				if icon:GetAttribute("AcidTabIconUntinted") == true then
+				if icon:GetAttribute("UiTabIconUntinted") == true then
 					icon.ImageColor3 = Color3.new(1, 1, 1)
 				else
 					icon.ImageColor3 = if isSel then Color3.new(1, 1, 1) else Theme.Text
@@ -1577,7 +1577,7 @@ function Library.new(config: WindowConfig)
 	--[[ Floating Menu / Lock (Obsidian-style) — keyboard toggle is unreliable on pure touch clients ]]
 	if Library.IsMobile then
 		local chipOuter = Instance.new("Frame")
-		chipOuter.Name = "AcidMobileTools"
+		chipOuter.Name = "MobileTools"
 		chipOuter.BackgroundTransparency = 1
 		chipOuter.Size = UDim2.fromOffset(92, 78)
 		chipOuter.ZIndex = 950
@@ -1792,7 +1792,7 @@ function Library.new(config: WindowConfig)
 		if logo:IsA("Frame") then
 			logo.BackgroundColor3 = Theme.AccentPurple
 		elseif logo:IsA("ImageLabel") then
-			local ak = logo:GetAttribute("AcidImg")
+			local ak = logo:GetAttribute("UiImg")
 			if typeof(ak) == "string" and typeof(Theme[ak]) == "Color3" then
 				logo.ImageColor3 = Theme[ak]
 			end
@@ -1958,7 +1958,7 @@ function Library.new(config: WindowConfig)
 			title.TextXAlignment = Enum.TextXAlignment.Left
 			title.Text = string.upper(boxTitle)
 			title.LayoutOrder = nextLo
-			title:SetAttribute("AcidText", "TextDim")
+			title:SetAttribute("UiText", "TextDim")
 			nextLo += 1
 			title.Parent = root
 		end
@@ -1971,7 +1971,7 @@ function Library.new(config: WindowConfig)
 		strip.Size = UDim2.new(1, 0, 0, UID.TabboxStripH)
 		strip.LayoutOrder = nextLo
 		nextLo += 1
-		strip:SetAttribute("AcidBg", "Background")
+		strip:SetAttribute("UiBg", "Background")
 		strip.Parent = root
 		corner(Theme.CornerSm).Parent = strip
 		local stripPad = Instance.new("UIPadding")
@@ -2011,8 +2011,8 @@ function Library.new(config: WindowConfig)
 				e.btn.BackgroundTransparency = if on then 0.08 else 0.55
 				e.btn.BackgroundColor3 = if on then Theme.Elevated else Theme.Background
 				e.btn.TextColor3 = if on then Theme.Text else Theme.TextDim
-				e.btn:SetAttribute("AcidBg", if on then "Elevated" else "Background")
-				e.btn:SetAttribute("AcidText", if on then "Text" else "TextDim")
+				e.btn:SetAttribute("UiBg", if on then "Elevated" else "Background")
+				e.btn:SetAttribute("UiText", if on then "Text" else "TextDim")
 			end
 		end
 
@@ -2042,8 +2042,8 @@ function Library.new(config: WindowConfig)
 			btn.BackgroundTransparency = 0.55
 			btn.TextColor3 = Theme.TextDim
 			btn.LayoutOrder = idx
-			btn:SetAttribute("AcidBg", "Background")
-			btn:SetAttribute("AcidText", "TextDim")
+			btn:SetAttribute("UiBg", "Background")
+			btn:SetAttribute("UiText", "TextDim")
 			btn.Parent = strip
 			corner(Theme.CornerSm).Parent = btn
 			pad(8).Parent = btn
@@ -2147,7 +2147,7 @@ function Library.new(config: WindowConfig)
 			img.ImageRectSize = parsed.ImageRectSize or Vector2.zero
 			if parsed.Untinted == true then
 				img.ImageColor3 = Color3.new(1, 1, 1)
-				img:SetAttribute("AcidTabIconUntinted", true)
+				img:SetAttribute("UiTabIconUntinted", true)
 			else
 				img.ImageColor3 = Theme.Text
 			end
@@ -2336,11 +2336,11 @@ function Library.new(config: WindowConfig)
 		wrap.BackgroundTransparency = Theme.GroupboxTrans
 		wrap.BorderSizePixel = 0
 		wrap.LayoutOrder = layoutOrder
-		wrap:SetAttribute("AcidBg", "Groupbox")
+		wrap:SetAttribute("UiBg", "Groupbox")
 		wrap.Parent = parentScroll
 		corner(Theme.Corner).Parent = wrap
 		local gbStroke = stroke(Theme.AccentBlue, 1, math.clamp(Theme.StrokeTrans, 0.22, 0.58))
-		gbStroke:SetAttribute("AcidStroke", "AccentBlue")
+		gbStroke:SetAttribute("UiStroke", "AccentBlue")
 		gbStroke.Parent = wrap
 		local wrapOuterPad = Instance.new("UIPadding")
 		wrapOuterPad.PaddingLeft = UDim.new(0, UID.SectionOuterPad)
@@ -2443,7 +2443,7 @@ function Library.new(config: WindowConfig)
 					img.ImageColor3 = Color3.new(1, 1, 1)
 				else
 					img.ImageColor3 = Theme.AccentBlue
-					img:SetAttribute("AcidImg", "AccentBlue")
+					img:SetAttribute("UiImg", "AccentBlue")
 				end
 				headerLayoutNext += 1
 			end
@@ -2494,7 +2494,7 @@ function Library.new(config: WindowConfig)
 			specChevExpanded = Library:GetIcon("chevron-down")
 			specChevCollapsed = Library:GetIcon("chevron-up")
 			if not lucideSpriteUrl(specChevExpanded) or not lucideSpriteUrl(specChevCollapsed) then
-				error("AcidHub: Lucide chevron-down and chevron-up are required for collapsible sections.")
+				error("Library: Lucide chevron-down and chevron-up are required for collapsible sections.")
 			end
 			local btn = Instance.new("ImageButton")
 			btn.Name = "Chevron"
@@ -2510,9 +2510,9 @@ function Library.new(config: WindowConfig)
 			chevBtn = btn
 		end
 
-		hText:SetAttribute("AcidText", "Text")
+		hText:SetAttribute("UiText", "Text")
 		if chevBtn then
-			chevBtn:SetAttribute("AcidImg", "TextDim")
+			chevBtn:SetAttribute("UiImg", "TextDim")
 		end
 
 		if typeof(sectionOpts.Tooltip) == "string" and sectionOpts.Tooltip ~= "" then
@@ -2531,7 +2531,7 @@ function Library.new(config: WindowConfig)
 		titleSep.BackgroundTransparency = math.clamp(Theme.StrokeTrans, 0.28, 0.65)
 		titleSep.LayoutOrder = 2
 		titleSep.Parent = wrap
-		titleSep:SetAttribute("AcidBg", "AccentBlue")
+		titleSep:SetAttribute("UiBg", "AccentBlue")
 
 		local bodyF = Instance.new("Frame")
 		bodyF.Name = "Body"
@@ -2610,7 +2610,7 @@ function Library.new(config: WindowConfig)
 			label.TextColor3 = Theme.Text
 			label.TextXAlignment = Enum.TextXAlignment.Left
 			label.Text = o.Text
-			label:SetAttribute("AcidText", "Text")
+			label:SetAttribute("UiText", "Text")
 			label.Parent = row
 
 			local on = o.Default == true
@@ -2718,7 +2718,7 @@ function Library.new(config: WindowConfig)
 			lbl.TextColor3 = Theme.Text
 			lbl.TextXAlignment = Enum.TextXAlignment.Left
 			lbl.Text = o.Text
-			lbl:SetAttribute("AcidText", "Text")
+			lbl:SetAttribute("UiText", "Text")
 			lbl.Parent = top
 
 			local valBox = Instance.new("TextBox")
@@ -2733,14 +2733,14 @@ function Library.new(config: WindowConfig)
 			valBox.ClearTextOnFocus = false
 			valBox.TextEditable = true
 			valBox.TextXAlignment = Enum.TextXAlignment.Center
-			valBox:SetAttribute("AcidBg", "Background")
-			valBox:SetAttribute("AcidText", "Text")
-			valBox:SetAttribute("AcidPlaceholder", "TextDim")
+			valBox:SetAttribute("UiBg", "Background")
+			valBox:SetAttribute("UiText", "Text")
+			valBox:SetAttribute("UiPlaceholder", "TextDim")
 			valBox.Parent = top
 			corner(Theme.CornerSm).Parent = valBox
 			pad(4).Parent = valBox
 			local valStroke = stroke(Theme.Stroke, 1, 0.65)
-			valStroke:SetAttribute("AcidStroke", "Stroke")
+			valStroke:SetAttribute("UiStroke", "Stroke")
 			valStroke.Parent = valBox
 
 			local track = Instance.new("Frame")
@@ -2748,7 +2748,7 @@ function Library.new(config: WindowConfig)
 			track.Size = UDim2.new(1, 0, 0, UID.SliderTrackH)
 			track.Position = UDim2.new(0, 0, 0, UID.SliderTrackY)
 			track.BackgroundColor3 = Theme.SliderTrack
-			track:SetAttribute("AcidBg", "SliderTrack")
+			track:SetAttribute("UiBg", "SliderTrack")
 			track.Parent = row
 			corner(UDim.new(1, 0)).Parent = track
 
@@ -2985,7 +2985,7 @@ function Library.new(config: WindowConfig)
 			lbl.TextColor3 = Theme.TextDim
 			lbl.TextXAlignment = Enum.TextXAlignment.Left
 			lbl.Text = o.Text
-			lbl:SetAttribute("AcidText", "TextDim")
+			lbl:SetAttribute("UiText", "TextDim")
 			lbl.Parent = row
 
 			local btn = Instance.new("TextButton")
@@ -2999,8 +2999,8 @@ function Library.new(config: WindowConfig)
 			btn.TextColor3 = Theme.Text
 			btn.TextXAlignment = Enum.TextXAlignment.Left
 			btn.Text = "  " .. summary()
-			btn:SetAttribute("AcidBg", "Elevated")
-			btn:SetAttribute("AcidText", "Text")
+			btn:SetAttribute("UiBg", "Elevated")
+			btn:SetAttribute("UiText", "Text")
 			btn.Parent = row
 			corner(Theme.CornerSm).Parent = btn
 			pad(UID.DropBtnPad).Parent = btn
@@ -3012,7 +3012,7 @@ function Library.new(config: WindowConfig)
 			chev.Text = "▼"
 			chev.TextSize = 10
 			chev.TextColor3 = Theme.TextDim
-			chev:SetAttribute("AcidText", "TextDim")
+			chev:SetAttribute("UiText", "TextDim")
 			chev.Parent = btn
 
 			local listF = Instance.new("Frame")
@@ -3023,11 +3023,11 @@ function Library.new(config: WindowConfig)
 			listF.BackgroundTransparency = 0.05
 			listF.Visible = false
 			listF.ZIndex = 5
-			listF:SetAttribute("AcidBg", "Background")
+			listF:SetAttribute("UiBg", "Background")
 			listF.Parent = row
 			corner(Theme.CornerSm).Parent = listF
 			local listStroke = stroke(Theme.Stroke, 1, 0.7)
-			listStroke:SetAttribute("AcidStroke", "Stroke")
+			listStroke:SetAttribute("UiStroke", "Stroke")
 			listStroke.Parent = listF
 
 			pad(6).Parent = listF
@@ -3098,9 +3098,9 @@ function Library.new(config: WindowConfig)
 				sb.PlaceholderText = "Search…"
 				sb.PlaceholderColor3 = Theme.TextDim
 				sb.Text = ""
-				sb:SetAttribute("AcidBg", "Elevated")
-				sb:SetAttribute("AcidText", "Text")
-				sb:SetAttribute("AcidPlaceholder", "TextDim")
+				sb:SetAttribute("UiBg", "Elevated")
+				sb:SetAttribute("UiText", "Text")
+				sb:SetAttribute("UiPlaceholder", "TextDim")
 				sb.Parent = searchRow
 				corner(Theme.CornerSm).Parent = sb
 				pad(8).Parent = sb
@@ -3166,8 +3166,8 @@ function Library.new(config: WindowConfig)
 					optBtn.TextSize = UID.DropBtnText
 					optBtn.TextXAlignment = Enum.TextXAlignment.Left
 					optBtn.ZIndex = 7
-					optBtn:SetAttribute("AcidBg", "Elevated")
-					optBtn:SetAttribute("AcidText", "Text")
+					optBtn:SetAttribute("UiBg", "Elevated")
+					optBtn:SetAttribute("UiText", "Text")
 					optBtn.Parent = scrollList
 					corner(UDim.new(0, 4)).Parent = optBtn
 					pad(UID.DropBtnPad).Parent = optBtn
@@ -3298,7 +3298,7 @@ function Library.new(config: WindowConfig)
 			lbl.TextColor3 = Theme.TextDim
 			lbl.TextXAlignment = Enum.TextXAlignment.Left
 			lbl.Text = o.Text
-			lbl:SetAttribute("AcidText", "TextDim")
+			lbl:SetAttribute("UiText", "TextDim")
 			lbl.Parent = row
 
 			local box = Instance.new("TextBox")
@@ -3313,9 +3313,9 @@ function Library.new(config: WindowConfig)
 			box.PlaceholderText = o.Placeholder or ""
 			box.PlaceholderColor3 = Theme.TextDim
 			box.Text = o.Default or ""
-			box:SetAttribute("AcidBg", "Elevated")
-			box:SetAttribute("AcidText", "Text")
-			box:SetAttribute("AcidPlaceholder", "TextDim")
+			box:SetAttribute("UiBg", "Elevated")
+			box:SetAttribute("UiText", "Text")
+			box:SetAttribute("UiPlaceholder", "TextDim")
 			box.Parent = row
 			corner(Theme.CornerSm).Parent = box
 			pad(UID.InputBoxPad).Parent = box
@@ -3370,7 +3370,7 @@ function Library.new(config: WindowConfig)
 			d.BackgroundTransparency = 0.5
 			d.BorderSizePixel = 0
 			d.Size = UDim2.new(1, 0, 0, 1)
-			d:SetAttribute("AcidBg", "Stroke")
+			d:SetAttribute("UiBg", "Stroke")
 			d.Parent = bodyF
 		end
 
@@ -3396,7 +3396,7 @@ function Library.new(config: WindowConfig)
 			lab.AutomaticSize = if doesWrap then Enum.AutomaticSize.Y else Enum.AutomaticSize.None
 			lab.Size = UDim2.new(1, 0, 0, if doesWrap then 0 else UID.AddLabelH)
 			lab.Text = text
-			lab:SetAttribute("AcidText", "TextDim")
+			lab:SetAttribute("UiText", "TextDim")
 			lab.Parent = bodyF
 			local reg = {
 				SetText = function(_: any, t: string)
@@ -3433,8 +3433,8 @@ function Library.new(config: WindowConfig)
 			b.Font = Enum.Font.GothamMedium
 			b.TextSize = UID.DropBtnText
 			b.TextColor3 = if disabled then Theme.TextDim else Theme.Text
-			b:SetAttribute("AcidBg", "Elevated")
-			b:SetAttribute("AcidText", if disabled then "TextDim" else "Text")
+			b:SetAttribute("UiBg", "Elevated")
+			b:SetAttribute("UiText", if disabled then "TextDim" else "Text")
 			b.Parent = bodyF
 			corner(Theme.CornerSm).Parent = b
 			do
@@ -3478,7 +3478,7 @@ function Library.new(config: WindowConfig)
 			lbl.TextColor3 = Theme.Text
 			lbl.TextXAlignment = Enum.TextXAlignment.Left
 			lbl.Text = o.Text or "Keybind"
-			lbl:SetAttribute("AcidText", "Text")
+			lbl:SetAttribute("UiText", "Text")
 			lbl.Parent = row
 			local capBtn = Instance.new("TextButton")
 			capBtn.Size = UDim2.fromOffset(UID.KeyCapW, UID.KeyCapH)
@@ -3490,8 +3490,8 @@ function Library.new(config: WindowConfig)
 			capBtn.TextSize = UID.SliderValText
 			capBtn.TextColor3 = Theme.Text
 			capBtn.AutoButtonColor = false
-			capBtn:SetAttribute("AcidBg", "Background")
-			capBtn:SetAttribute("AcidText", "Text")
+			capBtn:SetAttribute("UiBg", "Background")
+			capBtn:SetAttribute("UiText", "Text")
 			capBtn.Parent = row
 			corner(Theme.CornerSm).Parent = capBtn
 
@@ -3589,7 +3589,7 @@ function Library.new(config: WindowConfig)
 			lbl.TextColor3 = Theme.TextDim
 			lbl.TextXAlignment = Enum.TextXAlignment.Left
 			lbl.Text = o.Text or "Color"
-			lbl:SetAttribute("AcidText", "TextDim")
+			lbl:SetAttribute("UiText", "TextDim")
 			lbl.Parent = row
 
 			local bar = Instance.new("Frame")
@@ -3611,9 +3611,9 @@ function Library.new(config: WindowConfig)
 			hexBox.TextSize = 12
 			hexBox.TextColor3 = Theme.Text
 			hexBox.ClearTextOnFocus = false
-			hexBox:SetAttribute("AcidBg", "Elevated")
-			hexBox:SetAttribute("AcidText", "Text")
-			hexBox:SetAttribute("AcidPlaceholder", "TextDim")
+			hexBox:SetAttribute("UiBg", "Elevated")
+			hexBox:SetAttribute("UiText", "Text")
+			hexBox:SetAttribute("UiPlaceholder", "TextDim")
 			hexBox.Parent = bar
 			corner(Theme.CornerSm).Parent = hexBox
 			pad(6).Parent = hexBox
@@ -3628,11 +3628,11 @@ function Library.new(config: WindowConfig)
 			swBtn.Text = ""
 			swBtn.AutoButtonColor = false
 			swBtn.ZIndex = 2
-			--[[ No AcidBg: theme paint would force Elevated and hide the actual picked color ]]
+			--[[ No UiBg on swatch: theme paint would force Elevated and hide the picked color ]]
 			swBtn.Parent = bar
 			corner(Theme.CornerSm).Parent = swBtn
 			local swStroke = stroke(Theme.Stroke, 1, 0.5)
-			swStroke:SetAttribute("AcidStroke", "Stroke")
+			swStroke:SetAttribute("UiStroke", "Stroke")
 			swStroke.Parent = swBtn
 
 			local colorCbs: { (Color3) -> () } = {}
