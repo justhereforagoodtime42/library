@@ -3576,7 +3576,18 @@ function Library.new(config: WindowConfig)
 
 			local popOpen = false
 
-			local function applyColor(c: Color3)
+			--[[ During HSV drag, RenderStepped calls applyColor every frame; ThemeManager OnChanged → RefreshTheme
+				would repaint the whole window each frame (severe FPS drop). Silent updates only sync visuals/Value. ]]
+			local function fireColorCommit()
+				for _, cb in colorCbs do
+					task.spawn(cb, col)
+				end
+				if o.Callback then
+					o.Callback(col)
+				end
+			end
+
+			local function applyColor(c: Color3, silent: boolean?)
 				col = c
 				reg.Value = col
 				syncSwatch()
@@ -3590,12 +3601,10 @@ function Library.new(config: WindowConfig)
 						fillRgbBoxesRef()
 					end
 				end
-				for _, cb in colorCbs do
-					task.spawn(cb, col)
+				if silent then
+					return
 				end
-				if o.Callback then
-					o.Callback(col)
-				end
+				fireColorCommit()
 			end
 
 			local function tryParseHexInput()
@@ -3720,7 +3729,7 @@ function Library.new(config: WindowConfig)
 				local px, py = pointerXY()
 				satN = math.clamp((px - ax) / math.max(sx, 1e-4), 0, 1)
 				valN = 1 - math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
-				applyColor(Color3.fromHSV(hueN, satN, valN))
+				applyColor(Color3.fromHSV(hueN, satN, valN), true)
 				syncHsVisual()
 			end
 
@@ -3729,7 +3738,7 @@ function Library.new(config: WindowConfig)
 				local sy = hueSel.AbsoluteSize.Y
 				local _, py = pointerXY()
 				hueN = math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
-				applyColor(Color3.fromHSV(hueN, satN, valN))
+				applyColor(Color3.fromHSV(hueN, satN, valN), true)
 				syncHsVisual()
 			end
 
@@ -3744,6 +3753,7 @@ function Library.new(config: WindowConfig)
 					if i.UserInputType == stopOn then
 						rs:Disconnect()
 						ended:Disconnect()
+						fireColorCommit()
 					end
 				end)
 				table.insert(dragConns, rs)
