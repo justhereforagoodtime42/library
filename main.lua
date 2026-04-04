@@ -157,6 +157,14 @@ Library._notifyThemeRefreshes = {} :: { () -> () }
 Library._acidFocusConn = nil :: RBXScriptConnection?
 Library._acidFocusReleasedConn = nil :: RBXScriptConnection?
 
+--[[ Obsidian-style theme paint: cache instances that use Acid* attrs instead of GetDescendants every RefreshTheme. ]]
+Library._themePaintHost = nil :: Instance?
+Library._themePaintValid = false
+Library._themePaintAcid = {} :: { { any } }
+Library._themePaintGroupbox = {} :: { Frame }
+Library._themePaintDropdownScroll = {} :: { ScrollingFrame }
+Library._themePaintSubConns = {} :: { RBXScriptConnection }
+
 --[[ Mobile / focus (Obsidian-style): touch clients, floating controls, drag lock ]]
 Library.IsMobile = false
 Library.DevicePlatform = nil :: Enum.Platform?
@@ -195,6 +203,112 @@ function Library:RefreshTheme()
 	end
 	for _, fn in self._notifyThemeRefreshes do
 		pcall(fn)
+	end
+end
+
+function Library:InvalidateThemePaintCache()
+	self._themePaintValid = false
+end
+
+function Library:_disconnectThemePaintSubscribers()
+	for _, c in self._themePaintSubConns do
+		pcall(function()
+			c:Disconnect()
+		end)
+	end
+	table.clear(self._themePaintSubConns)
+end
+
+function Library:_subscribeThemePaintHost(host: Instance)
+	if self._themePaintHost == host and #self._themePaintSubConns > 0 then
+		return
+	end
+	self:_disconnectThemePaintSubscribers()
+	self._themePaintHost = host
+	local function bump()
+		self:InvalidateThemePaintCache()
+	end
+	table.insert(self._themePaintSubConns, host.DescendantAdded:Connect(bump))
+	table.insert(self._themePaintSubConns, host.DescendantRemoving:Connect(bump))
+end
+
+function Library:_rebuildThemePaintList(host: Instance)
+	local T = self.Theme
+	table.clear(self._themePaintAcid)
+	table.clear(self._themePaintGroupbox)
+	table.clear(self._themePaintDropdownScroll)
+	for _, d in host:GetDescendants() do
+		if d:IsA("UIStroke") then
+			local sk = d:GetAttribute("AcidStroke")
+			if typeof(sk) == "string" and typeof(T[sk]) == "Color3" then
+				table.insert(self._themePaintAcid, { "stroke", d, sk })
+			end
+		end
+		if d:IsA("GuiObject") then
+			local bgk = d:GetAttribute("AcidBg")
+			if typeof(bgk) == "string" and typeof(T[bgk]) == "Color3" then
+				table.insert(self._themePaintAcid, { "bg", d, bgk })
+			end
+			local tx = d:GetAttribute("AcidText")
+			if typeof(tx) == "string" and typeof(T[tx]) == "Color3" then
+				if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+					table.insert(self._themePaintAcid, { "text", d, tx })
+				end
+			end
+			local ph = d:GetAttribute("AcidPlaceholder")
+			if typeof(ph) == "string" and typeof(T[ph]) == "Color3" and d:IsA("TextBox") then
+				table.insert(self._themePaintAcid, { "ph", d, ph })
+			end
+			local ik = d:GetAttribute("AcidImg")
+			if typeof(ik) == "string" and typeof(T[ik]) == "Color3" then
+				if d:IsA("ImageLabel") or d:IsA("ImageButton") then
+					table.insert(self._themePaintAcid, { "img", d, ik })
+				end
+			end
+		end
+		if d:IsA("Frame") and d:GetAttribute("AcidBg") == "Groupbox" then
+			table.insert(self._themePaintGroupbox, d)
+		end
+		if d.Name == "DropdownScroll" and d:IsA("ScrollingFrame") then
+			table.insert(self._themePaintDropdownScroll, d :: ScrollingFrame)
+		end
+	end
+	self._themePaintValid = true
+end
+
+function Library:_paintThemeContentHost(host: Instance)
+	local T = self.Theme
+	if not self._themePaintValid or self._themePaintHost ~= host then
+		self:_subscribeThemePaintHost(host)
+		self:_rebuildThemePaintList(host)
+	end
+	for _, e in self._themePaintAcid do
+		local kind, d, k = e[1], e[2], e[3]
+		pcall(function()
+			if kind == "stroke" and d:IsA("UIStroke") then
+				d.Color = T[k]
+			elseif kind == "bg" and d:IsA("GuiObject") then
+				d.BackgroundColor3 = T[k]
+			elseif kind == "text" and (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")) then
+				d.TextColor3 = T[k]
+			elseif kind == "ph" and d:IsA("TextBox") then
+				d.PlaceholderColor3 = T[k]
+			elseif kind == "img" and (d:IsA("ImageLabel") or d:IsA("ImageButton")) then
+				d.ImageColor3 = T[k]
+			end
+		end)
+	end
+	local gbt = T.GroupboxTrans
+	local acc = T.AccentBlue
+	for _, f in self._themePaintGroupbox do
+		pcall(function()
+			f.BackgroundTransparency = gbt
+		end)
+	end
+	for _, sf in self._themePaintDropdownScroll do
+		pcall(function()
+			sf.ScrollBarImageColor3 = acc
+		end)
 	end
 end
 
@@ -610,6 +724,12 @@ function Library:Unload()
 		self._windowDestroy()
 		self._windowDestroy = nil
 	end
+	self:_disconnectThemePaintSubscribers()
+	self._themePaintHost = nil
+	self:InvalidateThemePaintCache()
+	table.clear(self._themePaintAcid)
+	table.clear(self._themePaintGroupbox)
+	table.clear(self._themePaintDropdownScroll)
 	self._notifyList = nil
 	self._updateNotifyLayout = nil
 	table.clear(self._windowRefreshes)
@@ -1015,41 +1135,6 @@ function Library.new(config: WindowConfig)
 	local sectionChevronRefreshes: { () -> () } = {}
 
 	-- Notify UI is parented after root (see below) so it stacks above the window with Global ZIndex
-
-	local function paintThemedDescendants(host: Instance)
-		for _, d in host:GetDescendants() do
-			--[[ UIStroke is not a GuiObject — must run before the guard or borders never follow Theme (groupbox outline stuck on defaults). ]]
-			if d:IsA("UIStroke") then
-				local sk = d:GetAttribute("AcidStroke")
-				if typeof(sk) == "string" and typeof(Theme[sk]) == "Color3" then
-					d.Color = Theme[sk]
-				end
-			end
-			if not d:IsA("GuiObject") then
-				continue
-			end
-			local bgk = d:GetAttribute("AcidBg")
-			if typeof(bgk) == "string" and typeof(Theme[bgk]) == "Color3" then
-				d.BackgroundColor3 = Theme[bgk]
-			end
-			local tx = d:GetAttribute("AcidText")
-			if typeof(tx) == "string" and typeof(Theme[tx]) == "Color3" then
-				if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
-					d.TextColor3 = Theme[tx]
-				end
-			end
-			local ph = d:GetAttribute("AcidPlaceholder")
-			if typeof(ph) == "string" and typeof(Theme[ph]) == "Color3" and d:IsA("TextBox") then
-				d.PlaceholderColor3 = Theme[ph]
-			end
-			local ik = d:GetAttribute("AcidImg")
-			if typeof(ik) == "string" and typeof(Theme[ik]) == "Color3" then
-				if d:IsA("ImageLabel") or d:IsA("ImageButton") then
-					d.ImageColor3 = Theme[ik]
-				end
-			end
-		end
-	end
 
 	-- Tooltips (hover label / tab — same idea as Obsidian AddTooltip)
 	local tooltipLabel = Instance.new("TextLabel")
@@ -1747,15 +1832,7 @@ function Library.new(config: WindowConfig)
 				ColorSequenceKeypoint.new(1, Theme.AccentBlue),
 			})
 		end
-		paintThemedDescendants(contentHost)
-		for _, d in contentHost:GetDescendants() do
-			if d:IsA("Frame") and d:GetAttribute("AcidBg") == "Groupbox" then
-				d.BackgroundTransparency = Theme.GroupboxTrans
-			end
-			if d.Name == "DropdownScroll" and d:IsA("ScrollingFrame") then
-				d.ScrollBarImageColor3 = Theme.AccentBlue
-			end
-		end
+		Library:_paintThemeContentHost(contentHost)
 		for _, chevRefresh in sectionChevronRefreshes do
 			pcall(chevRefresh)
 		end
@@ -3577,10 +3654,15 @@ function Library.new(config: WindowConfig)
 			local popOpen = false
 
 			local function applyColor(c: Color3)
+				local newHex = string.upper(c:ToHex())
+				local prevHex = string.upper(col:ToHex())
+				if newHex == prevHex then
+					return
+				end
 				col = c
 				reg.Value = col
 				syncSwatch()
-				hexBox.Text = string.upper(col:ToHex())
+				hexBox.Text = newHex
 				if popOpen then
 					hueN, satN, valN = col:ToHSV()
 					if syncHsVisualRef then
@@ -3590,11 +3672,12 @@ function Library.new(config: WindowConfig)
 						fillRgbBoxesRef()
 					end
 				end
+				--[[ Obsidian: synchronous Changed/Callback — avoids task backlog + matches ThemeManager:UpdateColorsUsingRegistry cadence. ]]
 				for _, cb in colorCbs do
-					task.spawn(cb, col)
+					pcall(cb, col)
 				end
 				if o.Callback then
-					o.Callback(col)
+					pcall(o.Callback, col)
 				end
 			end
 
@@ -3614,7 +3697,20 @@ function Library.new(config: WindowConfig)
 			--[[ Obsidian-style HSV surface (rbxassetid://4155801252 saturation map) + RGB fields ]]
 			local SATURATION_MAP_ASSET = "rbxassetid://4155801252"
 			local popCloseConn: RBXScriptConnection? = nil
-			local dragConns: { RBXScriptConnection } = {}
+
+			local function isColorPickerDragInput(input: InputObject): boolean
+				if not Library.IsRobloxFocused then
+					return false
+				end
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return false
+				end
+				return input.UserInputState == Enum.UserInputState.Begin
+					or input.UserInputState == Enum.UserInputState.Change
+			end
 
 			local pop = Instance.new("Frame")
 			pop.Name = "ColorPickerPop"
@@ -3718,9 +3814,12 @@ function Library.new(config: WindowConfig)
 				local ax, ay = satMap.AbsolutePosition.X, satMap.AbsolutePosition.Y
 				local sx, sy = satMap.AbsoluteSize.X, satMap.AbsoluteSize.Y
 				local px, py = pointerXY()
+				local oldSat, oldVal = satN, valN
 				satN = math.clamp((px - ax) / math.max(sx, 1e-4), 0, 1)
 				valN = 1 - math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
-				applyColor(Color3.fromHSV(hueN, satN, valN))
+				if satN ~= oldSat or valN ~= oldVal then
+					applyColor(Color3.fromHSV(hueN, satN, valN))
+				end
 				syncHsVisual()
 			end
 
@@ -3728,41 +3827,37 @@ function Library.new(config: WindowConfig)
 				local ay = hueSel.AbsolutePosition.Y
 				local sy = hueSel.AbsoluteSize.Y
 				local _, py = pointerXY()
+				local oldHue = hueN
 				hueN = math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
-				applyColor(Color3.fromHSV(hueN, satN, valN))
+				if hueN ~= oldHue then
+					applyColor(Color3.fromHSV(hueN, satN, valN))
+				end
 				syncHsVisual()
 			end
 
-			local function beginPressDrag(sample: () -> (), stopOn: Enum.UserInputType)
-				sample()
-				local rs: RBXScriptConnection
-				local ended: RBXScriptConnection
-				rs = RunService.RenderStepped:Connect(function()
-					sample()
-				end)
-				ended = UserInputService.InputEnded:Connect(function(i: InputObject)
-					if i.UserInputType == stopOn then
-						rs:Disconnect()
-						ended:Disconnect()
-					end
-				end)
-				table.insert(dragConns, rs)
-				table.insert(dragConns, ended)
-			end
-
 			satMap.InputBegan:Connect(function(input: InputObject)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 then
-					beginPressDrag(sampleSatVal, Enum.UserInputType.MouseButton1)
-				elseif input.UserInputType == Enum.UserInputType.Touch then
-					beginPressDrag(sampleSatVal, Enum.UserInputType.Touch)
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				while isColorPickerDragInput(input) and popOpen do
+					sampleSatVal()
+					RunService.RenderStepped:Wait()
 				end
 			end)
 
 			hueSel.InputBegan:Connect(function(input: InputObject)
-				if input.UserInputType == Enum.UserInputType.MouseButton1 then
-					beginPressDrag(sampleHue, Enum.UserInputType.MouseButton1)
-				elseif input.UserInputType == Enum.UserInputType.Touch then
-					beginPressDrag(sampleHue, Enum.UserInputType.Touch)
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				while isColorPickerDragInput(input) and popOpen do
+					sampleHue()
+					RunService.RenderStepped:Wait()
 				end
 			end)
 
@@ -3841,19 +3936,9 @@ function Library.new(config: WindowConfig)
 			doneBtn.Parent = pop
 			corner(Theme.CornerSm).Parent = doneBtn
 
-			local function clearDragConns()
-				for _, c in dragConns do
-					pcall(function()
-						c:Disconnect()
-					end)
-				end
-				table.clear(dragConns)
-			end
-
 			local function closePop()
 				popOpen = false
 				pop.Visible = false
-				clearDragConns()
 				if popCloseConn then
 					popCloseConn:Disconnect()
 					popCloseConn = nil
