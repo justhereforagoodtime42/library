@@ -90,6 +90,10 @@ local UID = {
 	ToggleTrackH = 16,
 	ToggleKnob = 12,
 	ToggleLabelReserve = 38,
+	--[[ Inline keybind cap (Obsidian-style), sits between label and toggle track ]]
+	ToggleInlineKeyW = 52,
+	ToggleInlineKeyH = 18,
+	ToggleInlineKeyGap = 6,
 	FontWidget = 14,
 	--
 	SliderRowH = 34,
@@ -2590,7 +2594,149 @@ function Library.new(config: WindowConfig)
 			_frame = bodyF,
 		}
 
-		function section:AddToggle(o: { Text: string, Default: boolean?, Callback: ((boolean) -> ())?, Tooltip: string?, Idx: string? })
+		--[[ Obsidian-style: compact key cap on the toggle row; optional SyncToggleState (default true). ]]
+		local function attachInlineKeybindToToggle(
+			row: Frame,
+			label: TextLabel,
+			track: TextButton,
+			apply: (boolean) -> (),
+			toggleReg: any,
+			ko: any
+		): any
+			if toggleReg._inlineKeyReg ~= nil then
+				return toggleReg._inlineKeyReg
+			end
+			ko = ko or {}
+			local keyName = ko.Default or "RightShift"
+			local kc = Enum.KeyCode[keyName] or Enum.KeyCode.RightShift
+			local TW, TH = UID.ToggleTrackW, UID.ToggleTrackH
+			local keyW, keyH = UID.ToggleInlineKeyW, UID.ToggleInlineKeyH
+			local gapK = UID.ToggleInlineKeyGap
+			local syncToggle = ko.SyncToggleState ~= false
+
+			label.Size = UDim2.new(1, -(UID.ToggleLabelReserve + gapK + keyW), 1, 0)
+
+			local capBtn = Instance.new("TextButton")
+			capBtn.Name = "ToggleKeybind"
+			capBtn.AutoButtonColor = false
+			capBtn.Size = UDim2.fromOffset(keyW, keyH)
+			capBtn.Position = UDim2.new(1, -(TW + gapK + keyW), 0.5, -keyH / 2)
+			capBtn.BackgroundColor3 = Theme.Background
+			capBtn.BackgroundTransparency = 0.15
+			capBtn.Text = keyName
+			capBtn.Font = Enum.Font.GothamBold
+			capBtn.TextSize = UID.SliderValText
+			capBtn.TextColor3 = Theme.Text
+			capBtn.TextTruncate = Enum.TextTruncate.AtEnd
+			capBtn:SetAttribute("UiBg", "Background")
+			capBtn:SetAttribute("UiText", "Text")
+			capBtn.Parent = row
+			corner(Theme.CornerSm).Parent = capBtn
+			do
+				local kp = Instance.new("UIPadding")
+				kp.PaddingLeft = UDim.new(0, 4)
+				kp.PaddingRight = UDim.new(0, 4)
+				kp.Parent = capBtn
+			end
+
+			local listening = false
+			local keyCbs: { () -> () } = {}
+			local keyReg: any = {
+				Type = "KeyPicker",
+				Value = kc,
+				Mode = "Toggle",
+				Modifiers = {},
+			}
+
+			local function applyKey(newK: Enum.KeyCode, name: string)
+				kc = newK
+				keyName = name
+				keyReg.Value = kc
+				capBtn.Text = name
+				for _, cb in keyCbs do
+					task.spawn(cb)
+				end
+			end
+
+			keyReg.SetValue = function(_: any, v: any)
+				if type(v) == "table" and typeof(v[1]) == "string" then
+					local nm = v[1]
+					local nk = Enum.KeyCode[nm]
+					if nk then
+						applyKey(nk, nm)
+					end
+				end
+			end
+			keyReg.OnChanged = function(_: any, cb: () -> ())
+				table.insert(keyCbs, cb)
+			end
+
+			local capConn: RBXScriptConnection? = nil
+			capBtn.MouseButton1Click:Connect(function()
+				if listening then
+					return
+				end
+				listening = true
+				capBtn.Text = "…"
+				if capConn then
+					capConn:Disconnect()
+				end
+				capConn = UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
+					if gp then
+						return
+					end
+					if input.UserInputType == Enum.UserInputType.Keyboard and input.KeyCode ~= Enum.KeyCode.Unknown then
+						if capConn then
+							capConn:Disconnect()
+							capConn = nil
+						end
+						listening = false
+						applyKey(input.KeyCode, input.KeyCode.Name)
+						if ko.Idx == "MenuKeybind" or ko.NoUI then
+							Library.ToggleKeybind = keyReg
+						end
+					end
+				end)
+			end)
+
+			if syncToggle then
+				UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
+					if listening or gp then
+						return
+					end
+					if input.UserInputType ~= Enum.UserInputType.Keyboard then
+						return
+					end
+					if input.KeyCode ~= kc then
+						return
+					end
+					apply(not toggleReg.Value)
+				end)
+			end
+
+			if ko.Idx == "MenuKeybind" or ko.NoUI then
+				Library.ToggleKeybind = keyReg
+			end
+			if typeof(ko.Idx) == "string" and ko.Idx ~= "" then
+				Library.Options[ko.Idx] = keyReg
+			end
+
+			if typeof(ko.Tooltip) == "string" and ko.Tooltip ~= "" then
+				bindTooltipToInstances({ capBtn }, ko.Tooltip)
+			end
+
+			toggleReg._inlineKeyReg = keyReg
+			return keyReg
+		end
+
+		function section:AddToggle(o: {
+			Text: string,
+			Default: boolean?,
+			Callback: ((boolean) -> ())?,
+			Tooltip: string?,
+			Idx: string?,
+			Keybind: { Default: string?, Idx: string?, SyncToggleState: boolean?, NoUI: boolean?, Tooltip: string? }?,
+		})
 			local TW, TH = UID.ToggleTrackW, UID.ToggleTrackH
 			local K = UID.ToggleKnob
 			local knobHalf = K / 2
@@ -2675,8 +2821,26 @@ function Library.new(config: WindowConfig)
 				apply(not on)
 			end)
 
-			if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+			function reg:AddKeybind(ko: any): any
+				local kr = attachInlineKeybindToToggle(row, label, track, apply, reg, ko)
+				if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+					local cap = row:FindFirstChild("ToggleKeybind")
+					if cap and cap:IsA("GuiObject") then
+						if reg._tooltipDidBindWithoutKey == true then
+							bindTooltipToInstances({ cap }, o.Tooltip)
+						else
+							bindTooltipToInstances({ label, track, cap }, o.Tooltip)
+						end
+					end
+				end
+				return kr
+			end
+
+			if o.Keybind then
+				reg:AddKeybind(o.Keybind)
+			elseif typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
 				bindTooltipToInstances({ label, track }, o.Tooltip)
+				reg._tooltipDidBindWithoutKey = true
 			end
 
 			if typeof(o.Idx) == "string" and o.Idx ~= "" then
