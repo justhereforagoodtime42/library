@@ -2933,12 +2933,13 @@ function Library.new(config: WindowConfig)
 						bindTooltipToInstances({ cap }, ko.Tooltip)
 					end
 				end
-				return kr
+				--[[ Return toggle for chaining (:AddKeybind():AddColorPicker()). KeyPicker stays in Library.Options[ko.Idx]. ]]
+				return reg
 			end
 
 			function reg:AddColorPicker(co: any): any
 				if reg._inlineColorReg ~= nil then
-					return reg._inlineColorReg
+					return reg
 				end
 				co = co or {}
 				local cr = mountColorPicker(co, {
@@ -2956,7 +2957,8 @@ function Library.new(config: WindowConfig)
 						bindTooltipToInstances({ sw }, co.Tooltip)
 					end
 				end
-				return cr
+				--[[ Return toggle for chaining (:AddColorPicker():AddKeybind()). ColorPicker stays in Library.Options[co.Idx]. ]]
+				return reg
 			end
 
 			if o.Keybind then
