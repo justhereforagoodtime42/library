@@ -68,7 +68,7 @@ local function configInputName(lib: any): string
 end
 
 do
-	SaveManager.Folder = "AcidHubSettings"
+	SaveManager.Folder = "HubSettings"
 	SaveManager.SubFolder = ""
 	SaveManager.Ignore = {}
 	SaveManager.Library = nil
@@ -635,6 +635,6 @@ end
 local ge = getgenv or function()
 	return shared
 end
-ge().AcidSaveManager = SaveManager
+ge().LibSaveManager = SaveManager
 
 return SaveManager
