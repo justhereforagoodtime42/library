@@ -94,6 +94,9 @@ local UID = {
 	ToggleInlineKeyW = 52,
 	ToggleInlineKeyH = 18,
 	ToggleInlineKeyGap = 6,
+	--[[ Inline color swatch on toggle row (same band as key cap) ]]
+	ToggleInlineColorW = 18,
+	ToggleInlineColorH = 18,
 	FontWidget = 14,
 	--
 	SliderRowH = 34,
@@ -2597,6 +2600,9 @@ function Library.new(config: WindowConfig)
 			_frame = bodyF,
 		}
 
+		--[[ Forward declare: toggle :AddColorPicker calls this before the assignment below. ]]
+		local mountColorPicker: (any, any) -> any
+
 		--[[ nil / omitted Default -> RightShift; false, "", or whitespace-only -> unbound (Unknown). ]]
 		local function resolveKeybindDefault(defaultField: any): (Enum.KeyCode, string)
 			if defaultField == false then
@@ -2626,6 +2632,50 @@ function Library.new(config: WindowConfig)
 			return name
 		end
 
+		--[[ Stack inline widgets right-to-left: [label …][color?][key?][track]. ]]
+		local function layoutToggleInlineExtras(row: Frame, label: TextLabel, track: TextButton)
+			local TW = UID.ToggleTrackW
+			local keyW, keyH = UID.ToggleInlineKeyW, UID.ToggleInlineKeyH
+			local colW, colH = UID.ToggleInlineColorW, UID.ToggleInlineColorH
+			local g = UID.ToggleInlineKeyGap
+			local cap = row:FindFirstChild("ToggleKeybind")
+			local sw = row:FindFirstChild("ToggleColorSwatch")
+			--[[ Outward from track: color swatch by the switch, then keybind (Obsidian-style). ]]
+			local cursor = TW
+			if sw and sw:IsA("GuiObject") then
+				cursor += g + colW
+				sw.Position = UDim2.new(1, -cursor, 0.5, -colH / 2)
+			end
+			if cap and cap:IsA("GuiObject") then
+				cursor += g + keyW
+				cap.Position = UDim2.new(1, -cursor, 0.5, -keyH / 2)
+			end
+			label.Size = UDim2.new(1, -(UID.ToggleLabelReserve + (cursor - TW)), 1, 0)
+		end
+
+		local function refreshToggleTooltip(reg: any)
+			local tt = reg._toggleTooltip
+			if typeof(tt) ~= "string" or tt == "" then
+				return
+			end
+			local trow = reg._toggleRow
+			local tlabel = reg._toggleLabel
+			local ttrack = reg._toggleTrack
+			if not trow or not tlabel or not ttrack then
+				return
+			end
+			local parts: { GuiObject } = { tlabel, ttrack }
+			local cap = trow:FindFirstChild("ToggleKeybind")
+			local sw = trow:FindFirstChild("ToggleColorSwatch")
+			if cap and cap:IsA("GuiObject") then
+				table.insert(parts, cap)
+			end
+			if sw and sw:IsA("GuiObject") then
+				table.insert(parts, sw)
+			end
+			bindTooltipToInstances(parts, tt)
+		end
+
 		--[[ Obsidian-style: compact key cap on the toggle row; optional SyncToggleState (default true). ]]
 		local function attachInlineKeybindToToggle(
 			row: Frame,
@@ -2645,13 +2695,10 @@ function Library.new(config: WindowConfig)
 			local gapK = UID.ToggleInlineKeyGap
 			local syncToggle = ko.SyncToggleState ~= false
 
-			label.Size = UDim2.new(1, -(UID.ToggleLabelReserve + gapK + keyW), 1, 0)
-
 			local capBtn = Instance.new("TextButton")
 			capBtn.Name = "ToggleKeybind"
 			capBtn.AutoButtonColor = false
 			capBtn.Size = UDim2.fromOffset(keyW, keyH)
-			capBtn.Position = UDim2.new(1, -(TW + gapK + keyW), 0.5, -keyH / 2)
 			capBtn.BackgroundColor3 = Theme.Background
 			capBtn.BackgroundTransparency = 0.15
 			capBtn.Text = keyCapLabel(kc, keyName)
@@ -2774,6 +2821,8 @@ function Library.new(config: WindowConfig)
 				bindTooltipToInstances({ capBtn }, ko.Tooltip)
 			end
 
+			layoutToggleInlineExtras(row, label, track)
+
 			toggleReg._inlineKeyReg = keyReg
 			return keyReg
 		end
@@ -2837,6 +2886,10 @@ function Library.new(config: WindowConfig)
 				Type = "Toggle",
 				Value = on,
 			}
+			reg._toggleRow = row
+			reg._toggleLabel = label
+			reg._toggleTrack = track
+			reg._toggleTooltip = o.Tooltip
 
 			local function apply(v: boolean)
 				on = v
@@ -2873,23 +2926,43 @@ function Library.new(config: WindowConfig)
 			function reg:AddKeybind(ko: any): any
 				local kr = attachInlineKeybindToToggle(row, label, track, apply, reg, ko)
 				if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+					refreshToggleTooltip(reg)
+				elseif typeof(ko.Tooltip) == "string" and ko.Tooltip ~= "" then
 					local cap = row:FindFirstChild("ToggleKeybind")
 					if cap and cap:IsA("GuiObject") then
-						if reg._tooltipDidBindWithoutKey == true then
-							bindTooltipToInstances({ cap }, o.Tooltip)
-						else
-							bindTooltipToInstances({ label, track, cap }, o.Tooltip)
-						end
+						bindTooltipToInstances({ cap }, ko.Tooltip)
 					end
 				end
 				return kr
 			end
 
+			function reg:AddColorPicker(co: any): any
+				if reg._inlineColorReg ~= nil then
+					return reg._inlineColorReg
+				end
+				co = co or {}
+				local cr = mountColorPicker(co, {
+					Mode = "toggle",
+					row = row,
+					label = label,
+					track = track,
+				})
+				reg._inlineColorReg = cr
+				if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+					refreshToggleTooltip(reg)
+				elseif typeof(co.Tooltip) == "string" and co.Tooltip ~= "" then
+					local sw = row:FindFirstChild("ToggleColorSwatch")
+					if sw and sw:IsA("GuiObject") then
+						bindTooltipToInstances({ sw }, co.Tooltip)
+					end
+				end
+				return cr
+			end
+
 			if o.Keybind then
 				reg:AddKeybind(o.Keybind)
 			elseif typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
-				bindTooltipToInstances({ label, track }, o.Tooltip)
-				reg._tooltipDidBindWithoutKey = true
+				refreshToggleTooltip(reg)
 			end
 
 			if typeof(o.Idx) == "string" and o.Idx ~= "" then
@@ -3792,75 +3865,110 @@ function Library.new(config: WindowConfig)
 			return reg
 		end
 
-		function section:AddColorPicker(o: {
-			Text: string,
-			Default: Color3?,
-			Transparency: number?,
-			Idx: string?,
-			Callback: ((Color3) -> ())?,
-		})
+		mountColorPicker = function(
+			o: {
+				Text: string?,
+				Default: Color3?,
+				Transparency: number?,
+				Idx: string?,
+				Callback: ((Color3) -> ())?,
+				Tooltip: string?,
+			},
+			mount: { Mode: "section", bodyParent: Instance }
+				| { Mode: "toggle", row: Frame, label: TextLabel, track: TextButton }
+		)
 			o = o or {}
 			local col = o.Default or Color3.fromRGB(255, 255, 255)
 			local alpha = 1 - (o.Transparency or 0)
+			local sectionMode = mount.Mode == "section"
 
-			local row = Instance.new("Frame")
-			row.BackgroundTransparency = 1
-			row.Size = UDim2.new(1, 0, 0, UID.ColorRowH)
-			row.Parent = bodyF
+			local row: Frame
+			local lbl: TextLabel?
+			local bar: Frame?
+			local hexBox: TextBox?
+			local swBtn: TextButton
 
-			local lbl = Instance.new("TextLabel")
-			lbl.Size = UDim2.new(1, 0, 0, UID.ColorLblH)
-			lbl.BackgroundTransparency = 1
-			lbl.Font = Enum.Font.GothamMedium
-			lbl.TextSize = UID.InputLblText
-			lbl.TextColor3 = Theme.TextDim
-			lbl.TextXAlignment = Enum.TextXAlignment.Left
-			lbl.Text = o.Text or "Color"
-			lbl:SetAttribute("UiText", "TextDim")
-			lbl.Parent = row
+			if sectionMode then
+				row = Instance.new("Frame")
+				row.BackgroundTransparency = 1
+				row.Size = UDim2.new(1, 0, 0, UID.ColorRowH)
+				row.Parent = (mount :: any).bodyParent
 
-			local bar = Instance.new("Frame")
-			bar.Name = "ColorBar"
-			bar.BackgroundTransparency = 1
-			bar.Size = UDim2.new(1, 0, 0, UID.ColorBarH)
-			bar.Position = UDim2.new(0, 0, 0, UID.ColorBarY)
-			bar.Parent = row
+				lbl = Instance.new("TextLabel")
+				lbl.Size = UDim2.new(1, 0, 0, UID.ColorLblH)
+				lbl.BackgroundTransparency = 1
+				lbl.Font = Enum.Font.GothamMedium
+				lbl.TextSize = UID.InputLblText
+				lbl.TextColor3 = Theme.TextDim
+				lbl.TextXAlignment = Enum.TextXAlignment.Left
+				lbl.Text = o.Text or "Color"
+				lbl:SetAttribute("UiText", "TextDim")
+				lbl.Parent = row
 
-			local hexBox = Instance.new("TextBox")
-			hexBox.Size = UDim2.new(1, -(UID.ColorSwatch + 6), 1, 0)
-			hexBox.Position = UDim2.fromScale(0, 0)
-			hexBox.BackgroundColor3 = Theme.Elevated
-			hexBox.BackgroundTransparency = 0.1
-			hexBox.Text = string.upper(col:ToHex())
-			hexBox.PlaceholderText = "RRGGBB"
-			hexBox.PlaceholderColor3 = Theme.TextDim
-			hexBox.Font = Enum.Font.GothamMedium
-			hexBox.TextSize = 12
-			hexBox.TextColor3 = Theme.Text
-			hexBox.ClearTextOnFocus = false
-			hexBox:SetAttribute("UiBg", "Elevated")
-			hexBox:SetAttribute("UiText", "Text")
-			hexBox:SetAttribute("UiPlaceholder", "TextDim")
-			hexBox.Parent = bar
-			corner(Theme.CornerSm).Parent = hexBox
-			pad(6).Parent = hexBox
+				bar = Instance.new("Frame")
+				bar.Name = "ColorBar"
+				bar.BackgroundTransparency = 1
+				bar.Size = UDim2.new(1, 0, 0, UID.ColorBarH)
+				bar.Position = UDim2.new(0, 0, 0, UID.ColorBarY)
+				bar.Parent = row
 
-			local swBtn = Instance.new("TextButton")
-			swBtn.Name = "Swatch"
-			swBtn.AnchorPoint = Vector2.new(1, 0)
-			swBtn.Size = UDim2.fromOffset(UID.ColorSwatch, UID.ColorBarH)
-			swBtn.Position = UDim2.new(1, 0, 0, 0)
-			swBtn.BackgroundColor3 = col
-			swBtn.BackgroundTransparency = 1 - alpha
-			swBtn.Text = ""
-			swBtn.AutoButtonColor = false
-			swBtn.ZIndex = 2
-			--[[ No UiBg on swatch: theme paint would force Elevated and hide the picked color ]]
-			swBtn.Parent = bar
-			corner(Theme.CornerSm).Parent = swBtn
-			local swStroke = stroke(Theme.Stroke, 1, 0.5)
-			swStroke:SetAttribute("UiStroke", "Stroke")
-			swStroke.Parent = swBtn
+				hexBox = Instance.new("TextBox")
+				hexBox.Size = UDim2.new(1, -(UID.ColorSwatch + 6), 1, 0)
+				hexBox.Position = UDim2.fromScale(0, 0)
+				hexBox.BackgroundColor3 = Theme.Elevated
+				hexBox.BackgroundTransparency = 0.1
+				hexBox.Text = string.upper(col:ToHex())
+				hexBox.PlaceholderText = "RRGGBB"
+				hexBox.PlaceholderColor3 = Theme.TextDim
+				hexBox.Font = Enum.Font.GothamMedium
+				hexBox.TextSize = 12
+				hexBox.TextColor3 = Theme.Text
+				hexBox.ClearTextOnFocus = false
+				hexBox:SetAttribute("UiBg", "Elevated")
+				hexBox:SetAttribute("UiText", "Text")
+				hexBox:SetAttribute("UiPlaceholder", "TextDim")
+				hexBox.Parent = bar
+				corner(Theme.CornerSm).Parent = hexBox
+				pad(6).Parent = hexBox
+
+				swBtn = Instance.new("TextButton")
+				swBtn.Name = "Swatch"
+				swBtn.AnchorPoint = Vector2.new(1, 0)
+				swBtn.Size = UDim2.fromOffset(UID.ColorSwatch, UID.ColorBarH)
+				swBtn.Position = UDim2.new(1, 0, 0, 0)
+				swBtn.BackgroundColor3 = col
+				swBtn.BackgroundTransparency = 1 - alpha
+				swBtn.Text = ""
+				swBtn.AutoButtonColor = false
+				swBtn.ZIndex = 2
+				--[[ No UiBg on swatch: theme paint would force Elevated and hide the picked color ]]
+				swBtn.Parent = bar
+				corner(Theme.CornerSm).Parent = swBtn
+				local swStroke = stroke(Theme.Stroke, 1, 0.5)
+				swStroke:SetAttribute("UiStroke", "Stroke")
+				swStroke.Parent = swBtn
+			else
+				local tm = mount :: any
+				row = tm.row
+				lbl = nil
+				bar = nil
+				hexBox = nil
+				swBtn = Instance.new("TextButton")
+				swBtn.Name = "ToggleColorSwatch"
+				swBtn.AutoButtonColor = false
+				local cw, ch = UID.ToggleInlineColorW, UID.ToggleInlineColorH
+				swBtn.Size = UDim2.fromOffset(cw, ch)
+				swBtn.BackgroundColor3 = col
+				swBtn.BackgroundTransparency = 1 - alpha
+				swBtn.Text = ""
+				swBtn.ZIndex = 2
+				swBtn.Parent = row
+				corner(Theme.CornerSm).Parent = swBtn
+				local swStrokeT = stroke(Theme.Stroke, 1, 0.5)
+				swStrokeT:SetAttribute("UiStroke", "Stroke")
+				swStrokeT.Parent = swBtn
+				layoutToggleInlineExtras(row, tm.label, tm.track)
+			end
 
 			local colorCbs: { (Color3) -> () } = {}
 			local reg: any = {
@@ -3889,7 +3997,9 @@ function Library.new(config: WindowConfig)
 				col = c
 				reg.Value = col
 				syncSwatch()
-				hexBox.Text = newHex
+				if hexBox then
+					hexBox.Text = newHex
+				end
 				if popOpen then
 					hueN, satN, valN = col:ToHSV()
 					if syncHsVisualRef then
@@ -3909,6 +4019,9 @@ function Library.new(config: WindowConfig)
 			end
 
 			local function tryParseHexInput()
+				if not hexBox then
+					return
+				end
 				local parsed = parseHexColor(hexBox.Text)
 				if parsed then
 					applyColor(parsed)
@@ -3917,9 +4030,11 @@ function Library.new(config: WindowConfig)
 				end
 			end
 
-			hexBox.FocusLost:Connect(function()
-				tryParseHexInput()
-			end)
+			if hexBox then
+				hexBox.FocusLost:Connect(function()
+					tryParseHexInput()
+				end)
+			end
 
 			--[[ Obsidian-style HSV surface (rbxassetid://4155801252 saturation map) + RGB fields ]]
 			local SATURATION_MAP_ASSET = "rbxassetid://4155801252"
@@ -4197,7 +4312,7 @@ function Library.new(config: WindowConfig)
 						local a, s = g.AbsolutePosition, g.AbsoluteSize
 						return p.X >= a.X and p.X <= a.X + s.X and p.Y >= a.Y and p.Y <= a.Y + s.Y
 					end
-					if inside(pop) or inside(swBtn) or inside(hexBox) then
+					if inside(pop) or inside(swBtn) or (hexBox and inside(hexBox)) then
 						return
 					end
 					closePop()
@@ -4212,27 +4327,29 @@ function Library.new(config: WindowConfig)
 				end
 			end)
 
-			do
-				local lastHexTap = 0.0
-				hexBox.InputBegan:Connect(function(input: InputObject)
-					if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
-						return
-					end
-					if input.UserInputState ~= Enum.UserInputState.Begin then
-						return
-					end
-					local t = os.clock()
-					if t - lastHexTap < 0.35 then
-						lastHexTap = 0
-						if popOpen then
-							closePop()
-						else
-							openPop()
+			if hexBox then
+				do
+					local lastHexTap = 0.0
+					hexBox.InputBegan:Connect(function(input: InputObject)
+						if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+							return
 						end
-					else
-						lastHexTap = t
-					end
-				end)
+						if input.UserInputState ~= Enum.UserInputState.Begin then
+							return
+						end
+						local t = os.clock()
+						if t - lastHexTap < 0.35 then
+							lastHexTap = 0
+							if popOpen then
+								closePop()
+							else
+								openPop()
+							end
+						else
+							lastHexTap = t
+						end
+					end)
+				end
 			end
 
 			doneBtn.MouseButton1Click:Connect(function()
@@ -4248,7 +4365,9 @@ function Library.new(config: WindowConfig)
 					alpha = 1 - trans
 				end
 				syncSwatch()
-				hexBox.Text = string.upper(col:ToHex())
+				if hexBox then
+					hexBox.Text = string.upper(col:ToHex())
+				end
 				fillRgbBoxes()
 				if popOpen then
 					hueN, satN, valN = col:ToHSV()
@@ -4265,6 +4384,17 @@ function Library.new(config: WindowConfig)
 			end
 
 			return reg
+		end
+
+		function section:AddColorPicker(o: {
+			Text: string,
+			Default: Color3?,
+			Transparency: number?,
+			Idx: string?,
+			Callback: ((Color3) -> ())?,
+			Tooltip: string?,
+		})
+			return mountColorPicker(o, { Mode = "section", bodyParent = bodyF })
 		end
 
 		return section
