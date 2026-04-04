@@ -59,10 +59,15 @@ do
 	local ThemeFields =
 		{ "FontColor", "MainColor", "AccentColor", "BackgroundColor", "OutlineColor" }
 
-	ThemeManager.Folder = "AcidHubSettings"
+	ThemeManager.Folder = "HubSettings"
 	ThemeManager.Library = nil
 	ThemeManager.AppliedToTab = false
 	ThemeManager.DefaultTheme = "Default"
+	--[[ Min seconds between full Library:RefreshTheme() while dragging theme pickers (avoids walking huge UIs every RenderStepped). ]]
+	ThemeManager.ThemeRefreshThrottleSec = 0.055
+	ThemeManager._themeRefreshBlockedUntil = 0.0
+	ThemeManager._pendingThemeRefresh = false
+	ThemeManager._themeRefreshFlushTask = nil
 
 	ThemeManager.BuiltInThemes = {
 		["Default"] = {
@@ -208,8 +213,51 @@ do
 		end
 	end
 
-	--[[ Maps Obsidian-style scheme keys onto AcidHub Library.Theme ]]
-	function ThemeManager:ApplyScheme(scheme: { [string]: string })
+	--[[ Coalesces full UI repaints while color pickers fire every RenderStepped (large scripts were unusable). ]]
+	function ThemeManager:ScheduleThrottledThemeRefresh()
+		local Lib = self.Library
+		if not Lib or not Lib.RefreshTheme then
+			return
+		end
+		self._pendingThemeRefresh = true
+		local now = os.clock()
+		local interval = self.ThemeRefreshThrottleSec or 0.055
+		local blockedUntil = self._themeRefreshBlockedUntil or 0
+		if now >= blockedUntil then
+			if self._themeRefreshFlushTask ~= nil then
+				pcall(task.cancel, self._themeRefreshFlushTask)
+				self._themeRefreshFlushTask = nil
+			end
+			self._pendingThemeRefresh = false
+			self._themeRefreshBlockedUntil = now + interval
+			Lib:RefreshTheme()
+			return
+		end
+		if self._themeRefreshFlushTask ~= nil then
+			return
+		end
+		local waitT = blockedUntil - now
+		self._themeRefreshFlushTask = task.delay(math.max(waitT, 0.001), function()
+			self._themeRefreshFlushTask = nil
+			if not self.Library then
+				return
+			end
+			if self._pendingThemeRefresh then
+				self._pendingThemeRefresh = false
+				self._themeRefreshBlockedUntil = os.clock() + (self.ThemeRefreshThrottleSec or 0.055)
+				self.Library:RefreshTheme()
+			end
+		end)
+	end
+
+	--[[ Maps Obsidian-style scheme keys onto Library.Theme.
+		opts.skipPickerSync: when colors already match Options (live picker drag).
+		opts.throttleRefresh: cap Library:RefreshTheme rate (use with ThemeUpdate). ]]
+	function ThemeManager:ApplyScheme(
+		scheme: { [string]: string },
+		opts: { skipPickerSync: boolean?, throttleRefresh: boolean? }?
+	)
+		opts = opts or {}
 		local T = self.Library.Theme
 		if scheme.FontColor then
 			T.Text = self:HexToColor(scheme.FontColor)
@@ -239,9 +287,21 @@ do
 		T.TextDim = T.Text:Lerp(T.Background, 0.42)
 		T.ToggleOff = T.Panel:Lerp(Color3.new(0, 0, 0), 0.25)
 
-		self:SyncThemeColorPickersFromTheme()
+		if not opts.skipPickerSync then
+			self:SyncThemeColorPickersFromTheme()
+		end
 
-		self.Library:RefreshTheme()
+		if opts.throttleRefresh then
+			self:ScheduleThrottledThemeRefresh()
+		else
+			self._pendingThemeRefresh = false
+			self._themeRefreshBlockedUntil = 0.0
+			if self._themeRefreshFlushTask then
+				pcall(task.cancel, self._themeRefreshFlushTask)
+				self._themeRefreshFlushTask = nil
+			end
+			self.Library:RefreshTheme()
+		end
 	end
 
 	function ThemeManager:ApplyTheme(themeName: string)
@@ -266,7 +326,7 @@ do
 				sch[field] = opt.Value:ToHex()
 			end
 		end
-		self:ApplyScheme(sch)
+		self:ApplyScheme(sch, { skipPickerSync = true, throttleRefresh = true })
 	end
 
 	function ThemeManager:GetCustomTheme(file: string): any
@@ -532,6 +592,6 @@ end
 local ge = getgenv or function()
 	return shared
 end
-ge().AcidThemeManager = ThemeManager
+ge().LibThemeManager = ThemeManager
 
 return ThemeManager
