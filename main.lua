@@ -797,7 +797,16 @@ do
 	end
 end
 
-type GlowLayerSpec = { size: number, transparency: number, radius: number }
+type GlowLayerSpec = { size: number, transparency: number }
+
+--[[ Outer glow corners track panel radius: each layer is larger by `size` px, so corner radius scales with base. ]]
+local function mainGlowCornerPx(baseCornerPx: number, layerSizePx: number): number
+	return math.max(0, math.floor(baseCornerPx + (layerSizePx + 1) / 4))
+end
+
+local function tabGlowCornerPx(baseSmPx: number, layerSizePx: number): number
+	return math.max(0, math.floor(baseSmPx + (layerSizePx + 2) / 5))
+end
 
 --[[ Panel / pill: inner = accent (purple→blue), outer eases toward Stroke — tracks ThemeManager accent ]]
 local function themeGlowLayerColor(t: number): Color3
@@ -812,7 +821,7 @@ local function themeTabIdleGlowColor(t: number): Color3
 end
 
 --[[ Centered stacked frames behind a host; spills past edges when host clips are off ]]
-local function addStackedGlow(host: Frame, specs: { GlowLayerSpec })
+local function addStackedGlow(host: Frame, specs: { GlowLayerSpec }, baseCornerPx: number)
 	local steps = #specs - 1
 	for i, g in specs do
 		local t = if steps > 0 then (i - 1) / steps else 0
@@ -820,6 +829,7 @@ local function addStackedGlow(host: Frame, specs: { GlowLayerSpec })
 		local layer = Instance.new("Frame")
 		layer.Name = "GlowLayer"
 		layer:SetAttribute("GlowStep", i)
+		layer:SetAttribute("GlowSize", g.size)
 		layer.AnchorPoint = Vector2.new(0.5, 0.5)
 		layer.Position = UDim2.fromScale(0.5, 0.5)
 		layer.Size = UDim2.new(1, g.size, 1, g.size)
@@ -829,19 +839,20 @@ local function addStackedGlow(host: Frame, specs: { GlowLayerSpec })
 		layer.ZIndex = 0
 		layer.Parent = host
 		local gc = Instance.new("UICorner")
-		gc.CornerRadius = UDim.new(0, g.radius)
+		gc.CornerRadius = UDim.new(0, mainGlowCornerPx(baseCornerPx, g.size))
 		gc.Parent = layer
 	end
 end
 
 --[[ Sidebar tabs: accent-tinted halo; paintTabGlowHost updates for selected vs idle ]]
-local function addTabStackedGlow(host: Frame, specs: { GlowLayerSpec })
+local function addTabStackedGlow(host: Frame, specs: { GlowLayerSpec }, baseSmPx: number)
 	local n = #specs
 	for i, g in specs do
 		local t = if n > 1 then (i - 1) / (n - 1) else 0
 		local layer = Instance.new("Frame")
 		layer.Name = "GlowLayer"
 		layer:SetAttribute("GlowStep", i)
+		layer:SetAttribute("GlowSize", g.size)
 		layer.AnchorPoint = Vector2.new(0.5, 0.5)
 		layer.Position = UDim2.fromScale(0.5, 0.5)
 		layer.Size = UDim2.new(1, g.size, 1, g.size)
@@ -851,7 +862,7 @@ local function addTabStackedGlow(host: Frame, specs: { GlowLayerSpec })
 		layer.ZIndex = 0
 		layer.Parent = host
 		local gc = Instance.new("UICorner")
-		gc.CornerRadius = UDim.new(0, g.radius)
+		gc.CornerRadius = UDim.new(0, tabGlowCornerPx(baseSmPx, g.size))
 		gc.Parent = layer
 	end
 end
@@ -916,10 +927,16 @@ local function paintMainGlowHost(mainGlowHost: Frame?)
 		end
 		return a.Size.X.Offset < b.Size.X.Offset
 	end)
+	local basePx = Theme.Corner.Offset
 	local steps = #layers - 1
 	for i, layer in layers do
 		local t = if steps > 0 then (i - 1) / steps else 0
 		layer.BackgroundColor3 = themeGlowLayerColor(t)
+		local sz = tonumber(layer:GetAttribute("GlowSize")) or 0
+		local gc = layer:FindFirstChildWhichIsA("UICorner")
+		if gc then
+			gc.CornerRadius = UDim.new(0, mainGlowCornerPx(basePx, sz))
+		end
 	end
 end
 
@@ -936,6 +953,7 @@ local function paintTabGlowHost(tabGlowHost: Frame?, isSelected: boolean)
 	table.sort(layers, function(a, b)
 		return (tonumber(a:GetAttribute("GlowStep")) or 0) < (tonumber(b:GetAttribute("GlowStep")) or 0)
 	end)
+	local baseSm = Theme.CornerSm.Offset
 	local steps = #layers - 1
 	for i, layer in layers do
 		local t = if steps > 0 then (i - 1) / steps else 0
@@ -944,6 +962,11 @@ local function paintTabGlowHost(tabGlowHost: Frame?, isSelected: boolean)
 			layer.BackgroundColor3 = hot:Lerp(Theme.Stroke, t * t * 0.38)
 		else
 			layer.BackgroundColor3 = themeTabIdleGlowColor(t)
+		end
+		local sz = tonumber(layer:GetAttribute("GlowSize")) or 0
+		local gc = layer:FindFirstChildWhichIsA("UICorner")
+		if gc then
+			gc.CornerRadius = UDim.new(0, tabGlowCornerPx(baseSm, sz))
 		end
 	end
 end
@@ -1341,9 +1364,9 @@ function Library.new(config: WindowConfig)
 		gh.Parent = pillOuter
 		pillGlowHost = gh
 		addPillStackedGlow(gh, {
-			{ size = 4, transparency = 0.84, radius = 0 },
-			{ size = 10, transparency = 0.91, radius = 0 },
-			{ size = 16, transparency = 0.95, radius = 0 },
+			{ size = 4, transparency = 0.84 },
+			{ size = 10, transparency = 0.91 },
+			{ size = 16, transparency = 0.95 },
 		})
 	end
 
@@ -1464,11 +1487,11 @@ function Library.new(config: WindowConfig)
 		gh.Parent = mainPanel
 		panelGlowHost = gh
 		addStackedGlow(gh, {
-			{ size = 5, transparency = 0.82, radius = 9 },
-			{ size = 11, transparency = 0.9, radius = 11 },
-			{ size = 17, transparency = 0.95, radius = 12 },
-			{ size = 22, transparency = 0.98, radius = 13 },
-		})
+			{ size = 5, transparency = 0.82 },
+			{ size = 11, transparency = 0.9 },
+			{ size = 17, transparency = 0.95 },
+			{ size = 22, transparency = 0.98 },
+		}, Library.CornerRadius)
 	end
 
 	local panelFace = Instance.new("Frame")
@@ -1934,6 +1957,13 @@ function Library.new(config: WindowConfig)
 		if pf then
 			pf.CornerRadius = Theme.Corner
 		end
+		local mg = mainPanel:FindFirstChild("MainGlowHost")
+		if mg and mg:IsA("Frame") then
+			paintMainGlowHost(mg :: Frame)
+		else
+			paintMainGlowHost(panelGlowHost)
+		end
+		selectTab(activeTab)
 	end
 
 	-- Tab API
@@ -2128,10 +2158,10 @@ function Library.new(config: WindowConfig)
 			tabGlowHost.ZIndex = 0
 			tabGlowHost.Parent = tabSlot
 			addTabStackedGlow(tabGlowHost, {
-				{ size = 2, transparency = 0.88, radius = 6 },
-				{ size = 6, transparency = 0.93, radius = 7 },
-				{ size = 11, transparency = 0.97, radius = 8 },
-			})
+				{ size = 2, transparency = 0.88 },
+				{ size = 6, transparency = 0.93 },
+				{ size = 11, transparency = 0.97 },
+			}, math.max(0, math.floor(Library.CornerRadius * 0.75)))
 		end
 
 		local btn = Instance.new("TextButton")
