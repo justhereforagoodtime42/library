@@ -4803,7 +4803,7 @@ function Library.new(config: WindowConfig)
 		local infoTab = window:AddTab({
 			Name = "Info",
 			Icon = infoIcon,
-			Tooltip = "Information & changelog",
+			Tooltip = "Info",
 			SplitColumns = false,
 		})
 		local changelogSection = infoTab:AddSection("Change logs", {
