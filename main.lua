@@ -1133,7 +1133,22 @@ function Library.new(config: WindowConfig)
 	Library.MultiDropdownByDefault = dropdownMultiDefault
 
 	--[[ Shown only when InfoChangelog is omitted from Library.new. Use InfoChangelog = "" for no body text. ]]
-	local defaultInfoChangelog = ""
+	local defaultInfoChangelog = "
+	UI Changes:
+	[+] Made It so keybinds can be either toggleable or holdable.
+	
+	Supported Games:
+	[+] Prospecting 
+	[+] BloxStrike
+	
+	Project Delta:
+	[-] Removed Mouse Aim Method 
+	[+] Fixed fov circle being broken
+
+	Dungeon Heroes: 
+	[/] Added support for the new dungeon
+	
+	"
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "HubUI"
