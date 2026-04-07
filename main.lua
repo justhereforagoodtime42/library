@@ -1265,6 +1265,100 @@ function Library.new(config: WindowConfig)
 		end
 	end
 
+	--[[ Right-click key cap → Toggle / Hold (Obsidian-style). One menu per window. ]]
+	local keybindModeMenu: Frame? = nil
+	local keybindModeMenuConn: RBXScriptConnection? = nil
+
+	local function destroyKeybindModeMenu()
+		if keybindModeMenuConn then
+			keybindModeMenuConn:Disconnect()
+			keybindModeMenuConn = nil
+		end
+		if keybindModeMenu then
+			keybindModeMenu:Destroy()
+			keybindModeMenu = nil
+		end
+	end
+
+	local function showKeybindModeMenu(anchor: GuiObject, currentMode: string, onPick: (string) -> ())
+		destroyKeybindModeMenu()
+		local menu = Instance.new("Frame")
+		menu.Name = "KeybindModeMenu"
+		menu.BackgroundColor3 = Theme.Elevated
+		menu.BackgroundTransparency = 0.05
+		menu.BorderSizePixel = 0
+		menu.ZIndex = 2000
+		menu.AutomaticSize = Enum.AutomaticSize.Y
+		menu.Size = UDim2.fromOffset(92, 0)
+		local ap = anchor.AbsolutePosition
+		local asz = anchor.AbsoluteSize
+		menu.Position = UDim2.fromOffset(ap.X + asz.X + 3, ap.Y)
+		menu.Parent = screenGui
+		corner(Theme.CornerSm).Parent = menu
+		stroke(Theme.Stroke, 1, 0.45).Parent = menu
+		local mpad = Instance.new("UIPadding")
+		mpad.PaddingTop = UDim.new(0, 4)
+		mpad.PaddingBottom = UDim.new(0, 4)
+		mpad.PaddingLeft = UDim.new(0, 4)
+		mpad.PaddingRight = UDim.new(0, 4)
+		mpad.Parent = menu
+		local list = Instance.new("UIListLayout")
+		list.Padding = UDim.new(0, 2)
+		list.Parent = menu
+
+		local modes = { "Toggle", "Hold" }
+		for _, mName in modes do
+			local sel = mName == currentMode
+			local btn = Instance.new("TextButton")
+			btn.AutoButtonColor = false
+			btn.Size = UDim2.new(1, 0, 0, 22)
+			btn.Text = mName
+			btn.Font = Enum.Font.GothamMedium
+			btn.TextSize = 13
+			btn.TextColor3 = Theme.Text
+			btn.BackgroundColor3 = if sel then Theme.AccentBlue else Theme.Background
+			btn.BackgroundTransparency = if sel then 0.2 else 0.35
+			btn:SetAttribute("UiBg", if sel then "AccentBlue" else "Background")
+			btn:SetAttribute("UiText", "Text")
+			btn.Parent = menu
+			corner(Theme.CornerSm).Parent = btn
+			btn.MouseButton1Click:Connect(function()
+				onPick(mName)
+				destroyKeybindModeMenu()
+			end)
+		end
+
+		keybindModeMenu = menu
+		task.defer(function()
+			if keybindModeMenu ~= menu then
+				return
+			end
+			keybindModeMenuConn = UserInputService.InputBegan:Connect(function(input: InputObject)
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				local loc = Vector2.new(input.Position.X, input.Position.Y)
+				local mp = menu.AbsolutePosition
+				local ms = menu.AbsoluteSize
+				if loc.X >= mp.X and loc.X <= mp.X + ms.X and loc.Y >= mp.Y and loc.Y <= mp.Y + ms.Y then
+					return
+				end
+				if
+					loc.X >= ap.X
+					and loc.X <= ap.X + asz.X
+					and loc.Y >= ap.Y
+					and loc.Y <= ap.Y + asz.Y
+				then
+					return
+				end
+				destroyKeybindModeMenu()
+			end)
+		end)
+	end
+
 	local root = Instance.new("Frame")
 	root.Name = "Root"
 	root.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1918,6 +2012,7 @@ function Library.new(config: WindowConfig)
 	}
 
 	local function destroyWindowGui()
+		destroyKeybindModeMenu()
 		for _, c in dragConn do
 			c:Disconnect()
 		end
@@ -2756,11 +2851,14 @@ function Library.new(config: WindowConfig)
 
 			local listening = false
 			local keyCbs: { () -> () } = {}
+			local bindMode: string = ko.Mode == "Hold" and "Hold" or "Toggle"
+
 			local keyReg: any = {
 				Type = "KeyPicker",
 				Value = kc,
-				Mode = "Toggle",
+				Mode = bindMode,
 				Modifiers = {},
+				Toggled = false,
 			}
 
 			local function applyKey(newK: Enum.KeyCode, name: string)
@@ -2773,14 +2871,60 @@ function Library.new(config: WindowConfig)
 				end
 			end
 
+			local function setBindMode(m: string)
+				if m ~= "Toggle" and m ~= "Hold" then
+					return
+				end
+				bindMode = m
+				keyReg.Mode = bindMode
+				for _, cb in keyCbs do
+					task.spawn(cb)
+				end
+			end
+
 			keyReg.SetValue = function(_: any, v: any)
-				if type(v) == "table" and typeof(v[1]) == "string" then
+				if type(v) ~= "table" then
+					return
+				end
+				if typeof(v[1]) == "string" then
 					local kc2, nm2 = enumKeyCodeFromString(v[1])
 					applyKey(kc2, nm2)
+				end
+				if typeof(v[2]) == "string" then
+					setBindMode(v[2])
 				end
 			end
 			keyReg.OnChanged = function(_: any, cb: () -> ())
 				table.insert(keyCbs, cb)
+			end
+
+			local function keyMatches(input: InputObject): boolean
+				if kc == Enum.KeyCode.Unknown then
+					return false
+				end
+				if input.UserInputType ~= Enum.UserInputType.Keyboard then
+					return false
+				end
+				return input.KeyCode == kc
+			end
+
+			keyReg.GetState = function(): boolean
+				if Library.Unloaded then
+					return false
+				end
+				if bindMode == "Hold" then
+					if kc == Enum.KeyCode.Unknown then
+						return false
+					end
+					if UserInputService:GetFocusedTextBox() then
+						return false
+					end
+					return UserInputService:IsKeyDown(kc)
+				end
+				if syncToggle then
+					return toggleReg.Value == true
+				end
+				return keyReg.Toggled == true
 			end
 
 			local capConn: RBXScriptConnection? = nil
@@ -2822,23 +2966,61 @@ function Library.new(config: WindowConfig)
 				end)
 			end)
 
-			if syncToggle then
-				UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
-					if listening or gp then
-						return
+			capBtn.MouseButton2Click:Connect(function()
+				showKeybindModeMenu(capBtn, bindMode, setBindMode)
+			end)
+
+			UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
+				if Library.Unloaded or listening or gp then
+					return
+				end
+				if not Library.IsRobloxFocused then
+					return
+				end
+				if UserInputService:GetFocusedTextBox() then
+					return
+				end
+				if not keyMatches(input) then
+					return
+				end
+				if syncToggle then
+					if bindMode == "Toggle" then
+						apply(not toggleReg.Value)
+					else
+						apply(true)
 					end
-					if kc == Enum.KeyCode.Unknown then
-						return
+					return
+				end
+				if typeof(ko.Callback) == "function" then
+					if bindMode == "Toggle" then
+						keyReg.Toggled = not keyReg.Toggled
+						ko.Callback(keyReg.Toggled)
+					else
+						ko.Callback(true)
 					end
-					if input.UserInputType ~= Enum.UserInputType.Keyboard then
-						return
-					end
-					if input.KeyCode ~= kc then
-						return
-					end
-					apply(not toggleReg.Value)
-				end)
-			end
+					return
+				end
+				if bindMode == "Toggle" then
+					keyReg.Toggled = not keyReg.Toggled
+				end
+			end)
+
+			UserInputService.InputEnded:Connect(function(input: InputObject, gp: boolean)
+				if Library.Unloaded or listening then
+					return
+				end
+				if bindMode ~= "Hold" then
+					return
+				end
+				if not keyMatches(input) then
+					return
+				end
+				if syncToggle then
+					apply(false)
+				elseif typeof(ko.Callback) == "function" then
+					ko.Callback(false)
+				end
+			end)
 
 			if ko.Idx == "MenuKeybind" or ko.NoUI then
 				Library.ToggleKeybind = keyReg
@@ -2863,7 +3045,15 @@ function Library.new(config: WindowConfig)
 			Callback: ((boolean) -> ())?,
 			Tooltip: string?,
 			Idx: string?,
-			Keybind: { Default: string?, Idx: string?, SyncToggleState: boolean?, NoUI: boolean?, Tooltip: string? }?,
+			Keybind: {
+				Default: string?,
+				Idx: string?,
+				Mode: string?,
+				SyncToggleState: boolean?,
+				NoUI: boolean?,
+				Tooltip: string?,
+				Callback: ((boolean) -> ())?,
+			}?,
 		})
 			local TW, TH = UID.ToggleTrackW, UID.ToggleTrackH
 			local K = UID.ToggleKnob
@@ -3780,9 +3970,12 @@ function Library.new(config: WindowConfig)
 			Default: string?,
 			Idx: string?,
 			NoUI: boolean?,
+			Mode: string?,
+			Callback: ((boolean) -> ())?,
 		})
 			o = o or {}
 			local kc, keyName = resolveKeybindDefault(o.Default)
+			local bindMode: string = o.Mode == "Hold" and "Hold" or "Toggle"
 			local row = Instance.new("Frame")
 			row.BackgroundTransparency = 1
 			row.Size = UDim2.new(1, 0, 0, UID.KeyRowH)
@@ -3817,8 +4010,9 @@ function Library.new(config: WindowConfig)
 			local reg: any = {
 				Type = "KeyPicker",
 				Value = kc,
-				Mode = "Toggle",
+				Mode = bindMode,
 				Modifiers = {},
+				Toggled = false,
 			}
 
 			local function applyKey(newK: Enum.KeyCode, name: string)
@@ -3831,14 +4025,57 @@ function Library.new(config: WindowConfig)
 				end
 			end
 
+			local function setBindMode(m: string)
+				if m ~= "Toggle" and m ~= "Hold" then
+					return
+				end
+				bindMode = m
+				reg.Mode = bindMode
+				for _, cb in keyCbs do
+					task.spawn(cb)
+				end
+			end
+
 			reg.SetValue = function(_: any, v: any)
-				if type(v) == "table" and typeof(v[1]) == "string" then
+				if type(v) ~= "table" then
+					return
+				end
+				if typeof(v[1]) == "string" then
 					local kc2, nm2 = enumKeyCodeFromString(v[1])
 					applyKey(kc2, nm2)
+				end
+				if typeof(v[2]) == "string" then
+					setBindMode(v[2])
 				end
 			end
 			reg.OnChanged = function(_: any, cb: () -> ())
 				table.insert(keyCbs, cb)
+			end
+
+			local function keyMatches(input: InputObject): boolean
+				if kc == Enum.KeyCode.Unknown then
+					return false
+				end
+				if input.UserInputType ~= Enum.UserInputType.Keyboard then
+					return false
+				end
+				return input.KeyCode == kc
+			end
+
+			reg.GetState = function(): boolean
+				if Library.Unloaded then
+					return false
+				end
+				if bindMode == "Hold" then
+					if kc == Enum.KeyCode.Unknown then
+						return false
+					end
+					if UserInputService:GetFocusedTextBox() then
+						return false
+					end
+					return UserInputService:IsKeyDown(kc)
+				end
+				return reg.Toggled == true
 			end
 
 			local capConn: RBXScriptConnection? = nil
@@ -3878,6 +4115,52 @@ function Library.new(config: WindowConfig)
 						end
 					end
 				end)
+			end)
+
+			capBtn.MouseButton2Click:Connect(function()
+				showKeybindModeMenu(capBtn, bindMode, setBindMode)
+			end)
+
+			UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
+				if Library.Unloaded or listening or gp then
+					return
+				end
+				if not Library.IsRobloxFocused then
+					return
+				end
+				if UserInputService:GetFocusedTextBox() then
+					return
+				end
+				if not keyMatches(input) then
+					return
+				end
+				if typeof(o.Callback) == "function" then
+					if bindMode == "Toggle" then
+						reg.Toggled = not reg.Toggled
+						o.Callback(reg.Toggled)
+					else
+						o.Callback(true)
+					end
+					return
+				end
+				if bindMode == "Toggle" then
+					reg.Toggled = not reg.Toggled
+				end
+			end)
+
+			UserInputService.InputEnded:Connect(function(input: InputObject, gp: boolean)
+				if Library.Unloaded or listening then
+					return
+				end
+				if bindMode ~= "Hold" then
+					return
+				end
+				if not keyMatches(input) then
+					return
+				end
+				if typeof(o.Callback) == "function" then
+					o.Callback(false)
+				end
 			end)
 
 			if o.Idx == "MenuKeybind" or o.NoUI then
