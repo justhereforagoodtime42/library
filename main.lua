@@ -1097,6 +1097,7 @@ export type WindowConfig = {
 	UnlockMouseWhileOpen: boolean?,
 	--[[ mspaint-style Info tab: full-width CHANGELOG (centered). Set false to disable. ]]
 	InfoTab: boolean?,
+	--[[ Omit to use defaultInfoChangelog (empty by default). Pass "" to force no changelog body. ]]
 	InfoChangelog: string?,
 	InfoTabIcon: (string | number)?,
 }
@@ -1131,11 +1132,8 @@ function Library.new(config: WindowConfig)
 	local dropdownMultiDefault = config.MultiDropdownByDefault == true
 	Library.MultiDropdownByDefault = dropdownMultiDefault
 
-	local defaultInfoChangelog = [[
- 
-
-
-]]
+	--[[ Shown only when InfoChangelog is omitted from Library.new. Use InfoChangelog = "" for no body text. ]]
+	local defaultInfoChangelog = ""
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "HubUI"
@@ -4811,15 +4809,23 @@ function Library.new(config: WindowConfig)
 			DefaultExpanded = true,
 			Icon = "scroll-text",
 		})
-		changelogSection:AddLabel({
-			Text = typeof(config.InfoChangelog) == "string" and config.InfoChangelog ~= "" and config.InfoChangelog
-				or defaultInfoChangelog,
-			DoesWrap = true,
-			Centered = true,
-			TextSize = 14,
-		})
-		--[[ Tall body so the group reads as a full “page” like mspaint’s info view ]]
-		changelogSection:AddSpacer(160)
+		local rawChangelog: string
+		if typeof(config.InfoChangelog) == "string" then
+			--[[ Explicit string (including "") — do not fall back to default ]]
+			rawChangelog = config.InfoChangelog
+		else
+			rawChangelog = defaultInfoChangelog
+		end
+		local trimmed = rawChangelog:gsub("^%s+", ""):gsub("%s+$", "")
+		if trimmed ~= "" then
+			changelogSection:AddLabel({
+				Text = rawChangelog,
+				DoesWrap = true,
+				Centered = true,
+				TextSize = 14,
+			})
+			changelogSection:AddSpacer(160)
+		end
 	end
 
 	return window
