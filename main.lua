@@ -7,7 +7,6 @@ local Players = cloneref(game:GetService("Players"))
 local UserInputService = cloneref(game:GetService("UserInputService"))
 local TweenService = cloneref(game:GetService("TweenService"))
 local RunService = cloneref(game:GetService("RunService"))
-local TextService = cloneref(game:GetService("TextService"))
 
 local protectgui = protectgui or (syn and syn.protect_gui) or function() end
 local gethui = gethui or function()
@@ -1096,10 +1095,6 @@ export type WindowConfig = {
 	MobileButtonsSide: string?,
 	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
 	UnlockMouseWhileOpen: boolean?,
-	--[[ mspaint-style Info tab: full-width CHANGELOG (centered). Set false to disable. ]]
-	InfoTab: boolean?,
-	InfoChangelog: string?,
-	InfoTabIcon: (string | number)?,
 }
 
 function Library.new(config: WindowConfig)
@@ -1131,22 +1126,6 @@ function Library.new(config: WindowConfig)
 	local tabGlowEnabled = config.TabGlowEnabled ~= false
 	local dropdownMultiDefault = config.MultiDropdownByDefault == true
 	Library.MultiDropdownByDefault = dropdownMultiDefault
-
-	local defaultInfoChangelog = [[
-UI Changes:
-[+] Made It so keybinds can be either toggleable or holdable.
-
-Supported Games:
-[+] Prospecting
-[+] BloxStrike
-
-Project Delta:
-[-] Removed Mouse Aim Method
-[+] Fixed fov circle being broken
-
-Dungeon Heroes:
-[/] Added support for the new dungeon
-]]
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "HubUI"
@@ -2447,14 +2426,6 @@ Dungeon Heroes:
 		end
 
 		return tab
-	end
-
-	function window:SelectTab(index: number)
-		local n = math.floor(index + 0.5)
-		if n < 1 or n > #tabButtons then
-			return
-		end
-		selectTab(n)
 	end
 
 	--[[ Section: optional Collapsible, DefaultExpanded, Tooltip; Column "Left"|"Right" when tab uses SplitColumns ]]
@@ -3911,33 +3882,14 @@ Dungeon Heroes:
 			d.Parent = bodyF
 		end
 
-		function section:AddSpacer(height: number)
-			local h = math.max(0, math.floor(height + 0.5))
-			local s = Instance.new("Frame")
-			s.Name = "Spacer"
-			s.BackgroundTransparency = 1
-			s.Size = UDim2.new(1, 0, 0, h)
-			s.Parent = bodyF
-		end
-
 		function section:AddLabel(textOrOpts: any, wrap: boolean?, idx: string?)
 			local text = ""
 			local doesWrap = wrap == true
 			local idxStr: string? = nil
-			local centered = false
-			local labelTextSize: number? = nil
-			local uiTextKey = "TextDim"
 			if type(textOrOpts) == "table" then
 				text = tostring(textOrOpts.Text or "")
 				doesWrap = textOrOpts.DoesWrap == true
 				idxStr = textOrOpts.Idx
-				centered = textOrOpts.Centered == true
-				if typeof(textOrOpts.TextSize) == "number" then
-					labelTextSize = textOrOpts.TextSize
-				end
-				if typeof(textOrOpts.UiText) == "string" and textOrOpts.UiText ~= "" then
-					uiTextKey = textOrOpts.UiText
-				end
 			else
 				text = tostring(textOrOpts)
 				idxStr = if typeof(idx) == "string" then idx else nil
@@ -3945,48 +3897,15 @@ Dungeon Heroes:
 			local lab = Instance.new("TextLabel")
 			lab.BackgroundTransparency = 1
 			lab.Font = Enum.Font.GothamMedium
-			lab.TextSize = labelTextSize or UID.AddLabelText
-			lab.TextColor3 = (Theme :: any)[uiTextKey] or Theme.TextDim
-			lab.TextXAlignment = if centered then Enum.TextXAlignment.Center else Enum.TextXAlignment.Left
-			lab.TextYAlignment = Enum.TextYAlignment.Top
+			lab.TextSize = UID.AddLabelText
+			lab.TextColor3 = Theme.TextDim
+			lab.TextXAlignment = Enum.TextXAlignment.Left
 			lab.TextWrapped = doesWrap
-			lab.RichText = false
 			lab.AutomaticSize = if doesWrap then Enum.AutomaticSize.Y else Enum.AutomaticSize.None
 			lab.Size = UDim2.new(1, 0, 0, if doesWrap then 0 else UID.AddLabelH)
 			lab.Text = text
-			lab:SetAttribute("UiText", uiTextKey)
+			lab:SetAttribute("UiText", "TextDim")
 			lab.Parent = bodyF
-			--[[ Wrapped labels: AutomaticSize.Y often stays 0 until AbsoluteSize.X is known (invisible text). Refit with TextService. ]]
-			if doesWrap and text ~= "" and not text:match("^%s*$") then
-				local function refitWrappedHeight()
-					if not lab.Parent then
-						return
-					end
-					local w = math.floor(bodyF.AbsoluteSize.X)
-					if w < 24 then
-						return
-					end
-					local ok, bounds = pcall(function()
-						local p = Instance.new("GetTextBoundsParams")
-						p.Text = lab.Text
-						p.RichText = false
-						p.Font = Font.fromEnum(lab.Font)
-						p.Size = lab.TextSize
-						p.Width = w
-						return TextService:GetTextBoundsAsync(p)
-					end)
-					if not ok or typeof(bounds) ~= "Vector2" then
-						return
-					end
-					lab.AutomaticSize = Enum.AutomaticSize.None
-					lab.Size = UDim2.new(1, 0, 0, math.max(math.ceil(bounds.Y) + 4, math.ceil(lab.TextSize)))
-				end
-				task.defer(function()
-					refitWrappedHeight()
-					task.defer(refitWrappedHeight)
-				end)
-				bodyF:GetPropertyChangedSignal("AbsoluteSize"):Connect(refitWrappedHeight)
-			end
 			local reg = {
 				SetText = function(_: any, t: string)
 					lab.Text = t
@@ -4839,38 +4758,6 @@ Dungeon Heroes:
 			o.Column = "Right"
 		end
 		return Tab.AddSection(self, header, o)
-	end
-
-	--[[ Built-in Info tab (mspaint-style): one full-width CHANGELOG group, centered body text. Tab index 1. ]]
-	if config.InfoTab ~= false then
-		local infoIcon = config.InfoTabIcon
-		if infoIcon == nil then
-			infoIcon = "info"
-		end
-		local infoTab = window:AddTab({
-			Name = "Info",
-			Icon = infoIcon,
-			Tooltip = "Info",
-			SplitColumns = false,
-		})
-		local changelogSection = infoTab:AddSection("Change logs", {
-			Collapsible = false,
-			DefaultExpanded = true,
-			Icon = "scroll-text",
-		})
-		local changelogBody = defaultInfoChangelog
-		if typeof(config.InfoChangelog) == "string" and (config.InfoChangelog :: string):gsub("%s", "") ~= "" then
-			changelogBody = config.InfoChangelog :: string
-		end
-		changelogSection:AddLabel({
-			Text = changelogBody,
-			DoesWrap = true,
-			Centered = true,
-			TextSize = 14,
-			UiText = "Text",
-		})
-		--[[ Tall body so the group reads as a full “page” like mspaint’s info view ]]
-		changelogSection:AddSpacer(160)
 	end
 
 	return window
