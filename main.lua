@@ -1095,6 +1095,10 @@ export type WindowConfig = {
 	MobileButtonsSide: string?,
 	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
 	UnlockMouseWhileOpen: boolean?,
+	--[[ mspaint-style Info tab: full-width CHANGELOG (centered). Set false to disable. ]]
+	InfoTab: boolean?,
+	InfoChangelog: string?,
+	InfoTabIcon: (string | number)?,
 }
 
 function Library.new(config: WindowConfig)
@@ -1126,6 +1130,19 @@ function Library.new(config: WindowConfig)
 	local tabGlowEnabled = config.TabGlowEnabled ~= false
 	local dropdownMultiDefault = config.MultiDropdownByDefault == true
 	Library.MultiDropdownByDefault = dropdownMultiDefault
+
+	local defaultInfoChangelog = [[
+
+Welcome — thanks for using this script.
+
+Version 1.0.0
+• Initial AcidHub build
+• Info tab & changelog (mspaint-style hub)
+
+Edit this text in Library.new({ InfoChangelog = "..." }).
+Discord / docs links can go here.
+
+]]
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "HubUI"
@@ -2426,6 +2443,14 @@ function Library.new(config: WindowConfig)
 		end
 
 		return tab
+	end
+
+	function window:SelectTab(index: number)
+		local n = math.floor(index + 0.5)
+		if n < 1 or n > #tabButtons then
+			return
+		end
+		selectTab(n)
 	end
 
 	--[[ Section: optional Collapsible, DefaultExpanded, Tooltip; Column "Left"|"Right" when tab uses SplitColumns ]]
@@ -3882,14 +3907,29 @@ function Library.new(config: WindowConfig)
 			d.Parent = bodyF
 		end
 
+		function section:AddSpacer(height: number)
+			local h = math.max(0, math.floor(height + 0.5))
+			local s = Instance.new("Frame")
+			s.Name = "Spacer"
+			s.BackgroundTransparency = 1
+			s.Size = UDim2.new(1, 0, 0, h)
+			s.Parent = bodyF
+		end
+
 		function section:AddLabel(textOrOpts: any, wrap: boolean?, idx: string?)
 			local text = ""
 			local doesWrap = wrap == true
 			local idxStr: string? = nil
+			local centered = false
+			local labelTextSize: number? = nil
 			if type(textOrOpts) == "table" then
 				text = tostring(textOrOpts.Text or "")
 				doesWrap = textOrOpts.DoesWrap == true
 				idxStr = textOrOpts.Idx
+				centered = textOrOpts.Centered == true
+				if typeof(textOrOpts.TextSize) == "number" then
+					labelTextSize = textOrOpts.TextSize
+				end
 			else
 				text = tostring(textOrOpts)
 				idxStr = if typeof(idx) == "string" then idx else nil
@@ -3897,9 +3937,10 @@ function Library.new(config: WindowConfig)
 			local lab = Instance.new("TextLabel")
 			lab.BackgroundTransparency = 1
 			lab.Font = Enum.Font.GothamMedium
-			lab.TextSize = UID.AddLabelText
+			lab.TextSize = labelTextSize or UID.AddLabelText
 			lab.TextColor3 = Theme.TextDim
-			lab.TextXAlignment = Enum.TextXAlignment.Left
+			lab.TextXAlignment = if centered then Enum.TextXAlignment.Center else Enum.TextXAlignment.Left
+			lab.TextYAlignment = Enum.TextYAlignment.Top
 			lab.TextWrapped = doesWrap
 			lab.AutomaticSize = if doesWrap then Enum.AutomaticSize.Y else Enum.AutomaticSize.None
 			lab.Size = UDim2.new(1, 0, 0, if doesWrap then 0 else UID.AddLabelH)
@@ -4758,6 +4799,34 @@ function Library.new(config: WindowConfig)
 			o.Column = "Right"
 		end
 		return Tab.AddSection(self, header, o)
+	end
+
+	--[[ Built-in Info tab (mspaint-style): one full-width CHANGELOG group, centered body text. Tab index 1. ]]
+	if config.InfoTab ~= false then
+		local infoIcon = config.InfoTabIcon
+		if infoIcon == nil then
+			infoIcon = "info"
+		end
+		local infoTab = window:AddTab({
+			Name = "Info",
+			Icon = infoIcon,
+			Tooltip = "Information & changelog",
+			SplitColumns = false,
+		})
+		local changelogSection = infoTab:AddSection("Change logs", {
+			Collapsible = false,
+			DefaultExpanded = true,
+			Icon = "scroll-text",
+		})
+		changelogSection:AddLabel({
+			Text = typeof(config.InfoChangelog) == "string" and config.InfoChangelog ~= "" and config.InfoChangelog
+				or defaultInfoChangelog,
+			DoesWrap = true,
+			Centered = true,
+			TextSize = 14,
+		})
+		--[[ Tall body so the group reads as a full “page” like mspaint’s info view ]]
+		changelogSection:AddSpacer(160)
 	end
 
 	return window
