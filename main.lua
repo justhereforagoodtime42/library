@@ -1132,8 +1132,7 @@ function Library.new(config: WindowConfig)
 	local dropdownMultiDefault = config.MultiDropdownByDefault == true
 	Library.MultiDropdownByDefault = dropdownMultiDefault
 
-	--[[ Shown only when InfoChangelog is omitted from Library.new. Use InfoChangelog = "" for no body text.
-	    Multi-line text must use [[ ]] here — not "..." with line breaks inside the quotes. ]]
+
 	local defaultInfoChangelog = [[
 UI Changes:
 [+] Made it so keybinds can be either toggleable or holdable.
