@@ -1132,7 +1132,7 @@ function Library.new(config: WindowConfig)
 	Library.MultiDropdownByDefault = dropdownMultiDefault
 
 	local defaultInfoChangelog = [[
-
+ 
 
 
 ]]
