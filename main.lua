@@ -1133,14 +1133,7 @@ function Library.new(config: WindowConfig)
 
 	local defaultInfoChangelog = [[
 
-Welcome — thanks for using this script.
 
-Version 1.0.0
-• Initial AcidHub build
-• Info tab & changelog (mspaint-style hub)
-
-Edit this text in Library.new({ InfoChangelog = "..." }).
-Discord / docs links can go here.
 
 ]]
 
