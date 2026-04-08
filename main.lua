@@ -7,7 +7,6 @@ local Players = cloneref(game:GetService("Players"))
 local UserInputService = cloneref(game:GetService("UserInputService"))
 local TweenService = cloneref(game:GetService("TweenService"))
 local RunService = cloneref(game:GetService("RunService"))
-local TextService = cloneref(game:GetService("TextService"))
 
 local protectgui = protectgui or (syn and syn.protect_gui) or function() end
 local gethui = gethui or function()
@@ -1096,10 +1095,6 @@ export type WindowConfig = {
 	MobileButtonsSide: string?,
 	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
 	UnlockMouseWhileOpen: boolean?,
-	--[[ mspaint-style Info tab: full-width CHANGELOG (centered). Set false to disable. ]]
-	InfoTab: boolean?,
-	InfoChangelog: string?,
-	InfoTabIcon: (string | number)?,
 }
 
 function Library.new(config: WindowConfig)
@@ -1131,22 +1126,6 @@ function Library.new(config: WindowConfig)
 	local tabGlowEnabled = config.TabGlowEnabled ~= false
 	local dropdownMultiDefault = config.MultiDropdownByDefault == true
 	Library.MultiDropdownByDefault = dropdownMultiDefault
-
-	local defaultInfoChangelog = [[
-UI Changes:
-[+] Made It so keybinds can be either toggleable or holdable.
-
-Supported Games:
-[+] Prospecting
-[+] BloxStrike
-
-Project Delta:
-[-] Removed Mouse Aim Method
-[+] Fixed fov circle being broken
-
-Dungeon Heroes:
-[/] Added support for the new dungeon
-]]
 
 	local screenGui = Instance.new("ScreenGui")
 	screenGui.Name = "HubUI"
@@ -2086,19 +2065,8 @@ Dungeon Heroes:
 	local Tab = {}
 	Tab.__index = Tab
 
-	--[[ Horizontal sub-tabs inside a column; each :AddTab returns a proxy Tab (use AddLeftGroupbox / AddSection on it).
-	    tabboxOpts.SplitStrip: tab buttons in left half / right half of the strip (AddSplitTabbox).
-	    tabboxOpts.MinContentHeight: minimum height (px) for the tab page area (taller tabbox). ]]
-	local function makeTabbox(
-		parentScroll: Instance,
-		layoutOrder: number,
-		boxTitle: string?,
-		tabboxOpts: { SplitStrip: boolean?, MinContentHeight: number? }?
-	): any
-		tabboxOpts = tabboxOpts or {}
-		local splitStrip = tabboxOpts.SplitStrip == true
-		local minContentH = tabboxOpts.MinContentHeight
-
+	--[[ Horizontal sub-tabs inside a column; each :AddTab returns a proxy Tab (use AddLeftGroupbox / AddSection on it). ]]
+	local function makeTabbox(parentScroll: Instance, layoutOrder: number, boxTitle: string?): any
 		local root = Instance.new("Frame")
 		root.Name = "TabboxRoot"
 		root.BackgroundTransparency = 1
@@ -2148,52 +2116,12 @@ Dungeon Heroes:
 		stripPad.PaddingBottom = UDim.new(0, 4)
 		stripPad.Parent = strip
 
-		local leftCluster: Frame? = nil
-		local rightCluster: Frame? = nil
-
-		if splitStrip then
-			local rowList = Instance.new("UIListLayout")
-			rowList.FillDirection = Enum.FillDirection.Horizontal
-			rowList.SortOrder = Enum.SortOrder.LayoutOrder
-			rowList.Padding = UDim.new(0, 6)
-			rowList.VerticalAlignment = Enum.VerticalAlignment.Center
-			rowList.HorizontalAlignment = Enum.HorizontalAlignment.Left
-			rowList.Parent = strip
-
-			leftCluster = Instance.new("Frame")
-			leftCluster.Name = "TabboxStripLeft"
-			leftCluster.BackgroundTransparency = 1
-			leftCluster.BorderSizePixel = 0
-			leftCluster.Size = UDim2.new(0.5, -3, 1, 0)
-			local hLeft = Instance.new("UIListLayout")
-			hLeft.FillDirection = Enum.FillDirection.Horizontal
-			hLeft.SortOrder = Enum.SortOrder.LayoutOrder
-			hLeft.Padding = UDim.new(0, 4)
-			hLeft.VerticalAlignment = Enum.VerticalAlignment.Center
-			hLeft.Parent = leftCluster
-			leftCluster.Parent = strip
-
-			rightCluster = Instance.new("Frame")
-			rightCluster.Name = "TabboxStripRight"
-			rightCluster.BackgroundTransparency = 1
-			rightCluster.BorderSizePixel = 0
-			rightCluster.Size = UDim2.new(0.5, -3, 1, 0)
-			local hRight = Instance.new("UIListLayout")
-			hRight.FillDirection = Enum.FillDirection.Horizontal
-			hRight.SortOrder = Enum.SortOrder.LayoutOrder
-			hRight.Padding = UDim.new(0, 4)
-			hRight.VerticalAlignment = Enum.VerticalAlignment.Center
-			hRight.HorizontalAlignment = Enum.HorizontalAlignment.Right
-			hRight.Parent = rightCluster
-			rightCluster.Parent = strip
-		else
-			local hList = Instance.new("UIListLayout")
-			hList.FillDirection = Enum.FillDirection.Horizontal
-			hList.SortOrder = Enum.SortOrder.LayoutOrder
-			hList.Padding = UDim.new(0, 4)
-			hList.VerticalAlignment = Enum.VerticalAlignment.Center
-			hList.Parent = strip
-		end
+		local hList = Instance.new("UIListLayout")
+		hList.FillDirection = Enum.FillDirection.Horizontal
+		hList.SortOrder = Enum.SortOrder.LayoutOrder
+		hList.Padding = UDim.new(0, 4)
+		hList.VerticalAlignment = Enum.VerticalAlignment.Center
+		hList.Parent = strip
 
 		local contentHost = Instance.new("Frame")
 		contentHost.Name = "TabboxContent"
@@ -2203,12 +2131,6 @@ Dungeon Heroes:
 		contentHost.AutomaticSize = Enum.AutomaticSize.Y
 		contentHost.LayoutOrder = nextLo
 		contentHost.Parent = root
-
-		if typeof(minContentH) == "number" and minContentH > 0 then
-			local ucs = Instance.new("UISizeConstraint")
-			ucs.MinSize = Vector2.new(0, minContentH)
-			ucs.Parent = contentHost
-		end
 
 		local chList = Instance.new("UIListLayout")
 		chList.SortOrder = Enum.SortOrder.LayoutOrder
@@ -2241,13 +2163,8 @@ Dungeon Heroes:
 		end
 
 		local box = {}
-		function box:AddTab(name: string, side: ("Left" | "Right")?)
+		function box:AddTab(name: string)
 			local idx = #entries + 1
-			local btnParent: Instance = strip
-			if splitStrip and leftCluster and rightCluster then
-				btnParent = if side == "Right" then rightCluster else leftCluster
-			end
-
 			local btn = Instance.new("TextButton")
 			btn.Name = "SubTab_" .. name
 			btn.AutoButtonColor = false
@@ -2262,7 +2179,7 @@ Dungeon Heroes:
 			btn.LayoutOrder = idx
 			btn:SetAttribute("UiBg", "Background")
 			btn:SetAttribute("UiText", "TextDim")
-			btn.Parent = btnParent
+			btn.Parent = strip
 			corner(Theme.CornerSm).Parent = btn
 			pad(8).Parent = btn
 
@@ -2509,14 +2426,6 @@ Dungeon Heroes:
 		end
 
 		return tab
-	end
-
-	function window:SelectTab(index: number)
-		local n = math.floor(index + 0.5)
-		if n < 1 or n > #tabButtons then
-			return
-		end
-		selectTab(n)
 	end
 
 	--[[ Section: optional Collapsible, DefaultExpanded, Tooltip; Column "Left"|"Right" when tab uses SplitColumns ]]
@@ -3973,33 +3882,14 @@ Dungeon Heroes:
 			d.Parent = bodyF
 		end
 
-		function section:AddSpacer(height: number)
-			local h = math.max(0, math.floor(height + 0.5))
-			local s = Instance.new("Frame")
-			s.Name = "Spacer"
-			s.BackgroundTransparency = 1
-			s.Size = UDim2.new(1, 0, 0, h)
-			s.Parent = bodyF
-		end
-
 		function section:AddLabel(textOrOpts: any, wrap: boolean?, idx: string?)
 			local text = ""
 			local doesWrap = wrap == true
 			local idxStr: string? = nil
-			local centered = false
-			local labelTextSize: number? = nil
-			local uiTextKey = "TextDim"
 			if type(textOrOpts) == "table" then
 				text = tostring(textOrOpts.Text or "")
 				doesWrap = textOrOpts.DoesWrap == true
 				idxStr = textOrOpts.Idx
-				centered = textOrOpts.Centered == true
-				if typeof(textOrOpts.TextSize) == "number" then
-					labelTextSize = textOrOpts.TextSize
-				end
-				if typeof(textOrOpts.UiText) == "string" and textOrOpts.UiText ~= "" then
-					uiTextKey = textOrOpts.UiText
-				end
 			else
 				text = tostring(textOrOpts)
 				idxStr = if typeof(idx) == "string" then idx else nil
@@ -4007,48 +3897,15 @@ Dungeon Heroes:
 			local lab = Instance.new("TextLabel")
 			lab.BackgroundTransparency = 1
 			lab.Font = Enum.Font.GothamMedium
-			lab.TextSize = labelTextSize or UID.AddLabelText
-			lab.TextColor3 = (Theme :: any)[uiTextKey] or Theme.TextDim
-			lab.TextXAlignment = if centered then Enum.TextXAlignment.Center else Enum.TextXAlignment.Left
-			lab.TextYAlignment = Enum.TextYAlignment.Top
+			lab.TextSize = UID.AddLabelText
+			lab.TextColor3 = Theme.TextDim
+			lab.TextXAlignment = Enum.TextXAlignment.Left
 			lab.TextWrapped = doesWrap
-			lab.RichText = false
 			lab.AutomaticSize = if doesWrap then Enum.AutomaticSize.Y else Enum.AutomaticSize.None
 			lab.Size = UDim2.new(1, 0, 0, if doesWrap then 0 else UID.AddLabelH)
 			lab.Text = text
-			lab:SetAttribute("UiText", uiTextKey)
+			lab:SetAttribute("UiText", "TextDim")
 			lab.Parent = bodyF
-			--[[ Wrapped labels: AutomaticSize.Y often stays 0 until AbsoluteSize.X is known (invisible text). Refit with TextService. ]]
-			if doesWrap and text ~= "" and not text:match("^%s*$") then
-				local function refitWrappedHeight()
-					if not lab.Parent then
-						return
-					end
-					local w = math.floor(bodyF.AbsoluteSize.X)
-					if w < 24 then
-						return
-					end
-					local ok, bounds = pcall(function()
-						local p = Instance.new("GetTextBoundsParams")
-						p.Text = lab.Text
-						p.RichText = false
-						p.Font = Font.fromEnum(lab.Font)
-						p.Size = lab.TextSize
-						p.Width = w
-						return TextService:GetTextBoundsAsync(p)
-					end)
-					if not ok or typeof(bounds) ~= "Vector2" then
-						return
-					end
-					lab.AutomaticSize = Enum.AutomaticSize.None
-					lab.Size = UDim2.new(1, 0, 0, math.max(math.ceil(bounds.Y) + 4, math.ceil(lab.TextSize)))
-				end
-				task.defer(function()
-					refitWrappedHeight()
-					task.defer(refitWrappedHeight)
-				end)
-				bodyF:GetPropertyChangedSignal("AbsoluteSize"):Connect(refitWrappedHeight)
-			end
 			local reg = {
 				SetText = function(_: any, t: string)
 					lab.Text = t
@@ -4863,35 +4720,7 @@ Dungeon Heroes:
 			self._sectionOrder += 1
 			layoutOrder = self._sectionOrder
 		end
-		return makeTabbox(parentScroll, layoutOrder, boxTitle, nil)
-	end
-
-	--[[ Split tab strip: tabs passed as "Left" | "Right" to :AddTab(name, side) sit on the left/right half of the strip.
-	    MinContentHeight makes the tab page area at least that tall (scrolls inside the window if needed). ]]
-	function Tab:AddSplitTabbox(
-		boxTitle: string?,
-		opts: { MinContentHeight: number? }?
-	): any
-		local parentScroll: Instance
-		local layoutOrder: number
-		if self._split and self._scrollLeft then
-			parentScroll = self._scrollLeft
-			self._sectionOrderLeft += 1
-			layoutOrder = self._sectionOrderLeft
-		elseif self._split and self._scrollRight then
-			parentScroll = self._scrollRight
-			self._sectionOrderRight += 1
-			layoutOrder = self._sectionOrderRight
-		else
-			parentScroll = self._scroll
-			self._sectionOrder += 1
-			layoutOrder = self._sectionOrder
-		end
-		local tbo: { SplitStrip: boolean, MinContentHeight: number? } = { SplitStrip = true }
-		if opts and typeof(opts.MinContentHeight) == "number" and opts.MinContentHeight > 0 then
-			tbo.MinContentHeight = opts.MinContentHeight
-		end
-		return makeTabbox(parentScroll, layoutOrder, boxTitle, tbo)
+		return makeTabbox(parentScroll, layoutOrder, boxTitle)
 	end
 
 	function Tab:AddRightTabbox(boxTitle: string?)
@@ -4906,7 +4735,7 @@ Dungeon Heroes:
 			self._sectionOrder += 1
 			layoutOrder = self._sectionOrder
 		end
-		return makeTabbox(parentScroll, layoutOrder, boxTitle, nil)
+		return makeTabbox(parentScroll, layoutOrder, boxTitle)
 	end
 
 	function Tab:AddLeftGroupbox(
@@ -4929,38 +4758,6 @@ Dungeon Heroes:
 			o.Column = "Right"
 		end
 		return Tab.AddSection(self, header, o)
-	end
-
-	--[[ Built-in Info tab (mspaint-style): one full-width CHANGELOG group, centered body text. Tab index 1. ]]
-	if config.InfoTab ~= false then
-		local infoIcon = config.InfoTabIcon
-		if infoIcon == nil then
-			infoIcon = "info"
-		end
-		local infoTab = window:AddTab({
-			Name = "Info",
-			Icon = infoIcon,
-			Tooltip = "Info",
-			SplitColumns = false,
-		})
-		local changelogSection = infoTab:AddSection("Change logs", {
-			Collapsible = false,
-			DefaultExpanded = true,
-			Icon = "scroll-text",
-		})
-		local changelogBody = defaultInfoChangelog
-		if typeof(config.InfoChangelog) == "string" and (config.InfoChangelog :: string):gsub("%s", "") ~= "" then
-			changelogBody = config.InfoChangelog :: string
-		end
-		changelogSection:AddLabel({
-			Text = changelogBody,
-			DoesWrap = true,
-			Centered = true,
-			TextSize = 14,
-			UiText = "Text",
-		})
-		--[[ Tall body so the group reads as a full “page” like mspaint’s info view ]]
-		changelogSection:AddSpacer(160)
 	end
 
 	return window
