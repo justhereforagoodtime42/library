@@ -204,6 +204,142 @@ function Library:OnUnload(fn: () -> ())
 	end
 end
 
+--[[ Obsidian Library.lua: connection registry for Unload (same pattern as upstream) ]]
+Library.Signals = {} :: { RBXScriptConnection | RBXScriptSignal }
+Library.NotifyOnError = false
+Library.MinSize = Vector2.new(1, 1)
+
+function Library:GiveSignal(Connection: RBXScriptConnection | RBXScriptSignal)
+	local ConnectionType = typeof(Connection)
+	if Connection and (ConnectionType == "RBXScriptConnection" or ConnectionType == "RBXScriptSignal") then
+		table.insert(Library.Signals, Connection)
+	end
+	return Connection
+end
+
+function Library:SafeCallback(Func: (...any) -> ...any, ...: any)
+	if not (Func and typeof(Func) == "function") then
+		return
+	end
+	local Result = table.pack(xpcall(Func, function(Error)
+		task.defer(error, debug.traceback(Error, 2))
+		if Library.NotifyOnError then
+			pcall(Library.Notify, Library, tostring(Error))
+		end
+		return Error
+	end, ...))
+	if not Result[1] then
+		return nil
+	end
+	return table.unpack(Result, 2, Result.n)
+end
+
+local function IsMouseInput(Input: InputObject, IncludeM2: boolean?): boolean
+	return Input.UserInputType == Enum.UserInputType.MouseButton1
+		or (IncludeM2 == true and Input.UserInputType == Enum.UserInputType.MouseButton2)
+		or Input.UserInputType == Enum.UserInputType.Touch
+end
+local function IsClickInput(Input: InputObject, IncludeM2: boolean?): boolean
+	return IsMouseInput(Input, IncludeM2)
+		and Input.UserInputState == Enum.UserInputState.Begin
+		and Library.IsRobloxFocused
+end
+local function IsHoverInput(Input: InputObject): boolean
+	return (Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch)
+		and Input.UserInputState == Enum.UserInputState.Change
+end
+
+--[[ Obsidian Library.lua:MakeResizable — verbatim logic; `connectionsSink` optional: append InputChanged
+    so a single window can destroy connections without relying only on GiveSignal. ]]
+function Library:MakeResizable(
+	UI: GuiObject,
+	DragFrame: GuiObject,
+	Callback: (() -> ())?,
+	connectionsSink: { RBXScriptConnection }?
+)
+	local StartPos: Vector3
+	local FrameSize: UDim2
+	local Dragging = false
+	local Changed: RBXScriptConnection?
+
+	DragFrame.InputBegan:Connect(function(Input: InputObject)
+		if Library.CantDragForced then
+			return
+		end
+		if not IsClickInput(Input) then
+			return
+		end
+
+		StartPos = Input.Position
+		FrameSize = UI.Size
+		Dragging = true
+
+		if Changed and Changed.Connected then
+			Changed:Disconnect()
+			Changed = nil
+		end
+		Changed = Input.Changed:Connect(function()
+			if Input.UserInputState ~= Enum.UserInputState.End then
+				return
+			end
+
+			Dragging = false
+			if Changed and Changed.Connected then
+				Changed:Disconnect()
+				Changed = nil
+			end
+		end)
+	end)
+
+	local inputConn = UserInputService.InputChanged:Connect(function(Input: InputObject)
+		if Library.CantDragForced then
+			Dragging = false
+			if Changed and Changed.Connected then
+				Changed:Disconnect()
+				Changed = nil
+			end
+			return
+		end
+		if not UI.Visible then
+			Dragging = false
+			if Changed and Changed.Connected then
+				Changed:Disconnect()
+				Changed = nil
+			end
+			return
+		end
+		local winGui = UI:FindFirstAncestorOfClass("ScreenGui")
+		if not (winGui and winGui.Parent) then
+			Dragging = false
+			if Changed and Changed.Connected then
+				Changed:Disconnect()
+				Changed = nil
+			end
+			return
+		end
+
+		if Dragging and IsHoverInput(Input) then
+			local Delta = Input.Position - StartPos
+			local minV = Library.MinSize
+			UI.Size = UDim2.new(
+				FrameSize.X.Scale,
+				math.clamp(FrameSize.X.Offset + Delta.X, minV.X, math.huge),
+				FrameSize.Y.Scale,
+				math.clamp(FrameSize.Y.Offset + Delta.Y, minV.Y, math.huge)
+			)
+			if Callback then
+				Library:SafeCallback(Callback)
+			end
+		end
+	end)
+
+	if connectionsSink then
+		table.insert(connectionsSink, inputConn)
+	else
+		Library:GiveSignal(inputConn)
+	end
+end
+
 function Library:RefreshTheme()
 	for _, fn in self._windowRefreshes do
 		pcall(fn)
@@ -719,6 +855,13 @@ function Library:Unload()
 		return
 	end
 	self.Unloaded = true
+	--[[ Obsidian: disconnect all GiveSignal connections first ]]
+	for Index = #self.Signals, 1, -1 do
+		local Connection = table.remove(self.Signals, Index)
+		if Connection and typeof(Connection) == "RBXScriptConnection" and Connection.Connected then
+			Connection:Disconnect()
+		end
+	end
 	for _, fn in self._unloadCallbacks do
 		pcall(fn)
 	end
@@ -745,7 +888,6 @@ function Library:Unload()
 	table.clear(self.Options)
 	self.ToggleKeybind = nil
 	self.CantDragForced = false
-	self._windowResizing = false
 	if self._resizeEndWrappedRefits then
 		table.clear(self._resizeEndWrappedRefits)
 	end
@@ -1162,7 +1304,6 @@ function Library.new(config: WindowConfig)
 	Library.Unloaded = false
 	table.clear(Library.Toggles)
 	table.clear(Library.Options)
-	Library._windowResizing = false
 	Library._resizeEndWrappedRefits = {}
 
 	local toggleThemeRows: { { track: Frame, getOn: () -> boolean } } = {}
@@ -1752,115 +1893,15 @@ function Library.new(config: WindowConfig)
 
 	setRootVisible(true)
 
-	--[[ Obsidian-style: apply root.Size every InputChanged. While dragging the resize grip, freeze
-	    ScrollingFrame.AutomaticCanvasSize so nested lists do not re-measure canvas height every frame. ]]
-	type ScrollResizeSnap = { sf: ScrollingFrame, automatic: Enum.AutomaticSize, canvasPos: Vector2 }
-	local scrollResizeSnapshots: { ScrollResizeSnap } = {}
-
-	local function restoreScrollAutoCanvas()
-		for _, snap in scrollResizeSnapshots do
-			local sf = snap.sf
-			if sf.Parent then
-				sf.AutomaticCanvasSize = Enum.AutomaticSize.None
-				sf.CanvasSize = UDim2.new(0, 0, 0, 0)
-				sf.AutomaticCanvasSize = snap.automatic
-				sf.CanvasPosition = snap.canvasPos
-			end
-		end
-		table.clear(scrollResizeSnapshots)
-	end
-
-	local function suspendScrollAutoCanvas()
-		restoreScrollAutoCanvas()
-		local function visit(inst: Instance)
-			if inst:IsA("ScrollingFrame") then
-				local auto = inst.AutomaticCanvasSize
-				if auto ~= Enum.AutomaticSize.None then
-					local abs = inst.AbsoluteCanvasSize
-					table.insert(scrollResizeSnapshots, {
-						sf = inst,
-						automatic = auto,
-						canvasPos = inst.CanvasPosition,
-					})
-					inst.AutomaticCanvasSize = Enum.AutomaticSize.None
-					inst.CanvasSize = UDim2.new(
-						0,
-						math.max(1, math.floor(abs.X)),
-						0,
-						math.max(1, math.floor(abs.Y))
-					)
-				end
-			end
-			for _, ch in inst:GetChildren() do
-				visit(ch)
-			end
-		end
-		visit(contentHost)
-	end
-
-	-- dragging + resize (grip uses local InputBegan — global InputBegan often has gameProcessed=true on Gui clicks)
+	--[[ Window drag: global Input*. Resize: same as Obsidian `Library:MakeResizable(MainFrame, ResizeButton, …)` — one InputChanged path, no duplicate resize handling. ]]
 	local dragConn: { RBXScriptConnection } = {}
 	local function beginDrag()
 		local dragging = false
-		local resizing = false
 		local dragStart: Vector2
 		local startPos: UDim2
-		local resizeStart: Vector2
-		local resizeStartSize: Vector2
-		local resizeEndConn: RBXScriptConnection? = nil
-
-		local function endWindowResize()
-			if not Library._windowResizing then
-				return
-			end
-			restoreScrollAutoCanvas()
-			Library._windowResizing = false
-			local refs = Library._resizeEndWrappedRefits
-			if refs then
-				for _, fn in refs do
-					task.defer(fn)
-				end
-			end
-		end
-
-		if resizeHandle then
-			resizeHandle.InputBegan:Connect(function(input: InputObject)
-				if Library.CantDragForced then
-					return
-				end
-				if
-					input.UserInputType ~= Enum.UserInputType.MouseButton1
-					and input.UserInputType ~= Enum.UserInputType.Touch
-				then
-					return
-				end
-				resizing = true
-				Library._windowResizing = true
-				suspendScrollAutoCanvas()
-				resizeStart = Vector2.new(input.Position.X, input.Position.Y)
-				resizeStartSize = Vector2.new(root.AbsoluteSize.X, root.AbsoluteSize.Y)
-				if resizeEndConn then
-					resizeEndConn:Disconnect()
-					resizeEndConn = nil
-				end
-				resizeEndConn = input.Changed:Connect(function()
-					if input.UserInputState == Enum.UserInputState.End then
-						resizing = false
-						endWindowResize()
-						if resizeEndConn then
-							resizeEndConn:Disconnect()
-							resizeEndConn = nil
-						end
-					end
-				end)
-			end)
-		end
 
 		local function inputBegan(input: InputObject, gp: boolean)
 			if Library.CantDragForced then
-				return
-			end
-			if resizing then
 				return
 			end
 			if
@@ -1906,25 +1947,9 @@ function Library.new(config: WindowConfig)
 		local function inputMoved(input: InputObject, gp: boolean)
 			if Library.CantDragForced then
 				dragging = false
-				resizing = false
-				endWindowResize()
 				return
 			end
-			-- Clicks on our GUI set gameProcessed; still need move events while dragging/resizing.
-			if gp and not dragging and not resizing then
-				return
-			end
-			if resizing then
-				if
-					input.UserInputType ~= Enum.UserInputType.MouseMovement
-					and input.UserInputType ~= Enum.UserInputType.Touch
-				then
-					return
-				end
-				local delta = Vector2.new(input.Position.X, input.Position.Y) - resizeStart
-				local newW = math.max(minRootW, resizeStartSize.X + delta.X)
-				local newH = math.max(minRootH, resizeStartSize.Y + delta.Y)
-				root.Size = UDim2.fromOffset(newW, newH)
+			if gp and not dragging then
 				return
 			end
 			if not dragging then
@@ -1949,9 +1974,7 @@ function Library.new(config: WindowConfig)
 				input.UserInputType == Enum.UserInputType.MouseButton1
 				or input.UserInputType == Enum.UserInputType.Touch
 			then
-				endWindowResize()
 				dragging = false
-				resizing = false
 			end
 		end
 		table.insert(dragConn, UserInputService.InputBegan:Connect(inputBegan))
@@ -1959,6 +1982,11 @@ function Library.new(config: WindowConfig)
 		table.insert(dragConn, UserInputService.InputEnded:Connect(inputEnded))
 	end
 	beginDrag()
+
+	Library.MinSize = Vector2.new(minRootW, minRootH)
+	if resizeHandle then
+		Library:MakeResizable(root, resizeHandle, nil, dragConn)
+	end
 
 	local refreshThemeFn: () -> ()
 	refreshThemeFn = function()
@@ -2084,8 +2112,6 @@ function Library.new(config: WindowConfig)
 
 	local function destroyWindowGui()
 		destroyKeybindModeMenu()
-		restoreScrollAutoCanvas()
-		Library._windowResizing = false
 		if Library._resizeEndWrappedRefits then
 			table.clear(Library._resizeEndWrappedRefits)
 		end
