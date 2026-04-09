@@ -1752,6 +1752,52 @@ function Library.new(config: WindowConfig)
 
 	setRootVisible(true)
 
+	--[[ Obsidian-style: apply root.Size every InputChanged. While dragging the resize grip, freeze
+	    ScrollingFrame.AutomaticCanvasSize so nested lists do not re-measure canvas height every frame. ]]
+	type ScrollResizeSnap = { sf: ScrollingFrame, automatic: Enum.AutomaticSize, canvasPos: Vector2 }
+	local scrollResizeSnapshots: { ScrollResizeSnap } = {}
+
+	local function restoreScrollAutoCanvas()
+		for _, snap in scrollResizeSnapshots do
+			local sf = snap.sf
+			if sf.Parent then
+				sf.AutomaticCanvasSize = Enum.AutomaticSize.None
+				sf.CanvasSize = UDim2.new(0, 0, 0, 0)
+				sf.AutomaticCanvasSize = snap.automatic
+				sf.CanvasPosition = snap.canvasPos
+			end
+		end
+		table.clear(scrollResizeSnapshots)
+	end
+
+	local function suspendScrollAutoCanvas()
+		restoreScrollAutoCanvas()
+		local function visit(inst: Instance)
+			if inst:IsA("ScrollingFrame") then
+				local auto = inst.AutomaticCanvasSize
+				if auto ~= Enum.AutomaticSize.None then
+					local abs = inst.AbsoluteCanvasSize
+					table.insert(scrollResizeSnapshots, {
+						sf = inst,
+						automatic = auto,
+						canvasPos = inst.CanvasPosition,
+					})
+					inst.AutomaticCanvasSize = Enum.AutomaticSize.None
+					inst.CanvasSize = UDim2.new(
+						0,
+						math.max(1, math.floor(abs.X)),
+						0,
+						math.max(1, math.floor(abs.Y))
+					)
+				end
+			end
+			for _, ch in inst:GetChildren() do
+				visit(ch)
+			end
+		end
+		visit(contentHost)
+	end
+
 	-- dragging + resize (grip uses local InputBegan — global InputBegan often has gameProcessed=true on Gui clicks)
 	local dragConn: { RBXScriptConnection } = {}
 	local function beginDrag()
@@ -1762,49 +1808,12 @@ function Library.new(config: WindowConfig)
 		local resizeStart: Vector2
 		local resizeStartSize: Vector2
 		local resizeEndConn: RBXScriptConnection? = nil
-		--[[ Coalesce root.Size updates to one per Heartbeat while resizing so AutomaticCanvasSize trees do not relayout on every InputChanged. ]]
-		local pendingResize: Vector2? = nil
-		local resizeHeartbeatConn: RBXScriptConnection? = nil
-
-		local function flushPendingResize()
-			if resizeHeartbeatConn then
-				resizeHeartbeatConn:Disconnect()
-				resizeHeartbeatConn = nil
-			end
-			if pendingResize then
-				root.Size = UDim2.fromOffset(pendingResize.X, pendingResize.Y)
-				pendingResize = nil
-			end
-		end
-
-		local function scheduleResize(newW: number, newH: number)
-			pendingResize = Vector2.new(newW, newH)
-			if resizeHeartbeatConn then
-				return
-			end
-			resizeHeartbeatConn = RunService.Heartbeat:Connect(function()
-				local s = pendingResize
-				if not s then
-					if resizeHeartbeatConn then
-						resizeHeartbeatConn:Disconnect()
-						resizeHeartbeatConn = nil
-					end
-					return
-				end
-				pendingResize = nil
-				root.Size = UDim2.fromOffset(s.X, s.Y)
-				if resizeHeartbeatConn then
-					resizeHeartbeatConn:Disconnect()
-					resizeHeartbeatConn = nil
-				end
-			end)
-		end
 
 		local function endWindowResize()
 			if not Library._windowResizing then
 				return
 			end
-			flushPendingResize()
+			restoreScrollAutoCanvas()
 			Library._windowResizing = false
 			local refs = Library._resizeEndWrappedRefits
 			if refs then
@@ -1827,6 +1836,7 @@ function Library.new(config: WindowConfig)
 				end
 				resizing = true
 				Library._windowResizing = true
+				suspendScrollAutoCanvas()
 				resizeStart = Vector2.new(input.Position.X, input.Position.Y)
 				resizeStartSize = Vector2.new(root.AbsoluteSize.X, root.AbsoluteSize.Y)
 				if resizeEndConn then
@@ -1914,7 +1924,7 @@ function Library.new(config: WindowConfig)
 				local delta = Vector2.new(input.Position.X, input.Position.Y) - resizeStart
 				local newW = math.max(minRootW, resizeStartSize.X + delta.X)
 				local newH = math.max(minRootH, resizeStartSize.Y + delta.Y)
-				scheduleResize(newW, newH)
+				root.Size = UDim2.fromOffset(newW, newH)
 				return
 			end
 			if not dragging then
@@ -2074,6 +2084,7 @@ function Library.new(config: WindowConfig)
 
 	local function destroyWindowGui()
 		destroyKeybindModeMenu()
+		restoreScrollAutoCanvas()
 		Library._windowResizing = false
 		if Library._resizeEndWrappedRefits then
 			table.clear(Library._resizeEndWrappedRefits)
