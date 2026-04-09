@@ -7,6 +7,7 @@ local Players = cloneref(game:GetService("Players"))
 local UserInputService = cloneref(game:GetService("UserInputService"))
 local TweenService = cloneref(game:GetService("TweenService"))
 local RunService = cloneref(game:GetService("RunService"))
+local TextService = cloneref(game:GetService("TextService"))
 
 local protectgui = protectgui or (syn and syn.protect_gui) or function() end
 local gethui = gethui or function()
@@ -201,271 +202,6 @@ end
 function Library:OnUnload(fn: () -> ())
 	if typeof(fn) == "function" then
 		table.insert(self._unloadCallbacks, fn)
-	end
-end
-
---[[ Obsidian Library.lua: connection registry for Unload (same pattern as upstream) ]]
-Library.Signals = {} :: { RBXScriptConnection | RBXScriptSignal }
-Library.NotifyOnError = false
-Library.MinSize = Vector2.new(1, 1)
-
-function Library:GiveSignal(Connection: RBXScriptConnection | RBXScriptSignal)
-	local ConnectionType = typeof(Connection)
-	if Connection and (ConnectionType == "RBXScriptConnection" or ConnectionType == "RBXScriptSignal") then
-		table.insert(Library.Signals, Connection)
-	end
-	return Connection
-end
-
-function Library:SafeCallback(Func: (...any) -> ...any, ...: any)
-	if not (Func and typeof(Func) == "function") then
-		return
-	end
-	local Result = table.pack(xpcall(Func, function(Error)
-		task.defer(error, debug.traceback(Error, 2))
-		if Library.NotifyOnError then
-			pcall(Library.Notify, Library, tostring(Error))
-		end
-		return Error
-	end, ...))
-	if not Result[1] then
-		return nil
-	end
-	return table.unpack(Result, 2, Result.n)
-end
-
-local function IsMouseInput(Input: InputObject, IncludeM2: boolean?): boolean
-	return Input.UserInputType == Enum.UserInputType.MouseButton1
-		or (IncludeM2 == true and Input.UserInputType == Enum.UserInputType.MouseButton2)
-		or Input.UserInputType == Enum.UserInputType.Touch
-end
-local function IsClickInput(Input: InputObject, IncludeM2: boolean?): boolean
-	return IsMouseInput(Input, IncludeM2)
-		and Input.UserInputState == Enum.UserInputState.Begin
-		and Library.IsRobloxFocused
-end
-local function IsHoverInput(Input: InputObject): boolean
-	return (Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch)
-		and Input.UserInputState == Enum.UserInputState.Change
-end
-
---[[ Obsidian-equivalent resize math + AcidHub mitigations:
-    (1) Coalesce `UI.Size` to at most once per Heartbeat — high-DPI mice fire InputChanged far above layout Hz.
-    (2) Optional `layoutFreezeRoot`: snapshot + freeze AutomaticCanvasSize / AutomaticSize under that subtree
-    while dragging so the engine does not re-measure hundreds of auto nodes every size tick. ]]
-function Library:MakeResizable(
-	UI: GuiObject,
-	DragFrame: GuiObject,
-	Callback: (() -> ())?,
-	connectionsSink: { RBXScriptConnection }?,
-	layoutFreezeRoot: Instance?
-)
-	type ResizeLayoutSnap =
-		{ kind: "canvas", sf: ScrollingFrame, automatic: Enum.AutomaticSize, canvasPos: Vector2 }
-		| { kind: "frame", go: GuiObject, automatic: Enum.AutomaticSize, size: UDim2 }
-
-	local StartPos: Vector3
-	local FrameSize: UDim2
-	local Dragging = false
-	local Changed: RBXScriptConnection?
-	local layoutSnaps: { ResizeLayoutSnap } = {}
-	local pendingSize: UDim2? = nil
-	local heartbeatConn: RBXScriptConnection? = nil
-
-	local function restoreLayoutFreeze()
-		for _, snap in layoutSnaps do
-			if snap.kind == "canvas" then
-				local sf = snap.sf
-				if sf.Parent then
-					sf.AutomaticCanvasSize = Enum.AutomaticSize.None
-					sf.CanvasSize = UDim2.new(0, 0, 0, 0)
-					sf.AutomaticCanvasSize = snap.automatic
-					sf.CanvasPosition = snap.canvasPos
-				end
-			else
-				local go = snap.go
-				if go.Parent then
-					go.Size = snap.size
-					go.AutomaticSize = snap.automatic
-				end
-			end
-		end
-		table.clear(layoutSnaps)
-	end
-
-	local function suspendLayoutFreeze(root: Instance)
-		restoreLayoutFreeze()
-		local function visitPost(inst: Instance)
-			for _, ch in inst:GetChildren() do
-				visitPost(ch)
-			end
-			if inst:IsA("ScrollingFrame") then
-				local sf = inst :: ScrollingFrame
-				local cauto = sf.AutomaticCanvasSize
-				if cauto ~= Enum.AutomaticSize.None then
-					local abs = sf.AbsoluteCanvasSize
-					table.insert(layoutSnaps, {
-						kind = "canvas",
-						sf = sf,
-						automatic = cauto,
-						canvasPos = sf.CanvasPosition,
-					})
-					sf.AutomaticCanvasSize = Enum.AutomaticSize.None
-					sf.CanvasSize = UDim2.new(
-						0,
-						math.max(1, math.floor(abs.X)),
-						0,
-						math.max(1, math.floor(abs.Y))
-					)
-				end
-			end
-			if inst:IsA("GuiObject") then
-				local go = inst :: GuiObject
-				local auto = go.AutomaticSize
-				if auto ~= Enum.AutomaticSize.None then
-					local abs = go.AbsoluteSize
-					table.insert(layoutSnaps, {
-						kind = "frame",
-						go = go,
-						automatic = auto,
-						size = go.Size,
-					})
-					go.AutomaticSize = Enum.AutomaticSize.None
-					go.Size = UDim2.fromOffset(math.max(1, math.floor(abs.X)), math.max(1, math.floor(abs.Y)))
-				end
-			end
-		end
-		visitPost(root)
-	end
-
-	local function stopHeartbeat()
-		if heartbeatConn then
-			heartbeatConn:Disconnect()
-			heartbeatConn = nil
-		end
-	end
-
-	local function flushPendingSize()
-		local sz = pendingSize
-		pendingSize = nil
-		stopHeartbeat()
-		if sz and UI.Parent then
-			UI.Size = sz
-			if Callback then
-				Library:SafeCallback(Callback)
-			end
-		end
-	end
-
-	local function scheduleSize(newSize: UDim2)
-		pendingSize = newSize
-		if heartbeatConn then
-			return
-		end
-		heartbeatConn = RunService.Heartbeat:Connect(function()
-			if not Dragging then
-				pendingSize = nil
-				stopHeartbeat()
-				return
-			end
-			local sz = pendingSize
-			pendingSize = nil
-			stopHeartbeat()
-			if sz and UI.Parent then
-				UI.Size = sz
-				if Callback then
-					Library:SafeCallback(Callback)
-				end
-			end
-		end)
-	end
-
-	local function endResizeSession()
-		flushPendingSize()
-		restoreLayoutFreeze()
-	end
-
-	DragFrame.InputBegan:Connect(function(Input: InputObject)
-		if Library.CantDragForced then
-			return
-		end
-		if not IsClickInput(Input) then
-			return
-		end
-
-		StartPos = Input.Position
-		FrameSize = UI.Size
-		Dragging = true
-
-		if layoutFreezeRoot then
-			suspendLayoutFreeze(layoutFreezeRoot)
-		end
-
-		if Changed and Changed.Connected then
-			Changed:Disconnect()
-			Changed = nil
-		end
-		Changed = Input.Changed:Connect(function()
-			if Input.UserInputState ~= Enum.UserInputState.End then
-				return
-			end
-
-			Dragging = false
-			endResizeSession()
-			if Changed and Changed.Connected then
-				Changed:Disconnect()
-				Changed = nil
-			end
-		end)
-	end)
-
-	local inputConn = UserInputService.InputChanged:Connect(function(Input: InputObject)
-		if Library.CantDragForced then
-			Dragging = false
-			endResizeSession()
-			if Changed and Changed.Connected then
-				Changed:Disconnect()
-				Changed = nil
-			end
-			return
-		end
-		if not UI.Visible then
-			Dragging = false
-			endResizeSession()
-			if Changed and Changed.Connected then
-				Changed:Disconnect()
-				Changed = nil
-			end
-			return
-		end
-		local winGui = UI:FindFirstAncestorOfClass("ScreenGui")
-		if not (winGui and winGui.Parent) then
-			Dragging = false
-			endResizeSession()
-			if Changed and Changed.Connected then
-				Changed:Disconnect()
-				Changed = nil
-			end
-			return
-		end
-
-		if Dragging and IsHoverInput(Input) then
-			local Delta = Input.Position - StartPos
-			local minV = Library.MinSize
-			local nextSize = UDim2.new(
-				FrameSize.X.Scale,
-				math.clamp(FrameSize.X.Offset + Delta.X, minV.X, math.huge),
-				FrameSize.Y.Scale,
-				math.clamp(FrameSize.Y.Offset + Delta.Y, minV.Y, math.huge)
-			)
-			scheduleSize(nextSize)
-		end
-	end)
-
-	if connectionsSink then
-		table.insert(connectionsSink, inputConn)
-	else
-		Library:GiveSignal(inputConn)
 	end
 end
 
@@ -984,13 +720,6 @@ function Library:Unload()
 		return
 	end
 	self.Unloaded = true
-	--[[ Obsidian: disconnect all GiveSignal connections first ]]
-	for Index = #self.Signals, 1, -1 do
-		local Connection = table.remove(self.Signals, Index)
-		if Connection and typeof(Connection) == "RBXScriptConnection" and Connection.Connected then
-			Connection:Disconnect()
-		end
-	end
 	for _, fn in self._unloadCallbacks do
 		pcall(fn)
 	end
@@ -1017,9 +746,6 @@ function Library:Unload()
 	table.clear(self.Options)
 	self.ToggleKeybind = nil
 	self.CantDragForced = false
-	if self._resizeEndWrappedRefits then
-		table.clear(self._resizeEndWrappedRefits)
-	end
 end
 
 --[[ Works when Color3.fromHex is missing or picky; accepts #RGB, #RRGGBB ]]
@@ -1433,7 +1159,6 @@ function Library.new(config: WindowConfig)
 	Library.Unloaded = false
 	table.clear(Library.Toggles)
 	table.clear(Library.Options)
-	Library._resizeEndWrappedRefits = {}
 
 	local toggleThemeRows: { { track: Frame, getOn: () -> boolean } } = {}
 	local sliderGradients: { UIGradient } = {}
@@ -1904,7 +1629,34 @@ function Library.new(config: WindowConfig)
 	local tabScrolls: { GuiObject } = {}
 	local activeTab = 0
 
+	--[[ Inactive tab pages use AutomaticCanvasSize None so resize does not re-measure hidden trees. ]]
+	local function forEachTabScrollFrame(tabRoot: GuiObject, fn: (ScrollingFrame) -> ())
+		if tabRoot:IsA("ScrollingFrame") then
+			fn(tabRoot)
+		else
+			for _, ch in tabRoot:GetChildren() do
+				if ch:IsA("ScrollingFrame") then
+					fn(ch)
+				end
+			end
+		end
+	end
+
+	local function setTabPageAutoCanvas(tabRoot: GuiObject, enable: boolean)
+		forEachTabScrollFrame(tabRoot, function(sc: ScrollingFrame)
+			if enable then
+				sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+				sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+			else
+				local y = sc.AbsoluteCanvasSize.Y
+				sc.AutomaticCanvasSize = Enum.AutomaticSize.None
+				sc.CanvasSize = UDim2.new(0, 0, 0, math.max(1, math.floor(y)))
+			end
+		end)
+	end
+
 	local function selectTab(index: number)
+		local prev = activeTab
 		activeTab = index
 		for i, btn in tabButtons do
 			local isSel = (i == index)
@@ -1922,6 +1674,14 @@ function Library.new(config: WindowConfig)
 				end
 			else
 				btn.TextColor3 = if isSel then Color3.new(1, 1, 1) else Theme.Text
+			end
+		end
+		if prev ~= index then
+			if prev >= 1 and tabScrolls[prev] then
+				setTabPageAutoCanvas(tabScrolls[prev], false)
+			end
+			if index >= 1 and tabScrolls[index] then
+				setTabPageAutoCanvas(tabScrolls[index], true)
 			end
 		end
 		for i, sc in tabScrolls do
@@ -2022,15 +1782,52 @@ function Library.new(config: WindowConfig)
 
 	setRootVisible(true)
 
-	--[[ Window drag: global Input*. Resize: same as Obsidian `Library:MakeResizable(MainFrame, ResizeButton, …)` — one InputChanged path, no duplicate resize handling. ]]
+	-- dragging + resize (grip uses local InputBegan — global InputBegan often has gameProcessed=true on Gui clicks)
 	local dragConn: { RBXScriptConnection } = {}
 	local function beginDrag()
 		local dragging = false
+		local resizing = false
 		local dragStart: Vector2
 		local startPos: UDim2
+		local resizeStart: Vector2
+		local resizeStartSize: Vector2
+		local resizeEndConn: RBXScriptConnection? = nil
+
+		if resizeHandle then
+			resizeHandle.InputBegan:Connect(function(input: InputObject)
+				if Library.CantDragForced then
+					return
+				end
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				resizing = true
+				resizeStart = Vector2.new(input.Position.X, input.Position.Y)
+				resizeStartSize = Vector2.new(root.AbsoluteSize.X, root.AbsoluteSize.Y)
+				if resizeEndConn then
+					resizeEndConn:Disconnect()
+					resizeEndConn = nil
+				end
+				resizeEndConn = input.Changed:Connect(function()
+					if input.UserInputState == Enum.UserInputState.End then
+						resizing = false
+						if resizeEndConn then
+							resizeEndConn:Disconnect()
+							resizeEndConn = nil
+						end
+					end
+				end)
+			end)
+		end
 
 		local function inputBegan(input: InputObject, gp: boolean)
 			if Library.CantDragForced then
+				return
+			end
+			if resizing then
 				return
 			end
 			if
@@ -2076,9 +1873,24 @@ function Library.new(config: WindowConfig)
 		local function inputMoved(input: InputObject, gp: boolean)
 			if Library.CantDragForced then
 				dragging = false
+				resizing = false
 				return
 			end
-			if gp and not dragging then
+			-- Clicks on our GUI set gameProcessed; still need move events while dragging/resizing.
+			if gp and not dragging and not resizing then
+				return
+			end
+			if resizing then
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseMovement
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				local delta = Vector2.new(input.Position.X, input.Position.Y) - resizeStart
+				local newW = math.max(minRootW, resizeStartSize.X + delta.X)
+				local newH = math.max(minRootH, resizeStartSize.Y + delta.Y)
+				root.Size = UDim2.fromOffset(newW, newH)
 				return
 			end
 			if not dragging then
@@ -2104,6 +1916,7 @@ function Library.new(config: WindowConfig)
 				or input.UserInputType == Enum.UserInputType.Touch
 			then
 				dragging = false
+				resizing = false
 			end
 		end
 		table.insert(dragConn, UserInputService.InputBegan:Connect(inputBegan))
@@ -2111,12 +1924,6 @@ function Library.new(config: WindowConfig)
 		table.insert(dragConn, UserInputService.InputEnded:Connect(inputEnded))
 	end
 	beginDrag()
-
-	Library.MinSize = Vector2.new(minRootW, minRootH)
-	if resizeHandle then
-		--[[ `body` = sidebar + main panel: freeze auto layout during grip so resize stays smooth (Obsidian-sized trees are lighter). ]]
-		Library:MakeResizable(root, resizeHandle, nil, dragConn, body)
-	end
 
 	local refreshThemeFn: () -> ()
 	refreshThemeFn = function()
@@ -2242,9 +2049,6 @@ function Library.new(config: WindowConfig)
 
 	local function destroyWindowGui()
 		destroyKeybindModeMenu()
-		if Library._resizeEndWrappedRefits then
-			table.clear(Library._resizeEndWrappedRefits)
-		end
 		for _, c in dragConn do
 			c:Disconnect()
 		end
@@ -2297,8 +2101,17 @@ function Library.new(config: WindowConfig)
 	local Tab = {}
 	Tab.__index = Tab
 
-	--[[ Horizontal sub-tabs inside a column; each :AddTab returns a proxy Tab (use AddLeftGroupbox / AddSection on it). ]]
-	local function makeTabbox(parentScroll: Instance, layoutOrder: number, boxTitle: string?): any
+	--[[ Horizontal sub-tabs inside a column; each :AddTab returns a proxy Tab (use AddLeftGroupbox / AddSection on it).
+	    tabboxOpts.MinContentHeight: minimum height (px) for the tab page area (taller tabbox). ]]
+	local function makeTabbox(
+		parentScroll: Instance,
+		layoutOrder: number,
+		boxTitle: string?,
+		tabboxOpts: { MinContentHeight: number? }?
+	): any
+		tabboxOpts = tabboxOpts or {}
+		local minContentH = tabboxOpts.MinContentHeight
+
 		local root = Instance.new("Frame")
 		root.Name = "TabboxRoot"
 		root.BackgroundTransparency = 1
@@ -2363,6 +2176,12 @@ function Library.new(config: WindowConfig)
 		contentHost.AutomaticSize = Enum.AutomaticSize.Y
 		contentHost.LayoutOrder = nextLo
 		contentHost.Parent = root
+
+		if typeof(minContentH) == "number" and minContentH > 0 then
+			local ucs = Instance.new("UISizeConstraint")
+			ucs.MinSize = Vector2.new(0, minContentH)
+			ucs.Parent = contentHost
+		end
 
 		local chList = Instance.new("UIListLayout")
 		chList.SortOrder = Enum.SortOrder.LayoutOrder
@@ -2454,6 +2273,7 @@ function Library.new(config: WindowConfig)
 
 		return box
 	end
+
 
 	--[[ Tab icons: Lucide name (e.g. "layout-grid", "eye") or rbxassetid://… — same as Obsidian GetCustomIcon
 	    SplitColumns: two-column layout (left/right ScrollingFrames); use AddLeftGroupbox / AddRightGroupbox / AddLeftTabbox / AddRightTabbox ]]
@@ -2581,8 +2401,13 @@ function Library.new(config: WindowConfig)
 				sc.BorderSizePixel = 0
 				sc.ScrollBarThickness = 4
 				sc.ScrollBarImageColor3 = Theme.AccentBlue
-				sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
-				sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+				if idx == 1 then
+					sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+					sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+				else
+					sc.AutomaticCanvasSize = Enum.AutomaticSize.None
+					sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+				end
 				sc.Parent = host
 
 				local lst = Instance.new("UIListLayout")
@@ -2615,8 +2440,13 @@ function Library.new(config: WindowConfig)
 			sc.BorderSizePixel = 0
 			sc.ScrollBarThickness = 4
 			sc.ScrollBarImageColor3 = Theme.AccentBlue
-			sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
-			sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+			if idx == 1 then
+				sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+				sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+			else
+				sc.AutomaticCanvasSize = Enum.AutomaticSize.None
+				sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+			end
 			sc.Visible = (idx == 1)
 			sc.Parent = contentHost
 			scroll = sc
@@ -2658,6 +2488,14 @@ function Library.new(config: WindowConfig)
 		end
 
 		return tab
+	end
+
+	function window:SelectTab(index: number)
+		local n = math.floor(index + 0.5)
+		if n < 1 or n > #tabButtons then
+			return
+		end
+		selectTab(n)
 	end
 
 	--[[ Section: optional Collapsible, DefaultExpanded, Tooltip; Column "Left"|"Right" when tab uses SplitColumns ]]
@@ -4114,14 +3952,33 @@ function Library.new(config: WindowConfig)
 			d.Parent = bodyF
 		end
 
+		function section:AddSpacer(height: number)
+			local h = math.max(0, math.floor(height + 0.5))
+			local s = Instance.new("Frame")
+			s.Name = "Spacer"
+			s.BackgroundTransparency = 1
+			s.Size = UDim2.new(1, 0, 0, h)
+			s.Parent = bodyF
+		end
+
 		function section:AddLabel(textOrOpts: any, wrap: boolean?, idx: string?)
 			local text = ""
 			local doesWrap = wrap == true
 			local idxStr: string? = nil
+			local centered = false
+			local labelTextSize: number? = nil
+			local uiTextKey = "TextDim"
 			if type(textOrOpts) == "table" then
 				text = tostring(textOrOpts.Text or "")
 				doesWrap = textOrOpts.DoesWrap == true
 				idxStr = textOrOpts.Idx
+				centered = textOrOpts.Centered == true
+				if typeof(textOrOpts.TextSize) == "number" then
+					labelTextSize = textOrOpts.TextSize
+				end
+				if typeof(textOrOpts.UiText) == "string" and textOrOpts.UiText ~= "" then
+					uiTextKey = textOrOpts.UiText
+				end
 			else
 				text = tostring(textOrOpts)
 				idxStr = if typeof(idx) == "string" then idx else nil
@@ -4129,15 +3986,48 @@ function Library.new(config: WindowConfig)
 			local lab = Instance.new("TextLabel")
 			lab.BackgroundTransparency = 1
 			lab.Font = Enum.Font.GothamMedium
-			lab.TextSize = UID.AddLabelText
-			lab.TextColor3 = Theme.TextDim
-			lab.TextXAlignment = Enum.TextXAlignment.Left
+			lab.TextSize = labelTextSize or UID.AddLabelText
+			lab.TextColor3 = (Theme :: any)[uiTextKey] or Theme.TextDim
+			lab.TextXAlignment = if centered then Enum.TextXAlignment.Center else Enum.TextXAlignment.Left
+			lab.TextYAlignment = Enum.TextYAlignment.Top
 			lab.TextWrapped = doesWrap
+			lab.RichText = false
 			lab.AutomaticSize = if doesWrap then Enum.AutomaticSize.Y else Enum.AutomaticSize.None
 			lab.Size = UDim2.new(1, 0, 0, if doesWrap then 0 else UID.AddLabelH)
 			lab.Text = text
-			lab:SetAttribute("UiText", "TextDim")
+			lab:SetAttribute("UiText", uiTextKey)
 			lab.Parent = bodyF
+			--[[ Wrapped labels: AutomaticSize.Y often stays 0 until AbsoluteSize.X is known (invisible text). Refit with TextService. ]]
+			if doesWrap and text ~= "" and not text:match("^%s*$") then
+				local function refitWrappedHeight()
+					if not lab.Parent then
+						return
+					end
+					local w = math.floor(bodyF.AbsoluteSize.X)
+					if w < 24 then
+						return
+					end
+					local ok, bounds = pcall(function()
+						local p = Instance.new("GetTextBoundsParams")
+						p.Text = lab.Text
+						p.RichText = false
+						p.Font = Font.fromEnum(lab.Font)
+						p.Size = lab.TextSize
+						p.Width = w
+						return TextService:GetTextBoundsAsync(p)
+					end)
+					if not ok or typeof(bounds) ~= "Vector2" then
+						return
+					end
+					lab.AutomaticSize = Enum.AutomaticSize.None
+					lab.Size = UDim2.new(1, 0, 0, math.max(math.ceil(bounds.Y) + 4, math.ceil(lab.TextSize)))
+				end
+				task.defer(function()
+					refitWrappedHeight()
+					task.defer(refitWrappedHeight)
+				end)
+				bodyF:GetPropertyChangedSignal("AbsoluteSize"):Connect(refitWrappedHeight)
+			end
 			local reg = {
 				SetText = function(_: any, t: string)
 					lab.Text = t
@@ -4952,8 +4842,9 @@ function Library.new(config: WindowConfig)
 			self._sectionOrder += 1
 			layoutOrder = self._sectionOrder
 		end
-		return makeTabbox(parentScroll, layoutOrder, boxTitle)
+		return makeTabbox(parentScroll, layoutOrder, boxTitle, nil)
 	end
+
 
 	function Tab:AddRightTabbox(boxTitle: string?)
 		local parentScroll: Instance
@@ -4967,7 +4858,7 @@ function Library.new(config: WindowConfig)
 			self._sectionOrder += 1
 			layoutOrder = self._sectionOrder
 		end
-		return makeTabbox(parentScroll, layoutOrder, boxTitle)
+		return makeTabbox(parentScroll, layoutOrder, boxTitle, nil)
 	end
 
 	function Tab:AddLeftGroupbox(
