@@ -1,3516 +1,4998 @@
-
-if not game:IsLoaded() then
-	game.Loaded:Wait()
-end
-local Players = game:GetService("Players")
-local LocalPlayer = Players.LocalPlayer or Players:GetPropertyChangedSignal("LocalPlayer"):Wait() and Players.LocalPlayer
-
-local success, err = pcall(function()
-    assert(getgc, "executor missing required function getgc")
-    assert(debug and debug.info, "executor missing required function debug.info (somehow)")
-    assert(hookfunction, "executor missing required function hookfunction")
-    assert(getconnections, "executor missing required function getconnections")
-    assert(newcclosure, "executor missing required function newcclosure")
-    local ReplicatedStorage = game:GetService("ReplicatedStorage")
-    local LogService = game:GetService("LogService")
-    local ScriptContext = game:GetService("ScriptContext")
-    task.spawn(function()
-        for _, v in pairs(getgc(true)) do
-            if typeof(v) == "function" then
-                local ok, src = pcall(function()
-                    return debug.info(v, "s")
-                end)
-                if ok and type(src) == "string" and string.find(src, "AnalyticsPipelineController") then
-                    local oldfn
-                    oldfn = hookfunction(v, newcclosure(function(...)
-                        return wait(9e9)
-                    end))
-                end
-            end
-        end
-    end)
-    task.spawn(function()
-        local ok, remote = pcall(function()
-            return ReplicatedStorage:WaitForChild("Remotes"):WaitForChild("AnalyticsPipeline"):WaitForChild("RemoteEvent")
-        end)
-        if ok and remote and remote.OnClientEvent then
-            for _, conn in pairs(getconnections(remote.OnClientEvent)) do
-                if conn and conn.Function then
-                    pcall(function()
-                        hookfunction(conn.Function, newcclosure(function(...)
-                        end))
-                    end)
-                end
-            end
-        end
-    end)
-    task.spawn(function()
-        for _, conn in pairs(getconnections(LogService.MessageOut)) do
-            if conn and conn.Function then
-                pcall(function()
-                    hookfunction(conn.Function, newcclosure(function(...)
-                    end))
-                end)
-            end
-        end
-    end)
-    task.spawn(function()
-        for _, conn in ipairs(getconnections(ScriptContext.Error)) do
-            pcall(function()
-                conn:Disable()
-            end)
-        end
-        pcall(function()
-            hookfunction(ScriptContext.Error.Connect, newcclosure(function(...)
-                return nil
-            end))
-        end)
-    end)
-    task.spawn(function()
-        local KickNames = {
-            "Kick",
-            "kick"
-        }
-        for _, name in ipairs(KickNames) do
-            local fn = LocalPlayer[name]
-            if type(fn) == "function" then
-                local oldkick
-                oldkick = hookfunction(fn, newcclosure(function(self, ...)
-                    if self == LocalPlayer then
-                        return
-                    end
-                    return oldkick(self, ...)
-                end))
-            end
-        end
-    end)
+-- made with ai
+local cloneref = (cloneref or clonereference or function(instance: any)
+	return instance
 end)
-if not success then
-    warn("Rivals Anticheat Disabler failed: " .. tostring(err))
-    Players.LocalPlayer:Kick("Couldn't bypass anticheat")
-end
-local oldtable; oldtable = hookfunction(getrenv().setmetatable, newcclosure(function(Table, Metatable)
-if Metatable and typeof(Metatable) == "table" and rawget(Metatable, "__mode") == "kv" then
-local trace = debug.traceback()
-if trace:find("MiscellaneousController") then
-return oldtable({1, 2, 3}, {})
-end
-end
-return oldtable(Table, Metatable)
-end))
--- §01 SERVICES & ROBLOX APIS -------------------------------------------------
-local Players = game:GetService("Players")
-local player = Players.LocalPlayer
-local RunService = game:GetService("RunService")
-local ReplicatedStorage = game:GetService("ReplicatedStorage")
-local StarterPlayer = game:GetService("StarterPlayer")
-local UserInputService = game:GetService("UserInputService")
-local Workspace = game:GetService("Workspace")
+local CoreGui = cloneref(game:GetService("CoreGui"))
+local Players = cloneref(game:GetService("Players"))
+local UserInputService = cloneref(game:GetService("UserInputService"))
+local TweenService = cloneref(game:GetService("TweenService"))
+local RunService = cloneref(game:GetService("RunService"))
 
-local function TryRequire(module)
-    local ok, result = pcall(require, module)
-    return ok and result or nil
+local protectgui = protectgui or (syn and syn.protect_gui) or function() end
+local gethui = gethui or function()
+	return CoreGui
 end
 
--- §02 GAME MODULES (Rivals / shared libs) ------------------------------------
--- required modules for the skin changers
-local ItemLib = TryRequire(ReplicatedStorage:FindFirstChild("Modules") and
-                         ReplicatedStorage.Modules:FindFirstChild("ItemLibrary"))
-local CosmeticLib = TryRequire(ReplicatedStorage:FindFirstChild("Modules") and
-                            ReplicatedStorage.Modules:FindFirstChild("CosmeticLibrary"))
-local AnimLib = TryRequire(ReplicatedStorage:FindFirstChild("Modules") and
-                        ReplicatedStorage.Modules:FindFirstChild("AnimationLibrary"))
-local EnumLib = TryRequire(ReplicatedStorage:FindFirstChild("Modules") and
-                        ReplicatedStorage.Modules:FindFirstChild("EnumLibrary"))
-local Constants = TryRequire(ReplicatedStorage:FindFirstChild("Modules") and
-                          ReplicatedStorage.Modules:FindFirstChild("CONSTANTS"))
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+--[[ Obsidian-style: PlayerMouse matches GuiObject.AbsolutePosition better than GetMouseLocation on some clients. ]]
+local PlayerMouse = LocalPlayer:GetMouse()
 
-local PlayerScripts = player:WaitForChild("PlayerScripts")
-local Controllers   = PlayerScripts:WaitForChild("Controllers")
-local PlayerDataController = TryRequire(Controllers:FindFirstChild("PlayerDataController"))
--- controllers
-repeat task.wait() until (not PlayerDataController) or PlayerDataController.CurrentData
-local CurrentData = PlayerDataController and PlayerDataController.CurrentData
+-- ----------------------------------------------------------------------------- theme (mutable; ThemeManager / RefreshTheme)
+local Library = {}
 
--- §03 CONFIG & TAGS ----------------------------------------------------------
-local Config = {}
+Library.Theme = {
+	Background = Color3.new(0, 0, 0),
+	Panel = Color3.new(0, 0, 0),
+	--[[ Main panel + scroll columns; 0 = fully opaque (Obsidian-style solid UI) ]]
+	PanelTrans = 0,
+	--[[ Groupbox shell fill — panel washed with accent (recomputed after AccentBlue is set below) ]]
+	Groupbox = Color3.new(0, 0, 0),
+	--[[ Section wrap transparency; lower = more solid accent tint on the box ]]
+	GroupboxTrans = 0.68,
+	Elevated = Color3.fromRGB(20, 20, 26),
+	Stroke = Color3.fromRGB(70, 130, 255),
+	StrokeTrans = 0.55,
+	Text = Color3.fromRGB(245, 245, 250),
+	TextDim = Color3.fromRGB(160, 165, 180),
+	AccentBlue = Color3.fromRGB(88, 160, 255),
+	AccentPurple = Color3.fromRGB(150, 100, 255),
+	SectionDot = Color3.fromRGB(72, 220, 130),
+	SliderTrack = Color3.fromRGB(28, 28, 36),
+	ToggleOff = Color3.fromRGB(45, 45, 55),
+	ToggleOn = Color3.fromRGB(88, 160, 255),
+	Corner = UDim.new(0, 8),
+	CornerSm = UDim.new(0, 6),
+}
+local Theme = Library.Theme
+Theme.Groupbox = Theme.Panel:Lerp(Theme.AccentBlue, 0.16)
 
-local SkinAppliedTag = "abv"
-
-local function SaveConfig() end
-
-local function CloneCosmetic(name, cosmeticType)
-    if not name or name:lower() == "none" then return nil end
-    if not CosmeticLib or not CosmeticLib.Cosmetics then return nil end
-    local data = CosmeticLib.Cosmetics[name]
-    if not data then return nil end
-    local clone = {}
-    for k, v in pairs(data) do clone[k] = v end
-    clone.Name = name
-    clone.Type = cosmeticType
-    clone.Seed = math.random(1, 1000000)
-    pcall(function()
-        if EnumLib then
-            local enum = EnumLib:ToEnum(name)
-            if enum then clone.Enum = enum; clone.ObjectID = enum end
-        end
-    end)
-    return clone
+----------------------------------------------------------------------------- helpers (must be above Library:Notify — it uses corner/stroke)
+local function tween(inst: Instance, ti: TweenInfo, props: { [string]: any })
+	return TweenService:Create(inst, ti, props)
 end
 
--- §04 COSMETIC DOMAIN — inventory item + viewmodel wiring --------------------
-local function WeaponData(weaponName)
-    if not CurrentData then return end
-    local inventory = CurrentData:Get("WeaponInventory")
-    if not inventory then return end
-    for _, item in pairs(inventory) do
-        if item.Name == weaponName then
-            local cfg = Config[weaponName]
-            if cfg then
-                item.Skin    = cfg.Skin
-                item.Wrap    = cfg.Wrap
-                item.Charm   = cfg.Charm
-                item.Finisher = cfg.Finisher
-            end
-            return item
-        end
-    end
+local function corner(radius: UDim)
+	local c = Instance.new("UICorner")
+	c.CornerRadius = radius
+	return c
 end
 
---[[ Skins were lagging because only _ViewModel was touched; wraps use item.ViewModel + rawset + ClientFighter:Set (see ForceWrap). ]]
-local function applyCosmeticsToClientItem(item)
-    if not item or type(item) ~= "table" then return end
-    local weaponName = item.Name
-    if type(weaponName) ~= "string" or not Config[weaponName] then return end
-    local cfg = Config[weaponName]
-    pcall(function()
-        if cfg.Skin    then item:Set("Skin",     cfg.Skin)    end
-        if cfg.Wrap    then item:Set("Wrap",     cfg.Wrap)    end
-        if cfg.Charm   then item:Set("Charm",    cfg.Charm)   end
-        if cfg.Finisher then item:Set("Finisher", cfg.Finisher) end
-        if cfg.Skin then
-            pcall(function() rawset(item, "_skin", cfg.Skin) end)
-            if item.ClientFighter and item.ClientFighter.Set then
-                pcall(item.ClientFighter.Set, item.ClientFighter, "Skin", cfg.Skin)
-            end
-        end
-        local vms = { rawget(item, "_ViewModel"), rawget(item, "ViewModel") }
-        for _, vm in ipairs(vms) do
-            if vm then
-                if cfg.Skin then
-                    if vm.Set then pcall(vm.Set, vm, "Skin", cfg.Skin) end
-                    if vm.SetSkin then pcall(vm.SetSkin, vm, cfg.Skin) end
-                    pcall(function() rawset(vm, "_skin", cfg.Skin) end)
-                    if vm._UpdateSkin then pcall(vm._UpdateSkin, vm)
-                    elseif vm.UpdateSkin then pcall(vm.UpdateSkin, vm) end
-                end
-                if cfg.Wrap then
-                    if vm.SetWrap then pcall(vm.SetWrap, vm, cfg.Wrap) end
-                    if vm._UpdateWrap then pcall(vm._UpdateWrap, vm)
-                    elseif vm.UpdateWrap then pcall(vm.UpdateWrap, vm) end
-                end
-                if cfg.Charm then
-                    if vm.SetCharm then pcall(vm.SetCharm, vm, cfg.Charm) end
-                    if vm._UpdateCharm then pcall(vm._UpdateCharm, vm)
-                    elseif vm.UpdateCharm then pcall(vm.UpdateCharm, vm) end
-                end
-            end
-        end
-    end)
+local function stroke(color: Color3, thickness: number, transparency: number)
+	local s = Instance.new("UIStroke")
+	s.Color = color
+	s.Thickness = thickness
+	s.Transparency = transparency
+	s.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	return s
 end
 
---[[ Items + Inventory slots + EquippedItem — same surfaces as WrapAll so the held gun updates without re-equipping. ]]
-local function collectFighterClientItems(fighter)
-    local list = {}
-    local seen = {}
-    local function add(item)
-        if item and type(item) == "table" and not seen[item] then
-            seen[item] = true
-            table.insert(list, item)
-        end
-    end
-    if fighter.Items then
-        for _, it in pairs(fighter.Items) do
-            add(it)
-        end
-    end
-    local inv = nil
-    if fighter.Get then
-        local ok, i = pcall(fighter.Get, fighter, "Inventory")
-        if ok then inv = i end
-    end
-    if not inv and rawget(fighter, "Inventory") then
-        inv = fighter.Inventory
-    end
-    if inv then
-        for i = 1, 10 do
-            local slotItem = nil
-            if inv.Get then
-                local ok, sl = pcall(inv.Get, inv, i)
-                if ok then slotItem = sl end
-            elseif inv[i] then
-                slotItem = inv[i]
-            end
-            add(slotItem)
-        end
-    end
-    local eq = rawget(fighter, "EquippedItem")
-    if eq == nil and fighter.Get then
-        local ok, res = pcall(fighter.Get, fighter, "EquippedItem")
-        if ok then eq = res end
-    end
-    add(eq)
-    return list
+local function pad(p: number)
+	local x = Instance.new("UIPadding")
+	x.PaddingLeft = UDim.new(0, p)
+	x.PaddingRight = UDim.new(0, p)
+	x.PaddingTop = UDim.new(0, p)
+	x.PaddingBottom = UDim.new(0, p)
+	return x
 end
 
-local function clearForcedSkinCachesForWeapon(weaponName)
-    if type(weaponName) ~= "string" then return end
-    local ok, FighterController = pcall(function()
-        return require(Controllers:WaitForChild("FighterController", 10))
-    end)
-    if not ok or not FighterController then return end
-    local fighter = FighterController:GetFighter(player)
-    if not fighter then return end
-    for _, item in ipairs(collectFighterClientItems(fighter)) do
-        if item.Name == weaponName then
-            pcall(function() rawset(item, "_skin", nil) end)
-            for _, vm in ipairs({ rawget(item, "_ViewModel"), rawget(item, "ViewModel") }) do
-                if vm then pcall(function() rawset(vm, "_skin", nil) end) end
-            end
-        end
-    end
-end
-
-local function ActiveWeapon()
-    local ok, FighterController = pcall(function()
-        return require(Controllers:WaitForChild("FighterController", 10))
-    end)
-    if not ok or not FighterController then return end
-    local fighter = FighterController:GetFighter(player)
-    if not fighter then return end
-    for _, item in ipairs(collectFighterClientItems(fighter)) do
-        applyCosmeticsToClientItem(item)
-    end
-end
-
-pcall(function()
-    local ClientItem = require(PlayerScripts.Modules.ClientReplicatedClasses.ClientFighter.ClientItem)
-    local OldCreate = ClientItem._CreateViewModel
-    ClientItem._CreateViewModel = function(self, viewmodelRef)
-        local weaponName  = self.Name
-        local weaponPlayer = self.ClientFighter and self.ClientFighter.Player
-        if weaponPlayer == player and Config[weaponName] and Config[weaponName].Skin then
-            local cfg = Config[weaponName]
-            pcall(function()
-                if viewmodelRef and viewmodelRef.Data then
-                    viewmodelRef.Data.Skin = cfg.Skin
-                    viewmodelRef.Data.Name = cfg.Skin.Name
-                else
-                    local RC = require(ReplicatedStorage.Modules.ReplicatedClass)
-                    local dk = RC:ToEnum("Data")
-                    local sk = RC:ToEnum("Skin")
-                    local nk = RC:ToEnum("Name")
-                    if viewmodelRef and viewmodelRef[dk] then
-                        viewmodelRef[dk][sk] = cfg.Skin
-                        viewmodelRef[dk][nk] = cfg.Skin.Name
-                    end
-                end
-            end)
-        end
-        return OldCreate(self, viewmodelRef)
-    end
-end)
-
-pcall(function()
-    local vmModule = PlayerScripts.Modules.ClientReplicatedClasses.ClientFighter.ClientItem:FindFirstChild("ClientViewModel")
-    if not vmModule then return end
-    local ClientViewModel = require(vmModule)
-
-    local OldWrap = ClientViewModel.GetWrap
-    ClientViewModel.GetWrap = function(self)
-        local item = self.ClientItem
-        if not item then return OldWrap(self) end
-        local wName   = item.Name
-        local wPlayer = item.ClientFighter and item.ClientFighter.Player
-        if wPlayer == player and Config[wName] and Config[wName].Wrap then
-            return Config[wName].Wrap
-        end
-        return OldWrap(self)
-    end
-
-    if type(ClientViewModel.GetSkin) == "function" then
-        local OldGetSkin = ClientViewModel.GetSkin
-        ClientViewModel.GetSkin = function(self)
-            local item = self.ClientItem
-            if not item then return OldGetSkin(self) end
-            local wName = item.Name
-            local wPlayer = item.ClientFighter and item.ClientFighter.Player
-            if wPlayer == player and Config[wName] and Config[wName].Skin then
-                return Config[wName].Skin
-            end
-            return OldGetSkin(self)
-        end
-    end
-
-    local OldNew = ClientViewModel.new
-    ClientViewModel.new = function(repData, clientItem)
-        if not clientItem then return OldNew(repData, clientItem) end
-        local wPlayer = clientItem.ClientFighter and clientItem.ClientFighter.Player
-        local wName   = clientItem.Name
-        if wPlayer == player and Config[wName] then
-            pcall(function()
-                local RC = require(ReplicatedStorage.Modules.ReplicatedClass)
-                local dk = RC:ToEnum("Data")
-                repData[dk] = repData[dk] or {}
-                local c = Config[wName]
-                if c.Skin    then repData[dk][RC:ToEnum("Skin")]    = c.Skin    end
-                if c.Wrap    then repData[dk][RC:ToEnum("Wrap")]    = c.Wrap    end
-                if c.Charm   then repData[dk][RC:ToEnum("Charm")]   = c.Charm   end
-            end)
-        end
-        local result = OldNew(repData, clientItem)
-        if result and wPlayer == player and Config[wName] then
-            local c = Config[wName]
-            pcall(function()
-                if c.Wrap and result._UpdateWrap then result:_UpdateWrap() end
-                if c.Skin and result._UpdateSkin then result:_UpdateSkin() end
-            end)
-        end
-        return result
-    end
-end)
-
-local function EquipCosmetic(weaponName, cosmeticName, cosmeticTypeProper)
-    if cosmeticName:lower() == "none" then
-        if Config[weaponName] then
-            Config[weaponName][cosmeticTypeProper] = nil
-            if not next(Config[weaponName]) then Config[weaponName] = nil end
-            WeaponData(weaponName)
-            ActiveWeapon()
-            SaveConfig()
-            pcall(function() CurrentData:Replicate("WeaponInventory") end)
-            if cosmeticTypeProper == "Skin" then
-                clearForcedSkinCachesForWeapon(weaponName)
-                pcall(EquipSkinInGame, weaponName, nil)
-                pcall(function()
-                    local char = player.Character
-                    if char then
-                        local wf = char:FindFirstChild("Weapons")
-                        if wf then
-                            local wm = wf:FindFirstChild(weaponName)
-                            if wm then
-                                local t = wm:FindFirstChild(SkinAppliedTag)
-                                if t then t:Destroy() end
-                            end
-                        end
-                    end
-                end)
-            end
-            task.defer(ActiveWeapon)
-        end
-        return
-    end
-    local cloned = CloneCosmetic(cosmeticName, cosmeticTypeProper)
-    if not cloned then return end
-    if not Config[weaponName] then Config[weaponName] = {} end
-    Config[weaponName][cosmeticTypeProper] = cloned
-    WeaponData(weaponName)
-    ActiveWeapon()
-    SaveConfig()
-    pcall(function() CurrentData:Replicate("WeaponInventory") end)
-    if cosmeticTypeProper == "Skin" then
-        pcall(EquipSkinInGame, weaponName, cosmeticName)
-        pcall(function()
-            local char = player.Character
-            if char then
-                local wf = char:FindFirstChild("Weapons")
-                if wf then
-                    local wm = wf:FindFirstChild(weaponName)
-                    if wm then
-                        local t = wm:FindFirstChild(SkinAppliedTag)
-                        if t then t:Destroy() end
-                    end
-                end
-            end
-        end)
-        pcall(function()
-            if ViewModels then
-                for _, vm in pairs(ViewModels:GetDescendants()) do
-                    if vm:IsA("Model") and vm.Name == weaponName then
-                        local t = vm:FindFirstChild(SkinAppliedTag)
-                        if t then t:Destroy() end
-                    end
-                end
-            end
-        end)
-    end
-    task.defer(ActiveWeapon)
-end
-
-local function WaitAssets(timeout)
-    local startTime = tick()
-    local assets, charmsFolder = nil, nil
-    while tick() - startTime < (timeout or 10) do
-        pcall(function()
-            local ps = player:FindFirstChild("PlayerScripts")
-            if ps then
-                assets = ps:FindFirstChild("Assets")
-                if assets then charmsFolder = assets:FindFirstChild("Charms") end
-            end
-        end)
-        if assets and charmsFolder then return assets, charmsFolder end
-        task.wait(0.1)
-    end
-    return assets, charmsFolder
-end
-
-local Assets, CharmsFolder = WaitAssets(15)
-
-if not CharmsFolder then
-    pcall(function()
-        local ss = StarterPlayer:WaitForChild("StarterPlayerScripts", 5)
-        if ss then
-            local sa = ss:FindFirstChild("Assets")
-            if sa then CharmsFolder = sa:FindFirstChild("Charms") end
-        end
-    end)
-end
-
-local function Hex2RGB(hex)
-    hex = hex:gsub("#", "")
-    local r = tonumber(hex:sub(1,2), 16) / 255
-    local g = tonumber(hex:sub(3,4), 16) / 255
-    local b = tonumber(hex:sub(5,6), 16) / 255
-    return Color3.new(r, g, b)
-end
-
-local Colors = { -- this the rarity colors dont change it unless you want to
-    Common      = Hex2RGB("6dda2d"),
-    Rare        = Hex2RGB("0097b0"),
-    Legendary   = Hex2RGB("c51314"),
-    Mythical    = Hex2RGB("7f7fff"),
-    Special     = Hex2RGB("ff9b00"),
-    Glorious    = Hex2RGB("e6ba67"),
-    Unobtainable = Hex2RGB("919296")
+--[[ Section / groupbox widget density (Obsidian-style: ~14px text, ~18–21px controls) ]]
+local UID = {
+	SectionHeaderH = 26,
+	SectionOuterPad = 6,
+	SectionHeaderInnerPad = 6,
+	SectionIcon = 16,
+	SectionTitle = 12,
+	BodyListPad = 8,
+	Chevron = 14,
+	--
+	ToggleRowH = 20,
+	ToggleTrackW = 32,
+	ToggleTrackH = 16,
+	ToggleKnob = 12,
+	ToggleLabelReserve = 38,
+	--[[ Inline keybind cap (Obsidian-style), sits between label and toggle track ]]
+	ToggleInlineKeyW = 52,
+	ToggleInlineKeyH = 18,
+	ToggleInlineKeyGap = 6,
+	--[[ Inline color swatch on toggle row (same band as key cap) ]]
+	ToggleInlineColorW = 18,
+	ToggleInlineColorH = 18,
+	FontWidget = 14,
+	--
+	SliderRowH = 34,
+	SliderTopH = 14,
+	SliderValW = 44,
+	SliderValH = 18,
+	SliderTrackY = 22,
+	SliderTrackH = 8,
+	SliderLblText = 13,
+	SliderValText = 12,
+	--
+	DropLblH = 14,
+	DropBtnH = 21,
+	DropBtnY = 15,
+	DropListY = 37,
+	DropBtnPad = 7,
+	DropBtnText = 13,
+	DropOptRow = 21,
+	DropSearchH = 24,
+	DropChev = 14,
+	--
+	InputRowH = 40,
+	InputLblH = 14,
+	InputBoxH = 21,
+	InputBoxY = 15,
+	InputBoxPad = 7,
+	InputLblText = 12,
+	InputBoxText = 13,
+	--
+	ButtonH = 21,
+	KeyRowH = 30,
+	KeyCapW = 100,
+	KeyCapH = 22,
+	AddLabelH = 16,
+	AddLabelText = 13,
+	--
+	ColorRowH = 38,
+	ColorLblH = 14,
+	ColorBarH = 21,
+	ColorBarY = 15,
+	ColorSwatch = 34,
+	--
+	TabboxStripH = 28,
+	TabboxBtnH = 20,
+	TabboxBtnText = 12,
 }
 
-local Order = { -- sort by u couuld make this better if u check the modules
-    Common=1, Rare=2, Legendary=3, Mythical=4,
-    Special=5, Glorious=6, Unobtainable=7
-}
--- get rarity function
-local function GetRarity(skin, weapon)
-    local common = {
-        "Phoenix Rifle","Compound Bow","Pine Burst","Spectral Burst","Crossbone",
-        "Cyber Distortion","Lamethrower","Boneblade","Crude Gunblade","Elf's Gunblade",
-        "Pumpkin Minigun","Wrapped Minigun","Ketchup Gun","Ice Permafrost","Snowman Permafrost",
-        "Pencil Launcher","Cactus Shotgun","Wrapped Shotgun","Eyething Sniper","Paper Planes",
-        "Shurikens","Midnight Festive Exogun","Wrapped Flare Gun","Gumball Handgun","Pumpkin Handgun",
-        "Towerstone Handgun","Warp Handgun","Lovely Shorty","Not So Shorty","Too Shorty",
-        "Wrapped Shorty","Goalpost","Stick","Lovely Spray","Nail Gun","Pine Spray",
-        "Pine Uzi","Ban Axe","Nordic Axe","Brass Knuckles","Festive Fists","Pumpkin Claws",
-        "Chancla","Machete","Ice Maul","Door","Sled","Tombstone Shield","Lightbulb",
-        "Skullbang","Wrapped Freeze Ray","Dynamite","Frozen Grenade","Spider Web","Trampoline",
-        "Coffee","Torch","Bag o' Money","Notebook Satchel","Suspicious Gift","Balance",
-        "DIY Tripmine","Trick or Treat","Mammoth Horn","Megaphone","Warpbone","Cyber Warpstone"
-    }
-    local rare = {
-        "AK-47","Boneclaw Rifle","Bat Bow","Dream Bow","Frostbite Bow","Raven Bow",
-        "Aqua Burst","Frostbite Crossbow","Harpoon Crossbow","Violin Crossbow","Electropunk Distortion",
-        "Magma Distortion","Plasma Distortion","Sleighstortion","New Year Energy Rifle","Apex Rifle",
-        "Hacker Rifle","Hydro Rifle","Glitterthrower","Jack O' Thrower","Snowblower",
-        "Gearnade Launcher","Snowball Launcher","Uranium Launcher","Brain Gun","Slime Gun",
-        "Snowball Gun","Squid Launcher","Broomstick","Gingerbread Sniper","Aces","Bat Daggers",
-        "Cookies","New Year Energy Pistols","Apex Pistols","Hacker Pistols","Hydro Pistols",
-        "Wondergun","Exogourd","Ray Gun","Dynamite Gun","Blaster","Gingerbread Handgun",
-        "Boneclaw Revolver","Desert Eagle","Demon Shorty","Boneshot","Reindeer Slingshot",
-        "Boneclaw Spray","Demon Uzi","Water Uzi","Electropunk Warper","Frost Warper","Glitter Warper",
-        "Cerulean Axe","Blobsaw","Fists of Hurt","Boxing Gloves","New Year Katana","Evil Trident",
-        "Lightning Bolt","Stellar Katana","Sleigh Maul","Energy Shield","Masterpiece",
-        "Anchor","Bat Scythe","Cryo Scythe","Sakura Scythe","Scythe of Death","Garden Shovel",
-        "Paintbrush","Plastic Shovel","Pumpkin Carver","Snow Shovel","Shining Star","Bubble Ray",
-        "Gum Ray","Jingle Grenade","Water Balloon","Bounce House","Jolly Man","Shady Chicken Sandwhich",
-        "Briefcase","Lava Lamp","Advanced Satchel","Potion Satchel","Hourglass","Snowglobe",
-        "Spring","Air Horn","Boneclaw Horn","Trumpet","Electropunk Warpstone","Unstable Warpstone"
-    }
-    local legendary = {
-        "AUG","Gingerbread AUG","Tommy Gun","Balloon Bow","Beloved Bow","Electro Rifle",
-        "FAMAS","Pixel Burst","Pixel Crossbow","Experiment D15","Soul Rifle","Void Rifle",
-        "Pixel Flamethrower","Rainbowthrower","Balloon Launcher","Skull Launcher","Swashbuckler",
-        "Gunsaw","Hyper Gunblade","Fighter Jet","Lasergun 3000","Pixel Minigun","Paintballoon Gun",
-        "Boba Gun","Firework Launcher","Nuke Launcher","Pumpkin Launcher","Rocket Launcher",
-        "Spaceship Launcher","Balloon Shotgun","Hyper Shotgun","Event Horizon","Hyper Sniper",
-        "Pixel Sniper","Broken Hearts","Hyperlaser Guns","Soul Pistols","Void Pistols",
-        "Repulsor","Singularity","Banana Flare","Firework Gun","Vexed Flare Gun","Hand-Gun",
-        "Pixel Handgun","Peppergun","Peppermint Sheriff","Sheriff","Balloon Shorty","Harp",
-        "Lucky Horseshoe","Spray Bottle","Electro Uzi","Money Gun","Arcane Warper","Experiment W4",
-        "Hotel Bell","Balloon Axe","Mimic Axe","The Shred","Buzzsaw","Festive Buzzsaw",
-        "Handsaws","Mega Drill","Fist","Linked Sword","Pixel Katana","Saber","Balisong",
-        "Candy Cane","Karambit","Caladbolg","Ban Hammer","Camera","Disco Ball","Pixel Flashbang",
-        "Spider Ray","Temporal Ray","Cuddle Bomb","Soul Grenade","Whoopee Cushion","Box of Chocolates",
-        "Bucket of Candy","Laptop","Milk & Cookies","Medkitty","Sandwich","Hot Coals",
-        "Vexed Candle","Emoji Cloud","Eyeball","Don't Press","Dev-in-the-Box","Pot o' Keys",
-        "Teleport Disc","Warpstar"
-    }
-    local mythical = {
-        "AKEY-47","Keybow","Keyst Rifle","Arch Crossbow","Keythrower","RPKey","Shotkey",
-        "Keyper","Keynais","Crystal Daggers","Keyvolver","Key Spray","Keyzi","Keyttle Axe",
-        "Arch Katana","Crystal Katana","Keytana","Keyrambit","Keylisong","Keythe","Crystal Scythe",
-        "Keynade","Arch Molotov","Warpeye"
-    }
-    local special = { "10B Visits" }
-    local glorious = {
-        "Glorious","Glorious Assault Rifle","Glorious Bow","Glorious Burst Rifle","Glorious Crossbow",
-        "Glorious Distortion","Glorious Energy Rifle","Glorious Flamethrower","Glorious Grenade Launcher",
-        "Glorious Gunblade","Glorious Minigun","Glorious Paintball Gun","Glorious Permafrost",
-        "Glorious RPG","Glorious Shotgun","Glorious Sniper","Glorious Daggers","Glorious Energy Pistols",
-        "Glorious Exogun","Glorious Flare Gun","Glorious Handgun","Glorious Revolver","Glorious Shorty",
-        "Glorious Slingshot","Glorious Spray","Glorious Uzi","Glorious Warper","Glorious Battle Axe",
-        "Glorious Chainsaw","Glorious Fists","Glorious Katana","Glorious Knife","Glorious Riot Shield",
-        "Glorious Scythe","Glorious Maul","Glorious Trowel","Glorious Flashbang","Glorious Freeze Ray",
-        "Glorious Grenade","Glorious Jump Pad","Glorious Medkit","Glorious Molotov","Glorious Satchel",
-        "Glorious Smoke Grenade","Glorious Subspace Tripmine","Glorious War Horn","Glorious Warpstone"
-    }
-    local unobtainable = { "Stealth Handgun","Armature.001","Bug Net" }
+Library.Toggles = {} :: { [string]: any }
+Library.Options = {} :: { [string]: any }
+--[[ When true, AddDropdown uses Multi = true unless the option explicitly sets Multi = false ]]
+Library.MultiDropdownByDefault = false
+Library.Unloaded = false
+Library._unloadCallbacks = {} :: { () -> () }
+Library._windowRefreshes = {} :: { () -> () }
+Library.NotifySide = "Right"
+Library.CornerRadius = 8
+Library.ToggleKeybind = nil
+Library._menuInputConn = nil :: RBXScriptConnection?
+Library._notifyList = nil :: Frame?
+Library._notifyOrder = 0
+Library._updateNotifyLayout = nil :: (() -> ())?
+Library._windowDestroy = nil :: (() -> ())?
+--[[ Per-toast refresh callbacks so notifications follow Library.Theme after ThemeManager:ApplyTheme ]]
+Library._notifyThemeRefreshes = {} :: { () -> () }
+Library._libFocusConn = nil :: RBXScriptConnection?
+Library._libFocusReleasedConn = nil :: RBXScriptConnection?
 
-    if table.find(common, skin)      then return "Common"      end
-    if table.find(rare, skin)        then return "Rare"        end
-    if table.find(legendary, skin)   then return "Legendary"   end
-    if table.find(mythical, skin)    then return "Mythical"    end
-    if table.find(special, skin)     then return "Special"     end
-    if table.find(glorious, skin)    then return "Glorious"    end
-    if table.find(unobtainable, skin) then return "Unobtainable" end
-    return "Common"
-end
+--[[ Theme paint cache: instances tagged with Ui* attrs; rebuilt on descendant changes (no full GetDescendants each RefreshTheme). ]]
+Library._themePaintHost = nil :: Instance?
+Library._themePaintValid = false
+Library._themePaintTagged = {} :: { { any } }
+Library._themePaintGroupbox = {} :: { Frame }
+Library._themePaintDropdownScroll = {} :: { ScrollingFrame }
+Library._themePaintSubConns = {} :: { RBXScriptConnection }
 
-local function SortSkins(list, weapon)
-    local with_rarity = {}
-    for _, name in ipairs(list) do
-        local r = GetRarity(name, weapon)
-        table.insert(with_rarity, {name=name, r_order=Order[r] or 1})
-    end
-    table.sort(with_rarity, function(a,b) return a.r_order < b.r_order end)
-    local sorted = {}
-    for _, item in ipairs(with_rarity) do table.insert(sorted, item.name) end
-    return sorted
-end
+--[[ Mobile / focus (Obsidian-style): touch clients, floating controls, drag lock ]]
+Library.IsMobile = false
+Library.DevicePlatform = nil :: Enum.Platform?
+Library.IsRobloxFocused = true
+Library.CantDragForced = false
 
-local WrapConfig = {
-    enabled    = false,
-    per_weapon = {},
-    inverted   = false
-}
-local WrappedCache = {}
-
-local function LocalFighter()
-    local ok, ctrl = pcall(require, player.PlayerScripts.Controllers.FighterController)
-    if not ok or not ctrl then return nil end
-    if ctrl.WaitForLocalFighter then
-        local ok2, lf = pcall(ctrl.WaitForLocalFighter, ctrl)
-        if ok2 then return lf end
-    end
-    return ctrl.LocalFighter
-end
-
-local function ForcedWrap(item)
-    if not WrapConfig.enabled or not item then return nil end
-    local weapon = item.Name
-    local data   = WrapConfig.per_weapon[weapon]
-    if not data or not data.name or data.name == '' or data.name == 'None' then return nil end
-    return { Name = data.name, Inverted = data.inverted or false }
-end
-
-local function ForceWrap(item)
-    if not item then return false end
-    local forced = ForcedWrap(item)
-    if not forced then return false end
-    if item.Set then pcall(item.Set, item, 'Wrap', forced) end
-    pcall(function() rawset(item, '_wrap', forced) end)
-    local vm = item.ViewModel
-    if vm then
-        if vm.Set then pcall(vm.Set, vm, 'Wrap', forced) end
-        pcall(function() rawset(vm, '_wrap', forced) end)
-        if vm._UpdateWrap then pcall(vm._UpdateWrap, vm)
-        elseif vm.UpdateWrap then pcall(vm.UpdateWrap, vm) end
-    end
-    if item.ClientFighter and item.ClientFighter.Set then
-        pcall(item.ClientFighter.Set, item.ClientFighter, 'Wrap', forced)
-    end
-    return true
-end
-
-local function WrapAll()
-    local lf = LocalFighter()
-    if not lf then return end
-    local inv = nil
-    if lf.Get then
-        local ok, i = pcall(lf.Get, lf, 'Inventory')
-        if ok then inv = i end
-    end
-    if not inv and rawget(lf, 'Inventory') then inv = lf.Inventory end
-    if not inv then return end
-    for i = 1, 10 do
-        local item = nil
-        if inv.Get then
-            local ok, slot = pcall(inv.Get, inv, i)
-            if ok then item = slot end
-        elseif inv[i] then
-            item = inv[i]
-        end
-        if item then
-            if ForceWrap(item) then WrappedCache[item] = true end
-        end
-    end
-    local equipped = lf.EquippedItem
-    if equipped then ForceWrap(equipped) end
-end
-
-local function WrapEquipped()
-    local lf = LocalFighter()
-    if not lf then return end
-    local item = lf.EquippedItem
-    if not item and type(lf.Get) == 'function' then
-        local ok, res = pcall(lf.Get, lf, 'EquippedItem')
-        if ok then item = res end
-    end
-    if item then ForceWrap(item) end
-end
-
-local function HookFighter()
-    local lf = LocalFighter()
-    if not lf or lf.__wrapFighterHooked then return end
-    lf.__wrapFighterHooked = true
-    if lf.EquippedItemChanged and lf.EquippedItemChanged.Connect then
-        lf.EquippedItemChanged:Connect(function(item)
-            if item then task.wait(0.05); ForceWrap(item) end
-        end)
-    end
-    if lf.EquippedItem then WrapEquipped() end
-    task.spawn(function()
-        wait(0.5)
-        if WrapConfig.enabled then WrapAll() end
-    end)
-end
-
-task.spawn(function()
-    while task.wait(0.3) do
-        pcall(function()
-            HookFighter()
-            if WrapConfig.enabled then WrapAll() end
-        end)
-    end
-end)
-
-local function UpdateWraps()
-    if WrapConfig.enabled then
-        WrappedCache = {}
-        WrapAll()
-        WrapEquipped()
-    end
-end
-
-RunService.Heartbeat:Connect(ActiveWeapon)
-
-task.wait(5)
-local psAssets = player:FindFirstChild("PlayerScripts")
-if not psAssets then return end
-
-local function WaitChild(parent, name, timeout)
-    timeout = timeout or 5
-    local start = tick()
-    while tick() - start < timeout do
-        local child = parent:FindFirstChild(name)
-        if child then return child end
-        task.wait(0.1)
-    end
-    return nil
-end
-
-local Assets      = WaitChild(psAssets, "Assets", 10)
-local ViewModels  = Assets and WaitChild(Assets, "ViewModels", 10)
-if not ViewModels then return end
-
-local StarterPlayerScripts = game:GetService("StarterPlayer"):FindFirstChild("StarterPlayerScripts")
-local starter_assets = StarterPlayerScripts and WaitChild(StarterPlayerScripts, "Assets", 10)
-local starter_views  = starter_assets and WaitChild(starter_assets, "ViewModels", 10)
-
--- §05 WEAPON LISTS, BUCKETS, GetSkins/GetWraps/GetWeapons -------------------
-local excluded = { ["Glass Cannon"]=true, ["Glast Shard"]=true, ["Elixir"]=true, ["Scepter"]=true }
-
---[[ Buckets for Skins/Wraps/Charms UI; overrides ItemLib.Type when needed. ]]
-local WEAPON_CATEGORY_OVERRIDES = {
-	["Flamethrower"] = "Gun",
-	["Warper"] = "Gun",
-	["Jump Pad"] = "Throwable",
-	["Medkit"] = "Throwable",
-	["Subspace Tripmine"] = "Throwable",
-	["War Horn"] = "Throwable",
-}
-
-local function resolveWeaponCategory(itemName, itemData)
-	local o = WEAPON_CATEGORY_OVERRIDES[itemName]
-	if o then
-		return o
-	end
-	if itemData then
-		local t = itemData.Type
-		if t == "Gun" or t == "Melee" or t == "Throwable" then
-			return t
-		end
-	end
-	return "Other"
-end
-
-local function shouldIncludeWeaponFromItemLib(name, data)
-	if WEAPON_CATEGORY_OVERRIDES[name] then
-		return true
-	end
-	if data and (data.Type == "Gun" or data.Type == "Melee" or data.Type == "Throwable") then
-		return true
-	end
-	return false
-end
-
-local function insertWeaponByCategory(cat, name, guns, melees, utils, extras)
-	if cat == "Gun" then
-		table.insert(guns, name)
-	elseif cat == "Melee" then
-		table.insert(melees, name)
-	elseif cat == "Throwable" then
-		table.insert(utils, name)
-	else
-		table.insert(extras, name)
-	end
-end
-
-local function EquipSkinInGame(weaponName, skinName)
-    if not ItemLib or not CosmeticLib then return false end
-    local viewmodels = ItemLib.ViewModels
-    local cosmetics  = CosmeticLib.Cosmetics
-    local ogVM = viewmodels and viewmodels[weaponName]
-    if not ogVM then return false end
-
-    if not skinName or skinName == "" or skinName == "None" then
-        return true
-    end
-
-    local skinCosmetic = cosmetics and cosmetics[skinName]
-    if not skinCosmetic or skinCosmetic.Type ~= "Skin" then return false end
-
-    local skinVM = viewmodels and viewmodels[skinName]
-    if not skinVM then return false end
-
-    ogVM.Image                    = skinVM.Image                    or ogVM.Image
-    ogVM.ImageHighResolution      = skinVM.ImageHighResolution      or ogVM.ImageHighResolution
-    ogVM.ImageCentered            = skinVM.ImageCentered            or ogVM.ImageCentered
-    ogVM.EliminationFeedImage     = skinVM.EliminationFeedImage     or ogVM.EliminationFeedImage
-    ogVM.EliminationFeedImageScale = skinVM.EliminationFeedImageScale or ogVM.EliminationFeedImageScale
-    ogVM.RootPartOffset           = skinVM.RootPartOffset           or ogVM.RootPartOffset
-
-    ogVM.Animations = {}
-    for animType, animName in pairs(skinVM.Animations or {}) do
-        ogVM.Animations[animType] = animName
-    end
-    return true
-end
-
-local function ApplySkinModelToWeapon(wModel, skinName)
-    if not skinName or skinName == "" or skinName == "None" then return end
-    if not starter_views then return end
-    local skinModel = starter_views:FindFirstChild(skinName, true)
-    if not skinModel or not skinModel:IsA("Model") then return end
-    wModel:ClearAllChildren()
-    for _, part in ipairs(skinModel:GetChildren()) do
-        part:Clone().Parent = wModel
-    end
-end
-
-
-local function GetWeapons()
-    local seen = {}
-    local guns, melees, utils, extras = {}, {}, {}, {}
-
-    if ItemLib and ItemLib.Items then
-        for name, data in pairs(ItemLib.Items) do
-            if excluded[name] then continue end
-            if name == "MISSING_WEAPON" or name == "MISSING_SKIN" then continue end
-            if not shouldIncludeWeaponFromItemLib(name, data) then continue end
-            seen[name] = true
-            local cat = resolveWeaponCategory(name, data)
-            insertWeaponByCategory(cat, name, guns, melees, utils, extras)
-        end
-    end
-
-    if CosmeticLib and CosmeticLib.Cosmetics then
-        for _, data in pairs(CosmeticLib.Cosmetics) do
-            if data.Type == "Skin" and data.ItemName then
-                local n = data.ItemName
-                if not seen[n] and not excluded[n] and n ~= "MISSING_WEAPON" then
-                    seen[n] = true
-                    local itemData = ItemLib and ItemLib.Items and ItemLib.Items[n]
-                    local cat = resolveWeaponCategory(n, itemData)
-                    insertWeaponByCategory(cat, n, guns, melees, utils, extras)
-                end
-            end
-        end
-    end
-
-    table.sort(guns); table.sort(melees); table.sort(utils); table.sort(extras)
-    local all = {}
-    for _, w in ipairs(guns)   do table.insert(all, w) end
-    for _, w in ipairs(melees) do table.insert(all, w) end
-    for _, w in ipairs(utils)  do table.insert(all, w) end
-    for _, w in ipairs(extras) do table.insert(all, w) end
-    return all
-end
-
-local function GetSkins(weapon)
-    local skins = {}
-    if CosmeticLib and CosmeticLib.Cosmetics then
-        for name, data in pairs(CosmeticLib.Cosmetics) do
-            if data.Type == "Skin" and data.ItemName == weapon and name ~= "MISSING_SKIN" then
-                local display = name
-                if display == "Glorious Assault Rifle" then display = "Glorious AR" end
-                table.insert(skins, display)
-            end
-        end
-    end
-    return SortSkins(skins, weapon)
-end
-
-local function GetAllWraps()
-    local wraps = {}
-    if CosmeticLib and CosmeticLib.Cosmetics then
-        for name, data in pairs(CosmeticLib.Cosmetics) do
-            if data.Type == "Wrap" then table.insert(wraps, name) end
-        end
-    end
-    table.sort(wraps)
-    return wraps
-end
-
-local function GetAllCharms()
-    local charms = {}
-    if CosmeticLib and CosmeticLib.Cosmetics then
-        for name, data in pairs(CosmeticLib.Cosmetics) do
-            if data.Type == "Charm" then table.insert(charms, name) end
-        end
-    end
-    table.sort(charms)
-    return charms
-end
-
---[[ Split weapon list for Obsidian-style skin rows (one dropdown per gun). ]]
-local function GetWeaponsPartitioned()
-    local guns, melees, utils, extras = {}, {}, {}, {}
-    for _, w in ipairs(GetWeapons()) do
-        local itemData = ItemLib and ItemLib.Items and ItemLib.Items[w]
-        local cat = resolveWeaponCategory(w, itemData)
-        insertWeaponByCategory(cat, w, guns, melees, utils, extras)
-    end
-    return guns, melees, utils, extras
-end
-
-local function skinDisplayToReal(display)
-    if display == "Glorious AR" then return "Glorious Assault Rifle" end
-    return display
-end
-
-local function skinDropdownIdx(weaponName)
-    local base = string.gsub(weaponName, "[^%w]", "_")
-    local idx = "SkinW_" .. base
-    if #idx > 72 then
-        idx = "SkinW_" .. tostring(#weaponName) .. "_" .. string.sub(base, 1, 50)
-    end
-    return idx
-end
-
--- §06 ACIDHUB UI — remote fallback + Library load ----------------------------
-local repo = "https://raw.githubusercontent.com/justhereforagoodtime42/library/refs/heads/main/"
-
-local function tryLoadfile(path)
-	local lf = loadfile
-	if type(lf) ~= "function" then
-		return nil
-	end
-	local okChunk, chunk = pcall(lf, path)
-	if not okChunk or type(chunk) ~= "function" then
-		return nil
-	end
-	local ok, res = pcall(chunk)
-	return ok and res or nil
-end
-
--- HttpGet can fail or return nil (blocked / rate limit); never pass nil to loadstring
-local function httpGetString(url)
-	local ok, body = pcall(function()
-		return game:HttpGet(url)
-	end)
-	if not ok or type(body) ~= "string" or body == "" then
-		return nil
-	end
-	return body
-end
-
-local function loadRemoteLua(url, label)
-	local src = httpGetString(url)
-	if not src then
-		error(
-			"[AcidHub] "
-				.. (label or "script")
-				.. " failed to download (HttpGet empty or blocked). Use local files via loadfile or check URL: "
-				.. tostring(url),
-			0
-		)
-	end
-	local fn, err = loadstring(src, label or "remote")
-	if not fn then
-		error("[AcidHub] loadstring failed: " .. tostring(err), 0)
-	end
-	return fn()
-end
-
-local Library = tryLoadfile("ui/library.lua")
-if not Library then
-	Library = loadRemoteLua(repo .. "main.lua", "main.lua")
-end
-local ThemeManager = tryLoadfile("ui/addons/ThemeManager.lua")
-if not ThemeManager then
-	ThemeManager = loadRemoteLua(repo .. "thememanager", "thememanager")
-end
-local SaveManager = tryLoadfile("ui/addons/SaveManager.lua")
-if not SaveManager then
-	SaveManager = loadRemoteLua(repo .. "savemanager", "savemanager")
-end
-
-local Options = Library.Options
-local Toggles = Library.Toggles
-local genv = (getgenv or function()
-	return shared
-end)()
-if genv == nil then
-	genv = shared
-end
-genv.AcidHubLibrary = Library
-
--- §07 UI HELPERS — per-weapon dropdowns (Skins / Wraps / Charms) ------------
-local function addSkinDropdownForWeapon(weaponName, group)
-	local skins = GetSkins(weaponName)
-	if #skins == 0 then
-		return false
-	end
-	local opts = { "None" }
-	for _, s in ipairs(skins) do
-		table.insert(opts, s)
-	end
-	local defaultIx = 1
-	local cfg = Config[weaponName]
-	if cfg and cfg.Skin and cfg.Skin.Name then
-		local rn = cfg.Skin.Name
-		for i = 2, #opts do
-			local disp = opts[i]
-			if skinDisplayToReal(disp) == rn or disp == rn then
-				defaultIx = i
-				break
-			end
-		end
-	end
-	local idx = skinDropdownIdx(weaponName)
-	group:AddDropdown({
-		Text = weaponName,
-		Options = opts,
-		Default = defaultIx,
-		Idx = idx,
-	})
-	local reg = Options[idx]
-	if reg and reg.OnChanged then
-		reg:OnChanged(function()
-			local v = reg.Value
-			if v == "None" then
-				EquipCosmetic(weaponName, "None", "Skin")
-			else
-				EquipCosmetic(weaponName, skinDisplayToReal(v), "Skin")
-			end
-		end)
-	end
-	return true
-end
-
-local function wrapDropdownIdx(weaponName)
-	local base = string.gsub(weaponName, "[^%w]", "_")
-	local idx = "WrapW_" .. base
-	if #idx > 72 then
-		idx = "WrapW_" .. tostring(#weaponName) .. "_" .. string.sub(base, 1, 50)
-	end
-	return idx
-end
-
-local function charmDropdownIdx(weaponName)
-	local base = string.gsub(weaponName, "[^%w]", "_")
-	local idx = "CharmW_" .. base
-	if #idx > 72 then
-		idx = "CharmW_" .. tostring(#weaponName) .. "_" .. string.sub(base, 1, 50)
-	end
-	return idx
-end
-
-local function addWrapDropdownForWeapon(weaponName, group)
-	local wraps = GetAllWraps()
-	local opts = { "None" }
-	for _, w in ipairs(wraps) do
-		table.insert(opts, w)
-	end
-	local defaultIx = 1
-	local stored = WrapConfig.per_weapon[weaponName]
-	if stored and stored.name and stored.name ~= "" and stored.name ~= "None" then
-		for i = 2, #opts do
-			if opts[i] == stored.name then
-				defaultIx = i
-				break
-			end
-		end
-	end
-	local idx = wrapDropdownIdx(weaponName)
-	group:AddDropdown({
-		Text = weaponName,
-		Options = opts,
-		Default = defaultIx,
-		Idx = idx,
-	})
-	local reg = Options[idx]
-	if reg and reg.OnChanged then
-		reg:OnChanged(function()
-			local v = reg.Value
-			if v == "None" then
-				WrapConfig.per_weapon[weaponName] = nil
-			else
-				WrapConfig.per_weapon[weaponName] = {
-					name = v,
-					inverted = Toggles.WrapInvert.Value,
-				}
-			end
-			WrapConfig.enabled = next(WrapConfig.per_weapon) ~= nil
-			UpdateWraps()
-		end)
-	end
-	return true
-end
-
-local function addCharmDropdownForWeapon(weaponName, group)
-	local charms = GetAllCharms()
-	local opts = { "None" }
-	for _, c in ipairs(charms) do
-		table.insert(opts, c)
-	end
-	local defaultIx = 1
-	local cfg = Config[weaponName]
-	if cfg and cfg.Charm and cfg.Charm.Name then
-		local cn = cfg.Charm.Name
-		for i = 2, #opts do
-			if opts[i] == cn then
-				defaultIx = i
-				break
-			end
-		end
-	end
-	local idx = charmDropdownIdx(weaponName)
-	group:AddDropdown({
-		Text = weaponName,
-		Options = opts,
-		Default = defaultIx,
-		Idx = idx,
-	})
-	local reg = Options[idx]
-	if reg and reg.OnChanged then
-		reg:OnChanged(function()
-			local v = reg.Value
-			if v == "None" then
-				EquipCosmetic(weaponName, "None", "Charm")
-			else
-				EquipCosmetic(weaponName, v, "Charm")
-			end
-		end)
-	end
-	return true
-end
-
--- §08 WINDOW & TAB REFERENCES -----------------------------------------------
-local Window = Library.new({
-	Title = "AcidHub",
-	Subtitle = "Rivals | v1.0 | discord.gg/acidhub",
-	TitleIcon = 114741603622587,
-	Size = Vector2.new(640, 560),
-	NotifySide = "Right",
-	MultiDropdownByDefault = false,
-})
-
-local Tabs = {
-    Main = Window:AddTab({ Name = "Main", Icon = "crosshair", SplitColumns = true }),
-    Visuals = Window:AddTab({ Name = "Visuals", Icon = "eye", SplitColumns = true }),
-	Skins = Window:AddTab({ Name = "Skins", Icon = "bow-arrow", SplitColumns = true }),
-	Wraps = Window:AddTab({ Name = "Wraps", Icon = "sticky-note", SplitColumns = true }),
-	Charms = Window:AddTab({ Name = "Charms", Icon = "banana", SplitColumns = true }),
-	["UI Settings"] = Window:AddTab({ Name = "UI Settings", Icon = "settings", SplitColumns = true }),
-}
-
--- §09 MAIN TAB — Aimbot tabbox (Silent Aim + Aimbot) -------------------------
-local Rivals_UnloadSilentAim
-local Rivals_UnloadWeaponMods
 do
-local AimbotTabbox = Tabs.Main:AddLeftTabbox("Aimbot")
-local SilentAimTabPage = AimbotTabbox:AddTab("Silent Aim")
-local AimbotSubTabPage = AimbotTabbox:AddTab("Aimbot")
+	if RunService:IsStudio() then
+		Library.IsMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+	else
+		pcall(function()
+			Library.DevicePlatform = UserInputService:GetPlatform()
+		end)
+		Library.IsMobile = (Library.DevicePlatform == Enum.Platform.Android or Library.DevicePlatform == Enum.Platform.IOS)
+	end
+end
 
-local SilentAimSettings = {
-	Enabled = false,
-	ClassName = "AcidHub",
-	ToggleKey = "",
-	TeamCheck = false,
-	VisibleCheck = false,
-	TargetPart = "HumanoidRootPart",
-	FOVRadius = 130,
-	FOVVisible = false,
-	HitChance = 100,
-}
---[[ Aimbot: viewport FOV + optional wall LOS + mouse movement (mousemoverel). ]]
-local AimbotSettings = {
-	Enabled = false,
-	WallCheck = false,
-	FOVCircleVisible = false,
-	Fov = 120,
-	FovColor = Color3.fromRGB(255, 255, 255),
-	SmoothingEnabled = true,
-	Smoothing = 0,
-	TeamCheck = false,
-	AimPart = "Head",
-	Key = Enum.UserInputType.MouseButton2,
-	KeyName = "MouseButton2",
-	PredictionEnabled = false,
-	PredictionAmount = 0,
-}
-genv.SilentAimSettings = SilentAimSettings
-genv.AimbotSettings = AimbotSettings
-
-genv.RivalsWeaponMods = {
-	RapidFire = false,
-	RapidFireSpeed = 0.01,
-	NoRecoil = false,
-	RecoilReduction = 100,
-	NoSpread = false,
-	NoWeaponBob = false,
-	InstantADS = false,
-	InfiniteAmmo = false,
-	InstantBulletTravel = false,
-	GunModule = nil,
-	GameplayUtility = nil,
-	ViewModelModule = nil,
-	OriginalStartShooting = nil,
-	OriginalRecoil = nil,
-	OriginalStartAiming = nil,
-	OriginalGetAimSpeed = nil,
-	OriginalLocalTracers = nil,
-	OriginalGetSpread = nil,
-	OriginalViewModelNew = nil,
-}
-
-task.spawn(function()
-	local success, GunModule = pcall(function()
-		return require(player.PlayerScripts.Modules.ItemTypes.Gun)
+if Library._libFocusConn == nil then
+	Library._libFocusConn = UserInputService.WindowFocused:Connect(function()
+		Library.IsRobloxFocused = true
 	end)
-	if not success or not GunModule then
+	Library._libFocusReleasedConn = UserInputService.WindowFocusReleased:Connect(function()
+		Library.IsRobloxFocused = false
+	end)
+end
+
+function Library:OnUnload(fn: () -> ())
+	if typeof(fn) == "function" then
+		table.insert(self._unloadCallbacks, fn)
+	end
+end
+
+--[[ Obsidian Library.lua: connection registry for Unload (same pattern as upstream) ]]
+Library.Signals = {} :: { RBXScriptConnection | RBXScriptSignal }
+Library.NotifyOnError = false
+Library.MinSize = Vector2.new(1, 1)
+
+function Library:GiveSignal(Connection: RBXScriptConnection | RBXScriptSignal)
+	local ConnectionType = typeof(Connection)
+	if Connection and (ConnectionType == "RBXScriptConnection" or ConnectionType == "RBXScriptSignal") then
+		table.insert(Library.Signals, Connection)
+	end
+	return Connection
+end
+
+function Library:SafeCallback(Func: (...any) -> ...any, ...: any)
+	if not (Func and typeof(Func) == "function") then
 		return
 	end
-	local R = genv.RivalsWeaponMods
-	R.GunModule = GunModule
-	if GunModule.StartShooting then
-		R.OriginalStartShooting = GunModule.StartShooting
-		GunModule.StartShooting = function(self, p26, p27)
-			local useRapidFire = R.RapidFire
-			local useInfiniteAmmo = R.InfiniteAmmo
-			if useInfiniteAmmo then
-				local currentAmmo = self:Get("Ammo")
-				if currentAmmo <= 0 then
-					self:SetReplicate("Ammo", self.Info.MaxAmmo)
+	local Result = table.pack(xpcall(Func, function(Error)
+		task.defer(error, debug.traceback(Error, 2))
+		if Library.NotifyOnError then
+			pcall(Library.Notify, Library, tostring(Error))
+		end
+		return Error
+	end, ...))
+	if not Result[1] then
+		return nil
+	end
+	return table.unpack(Result, 2, Result.n)
+end
+
+local function IsMouseInput(Input: InputObject, IncludeM2: boolean?): boolean
+	return Input.UserInputType == Enum.UserInputType.MouseButton1
+		or (IncludeM2 == true and Input.UserInputType == Enum.UserInputType.MouseButton2)
+		or Input.UserInputType == Enum.UserInputType.Touch
+end
+local function IsClickInput(Input: InputObject, IncludeM2: boolean?): boolean
+	return IsMouseInput(Input, IncludeM2)
+		and Input.UserInputState == Enum.UserInputState.Begin
+		and Library.IsRobloxFocused
+end
+local function IsHoverInput(Input: InputObject): boolean
+	return (Input.UserInputType == Enum.UserInputType.MouseMovement or Input.UserInputType == Enum.UserInputType.Touch)
+		and Input.UserInputState == Enum.UserInputState.Change
+end
+
+--[[ Obsidian-equivalent resize math + AcidHub mitigations:
+    (1) Coalesce `UI.Size` to at most once per Heartbeat — high-DPI mice fire InputChanged far above layout Hz.
+    (2) Optional `layoutFreezeRoot`: snapshot + freeze AutomaticCanvasSize / AutomaticSize under that subtree
+    while dragging so the engine does not re-measure hundreds of auto nodes every size tick. ]]
+function Library:MakeResizable(
+	UI: GuiObject,
+	DragFrame: GuiObject,
+	Callback: (() -> ())?,
+	connectionsSink: { RBXScriptConnection }?,
+	layoutFreezeRoot: Instance?
+)
+	type ResizeLayoutSnap =
+		{ kind: "canvas", sf: ScrollingFrame, automatic: Enum.AutomaticSize, canvasPos: Vector2 }
+		| { kind: "frame", go: GuiObject, automatic: Enum.AutomaticSize, size: UDim2 }
+
+	local StartPos: Vector3
+	local FrameSize: UDim2
+	local Dragging = false
+	local Changed: RBXScriptConnection?
+	local layoutSnaps: { ResizeLayoutSnap } = {}
+	local pendingSize: UDim2? = nil
+	local heartbeatConn: RBXScriptConnection? = nil
+
+	local function restoreLayoutFreeze()
+		for _, snap in layoutSnaps do
+			if snap.kind == "canvas" then
+				local sf = snap.sf
+				if sf.Parent then
+					sf.AutomaticCanvasSize = Enum.AutomaticSize.None
+					sf.CanvasSize = UDim2.new(0, 0, 0, 0)
+					sf.AutomaticCanvasSize = snap.automatic
+					sf.CanvasPosition = snap.canvasPos
+				end
+			else
+				local go = snap.go
+				if go.Parent then
+					go.Size = snap.size
+					go.AutomaticSize = snap.automatic
 				end
 			end
-			local oldShootCooldown, oldBurstCooldown
-			if useRapidFire then
-				oldShootCooldown = self.Info.ShootCooldown
-				oldBurstCooldown = self.Info.ShootBurstCooldown
-				self.Info.ShootCooldown = R.RapidFireSpeed or 0.01
-				self.Info.ShootBurstCooldown = R.RapidFireSpeed or 0.01
+		end
+		table.clear(layoutSnaps)
+	end
+
+	local function suspendLayoutFreeze(root: Instance)
+		restoreLayoutFreeze()
+		local function visitPost(inst: Instance)
+			for _, ch in inst:GetChildren() do
+				visitPost(ch)
 			end
-			local result = { R.OriginalStartShooting(self, p26, p27) }
-			if useRapidFire then
-				self.Info.ShootCooldown = oldShootCooldown
-				self.Info.ShootBurstCooldown = oldBurstCooldown
+			if inst:IsA("ScrollingFrame") then
+				local sf = inst :: ScrollingFrame
+				local cauto = sf.AutomaticCanvasSize
+				if cauto ~= Enum.AutomaticSize.None then
+					local abs = sf.AbsoluteCanvasSize
+					table.insert(layoutSnaps, {
+						kind = "canvas",
+						sf = sf,
+						automatic = cauto,
+						canvasPos = sf.CanvasPosition,
+					})
+					sf.AutomaticCanvasSize = Enum.AutomaticSize.None
+					sf.CanvasSize = UDim2.new(
+						0,
+						math.max(1, math.floor(abs.X)),
+						0,
+						math.max(1, math.floor(abs.Y))
+					)
+				end
 			end
-			return table.unpack(result)
+			if inst:IsA("GuiObject") then
+				local go = inst :: GuiObject
+				local auto = go.AutomaticSize
+				if auto ~= Enum.AutomaticSize.None then
+					local abs = go.AbsoluteSize
+					table.insert(layoutSnaps, {
+						kind = "frame",
+						go = go,
+						automatic = auto,
+						size = go.Size,
+					})
+					go.AutomaticSize = Enum.AutomaticSize.None
+					go.Size = UDim2.fromOffset(math.max(1, math.floor(abs.X)), math.max(1, math.floor(abs.Y)))
+				end
+			end
+		end
+		visitPost(root)
+	end
+
+	local function stopHeartbeat()
+		if heartbeatConn then
+			heartbeatConn:Disconnect()
+			heartbeatConn = nil
 		end
 	end
-	if GunModule._Recoil then
-		R.OriginalRecoil = GunModule._Recoil
-		GunModule._Recoil = function(self, multiplier)
-			if R.NoRecoil then
-				local reduction = R.RecoilReduction or 100
-				local newMultiplier = multiplier * (1 - reduction / 100)
-				if newMultiplier <= 0.001 then
+
+	local function flushPendingSize()
+		local sz = pendingSize
+		pendingSize = nil
+		stopHeartbeat()
+		if sz and UI.Parent then
+			UI.Size = sz
+			if Callback then
+				Library:SafeCallback(Callback)
+			end
+		end
+	end
+
+	local function scheduleSize(newSize: UDim2)
+		pendingSize = newSize
+		if heartbeatConn then
+			return
+		end
+		heartbeatConn = RunService.Heartbeat:Connect(function()
+			if not Dragging then
+				pendingSize = nil
+				stopHeartbeat()
+				return
+			end
+			local sz = pendingSize
+			pendingSize = nil
+			stopHeartbeat()
+			if sz and UI.Parent then
+				UI.Size = sz
+				if Callback then
+					Library:SafeCallback(Callback)
+				end
+			end
+		end)
+	end
+
+	local function endResizeSession()
+		flushPendingSize()
+		restoreLayoutFreeze()
+	end
+
+	DragFrame.InputBegan:Connect(function(Input: InputObject)
+		if Library.CantDragForced then
+			return
+		end
+		if not IsClickInput(Input) then
+			return
+		end
+
+		StartPos = Input.Position
+		FrameSize = UI.Size
+		Dragging = true
+
+		if layoutFreezeRoot then
+			suspendLayoutFreeze(layoutFreezeRoot)
+		end
+
+		if Changed and Changed.Connected then
+			Changed:Disconnect()
+			Changed = nil
+		end
+		Changed = Input.Changed:Connect(function()
+			if Input.UserInputState ~= Enum.UserInputState.End then
+				return
+			end
+
+			Dragging = false
+			endResizeSession()
+			if Changed and Changed.Connected then
+				Changed:Disconnect()
+				Changed = nil
+			end
+		end)
+	end)
+
+	local inputConn = UserInputService.InputChanged:Connect(function(Input: InputObject)
+		if Library.CantDragForced then
+			Dragging = false
+			endResizeSession()
+			if Changed and Changed.Connected then
+				Changed:Disconnect()
+				Changed = nil
+			end
+			return
+		end
+		if not UI.Visible then
+			Dragging = false
+			endResizeSession()
+			if Changed and Changed.Connected then
+				Changed:Disconnect()
+				Changed = nil
+			end
+			return
+		end
+		local winGui = UI:FindFirstAncestorOfClass("ScreenGui")
+		if not (winGui and winGui.Parent) then
+			Dragging = false
+			endResizeSession()
+			if Changed and Changed.Connected then
+				Changed:Disconnect()
+				Changed = nil
+			end
+			return
+		end
+
+		if Dragging and IsHoverInput(Input) then
+			local Delta = Input.Position - StartPos
+			local minV = Library.MinSize
+			local nextSize = UDim2.new(
+				FrameSize.X.Scale,
+				math.clamp(FrameSize.X.Offset + Delta.X, minV.X, math.huge),
+				FrameSize.Y.Scale,
+				math.clamp(FrameSize.Y.Offset + Delta.Y, minV.Y, math.huge)
+			)
+			scheduleSize(nextSize)
+		end
+	end)
+
+	if connectionsSink then
+		table.insert(connectionsSink, inputConn)
+	else
+		Library:GiveSignal(inputConn)
+	end
+end
+
+function Library:RefreshTheme()
+	for _, fn in self._windowRefreshes do
+		pcall(fn)
+	end
+	for _, fn in self._notifyThemeRefreshes do
+		pcall(fn)
+	end
+end
+
+function Library:InvalidateThemePaintCache()
+	self._themePaintValid = false
+end
+
+function Library:_disconnectThemePaintSubscribers()
+	for _, c in self._themePaintSubConns do
+		pcall(function()
+			c:Disconnect()
+		end)
+	end
+	table.clear(self._themePaintSubConns)
+end
+
+function Library:_subscribeThemePaintHost(host: Instance)
+	if self._themePaintHost == host and #self._themePaintSubConns > 0 then
+		return
+	end
+	self:_disconnectThemePaintSubscribers()
+	self._themePaintHost = host
+	local function bump()
+		self:InvalidateThemePaintCache()
+	end
+	table.insert(self._themePaintSubConns, host.DescendantAdded:Connect(bump))
+	table.insert(self._themePaintSubConns, host.DescendantRemoving:Connect(bump))
+end
+
+function Library:_rebuildThemePaintList(host: Instance)
+	local T = self.Theme
+	table.clear(self._themePaintTagged)
+	table.clear(self._themePaintGroupbox)
+	table.clear(self._themePaintDropdownScroll)
+	for _, d in host:GetDescendants() do
+		if d:IsA("UIStroke") then
+			local sk = d:GetAttribute("UiStroke")
+			if typeof(sk) == "string" and typeof(T[sk]) == "Color3" then
+				table.insert(self._themePaintTagged, { "stroke", d, sk })
+			end
+		end
+		if d:IsA("GuiObject") then
+			local bgk = d:GetAttribute("UiBg")
+			if typeof(bgk) == "string" and typeof(T[bgk]) == "Color3" then
+				table.insert(self._themePaintTagged, { "bg", d, bgk })
+			end
+			local tx = d:GetAttribute("UiText")
+			if typeof(tx) == "string" and typeof(T[tx]) == "Color3" then
+				if d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox") then
+					table.insert(self._themePaintTagged, { "text", d, tx })
+				end
+			end
+			local ph = d:GetAttribute("UiPlaceholder")
+			if typeof(ph) == "string" and typeof(T[ph]) == "Color3" and d:IsA("TextBox") then
+				table.insert(self._themePaintTagged, { "ph", d, ph })
+			end
+			local ik = d:GetAttribute("UiImg")
+			if typeof(ik) == "string" and typeof(T[ik]) == "Color3" then
+				if d:IsA("ImageLabel") or d:IsA("ImageButton") then
+					table.insert(self._themePaintTagged, { "img", d, ik })
+				end
+			end
+		end
+		if d:IsA("Frame") and d:GetAttribute("UiBg") == "Groupbox" then
+			table.insert(self._themePaintGroupbox, d)
+		end
+		if d.Name == "DropdownScroll" and d:IsA("ScrollingFrame") then
+			table.insert(self._themePaintDropdownScroll, d :: ScrollingFrame)
+		end
+	end
+	self._themePaintValid = true
+end
+
+function Library:_paintThemeContentHost(host: Instance)
+	local T = self.Theme
+	if not self._themePaintValid or self._themePaintHost ~= host then
+		self:_subscribeThemePaintHost(host)
+		self:_rebuildThemePaintList(host)
+	end
+	for _, e in self._themePaintTagged do
+		local kind, d, k = e[1], e[2], e[3]
+		pcall(function()
+			if kind == "stroke" and d:IsA("UIStroke") then
+				d.Color = T[k]
+			elseif kind == "bg" and d:IsA("GuiObject") then
+				d.BackgroundColor3 = T[k]
+			elseif kind == "text" and (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")) then
+				d.TextColor3 = T[k]
+			elseif kind == "ph" and d:IsA("TextBox") then
+				d.PlaceholderColor3 = T[k]
+			elseif kind == "img" and (d:IsA("ImageLabel") or d:IsA("ImageButton")) then
+				d.ImageColor3 = T[k]
+			end
+		end)
+	end
+	local gbt = T.GroupboxTrans
+	local acc = T.AccentBlue
+	for _, f in self._themePaintGroupbox do
+		pcall(function()
+			f.BackgroundTransparency = gbt
+		end)
+	end
+	for _, sf in self._themePaintDropdownScroll do
+		pcall(function()
+			sf.ScrollBarImageColor3 = acc
+		end)
+	end
+end
+
+function Library:SetNotifySide(side: string)
+	if typeof(side) == "string" then
+		self.NotifySide = side
+	end
+	if self._updateNotifyLayout then
+		self._updateNotifyLayout()
+	end
+end
+
+function Library:SetDPIScale(_scale: number)
+	-- Reserved: fixed scale for now; hook here if you add DPI scaling later.
+end
+
+function Library:Notify(payload: any, duration: number?)
+	local title = "Notice"
+	local desc = ""
+	local dur = 5
+	local persist = false
+	local stepsTotal: number? = nil
+	local timeInstance: Instance? = nil
+	local soundId: any = nil
+
+	if typeof(payload) == "table" then
+		title = tostring(payload.Title or title)
+		desc = tostring(payload.Description or payload.Text or "")
+		persist = payload.Persist == true
+		stepsTotal = if typeof(payload.Steps) == "number" then payload.Steps else nil
+		soundId = payload.SoundId
+		if typeof(payload.Time) == "Instance" then
+			timeInstance = payload.Time :: Instance
+			dur = 0
+		elseif typeof(payload.Time) == "number" then
+			dur = payload.Time
+		end
+	elseif typeof(payload) == "string" then
+		desc = payload
+		dur = duration or dur
+	else
+		desc = tostring(payload)
+		dur = duration or dur
+	end
+
+	local list = self._notifyList
+	if not list or not list.Parent then
+		return
+	end
+
+	if soundId ~= nil and soundId ~= "" then
+		local sid = soundId
+		if typeof(sid) == "number" then
+			sid = string.format("rbxassetid://%d", sid)
+		end
+		if typeof(sid) == "string" then
+			pcall(function()
+				local SoundService = game:GetService("SoundService")
+				local s = Instance.new("Sound")
+				s.SoundId = sid
+				s.Volume = 0.35
+				s.PlayOnRemove = true
+				s.Parent = SoundService
+				s:Destroy()
+			end)
+		end
+	end
+
+	self._notifyOrder += 1
+	local order = self._notifyOrder
+	local card = Instance.new("Frame")
+	card.Name = "Notify_" .. order
+	card.Size = UDim2.new(0, 280, 0, 0)
+	card.AutomaticSize = Enum.AutomaticSize.Y
+	card.BackgroundColor3 = Theme.Groupbox
+	card.BackgroundTransparency = 0
+	card.BorderSizePixel = 0
+	card.LayoutOrder = -order
+	card.Parent = list
+	corner(Theme.Corner).Parent = card
+	local cardStroke = stroke(Theme.Stroke, 1, math.clamp(Theme.StrokeTrans, 0.25, 0.62))
+	cardStroke.Parent = card
+	local padN = Instance.new("UIPadding")
+	padN.PaddingLeft = UDim.new(0, 10)
+	padN.PaddingRight = UDim.new(0, 10)
+	padN.PaddingTop = UDim.new(0, 8)
+	padN.PaddingBottom = UDim.new(0, 8)
+	padN.Parent = card
+	local vl = Instance.new("UIListLayout")
+	vl.SortOrder = Enum.SortOrder.LayoutOrder
+	vl.Padding = UDim.new(0, 6)
+	vl.Parent = card
+
+	local tl = Instance.new("TextLabel")
+	tl.BackgroundTransparency = 1
+	tl.Font = Enum.Font.GothamBold
+	tl.TextSize = 14
+	tl.TextColor3 = Theme.Text
+	tl.TextXAlignment = Enum.TextXAlignment.Left
+	tl.TextWrapped = true
+	tl.AutomaticSize = Enum.AutomaticSize.Y
+	tl.Size = UDim2.new(1, 0, 0, 0)
+	tl.Text = title
+	tl.LayoutOrder = 1
+	tl.Parent = card
+
+	local dl: TextLabel? = nil
+	if desc ~= "" then
+		local d = Instance.new("TextLabel")
+		d.BackgroundTransparency = 1
+		d.Font = Enum.Font.GothamMedium
+		d.TextSize = 12
+		d.TextColor3 = Theme.TextDim
+		d.TextXAlignment = Enum.TextXAlignment.Left
+		d.TextWrapped = true
+		d.AutomaticSize = Enum.AutomaticSize.Y
+		d.Size = UDim2.new(1, 0, 0, 0)
+		d.Text = desc
+		d.LayoutOrder = 2
+		d.Parent = card
+		dl = d
+	end
+
+	local hasInstanceTime = typeof(timeInstance) == "Instance"
+	local useStepBar = typeof(stepsTotal) == "number" and stepsTotal > 0
+	local showTimerBar = not persist and (useStepBar or (not hasInstanceTime and dur > 0))
+
+	local timerBar: Frame? = nil
+	local timerBarStroke: UIStroke? = nil
+	local timerFill: Frame? = nil
+	local fillGradient: UIGradient? = nil
+	local timeLeftLabel: TextLabel? = nil
+
+	local timerHolder = Instance.new("Frame")
+	timerHolder.Name = "TimerHolder"
+	timerHolder.BackgroundTransparency = 1
+	timerHolder.Size = UDim2.new(1, 0, 0, 0)
+	timerHolder.AutomaticSize = Enum.AutomaticSize.Y
+	timerHolder.LayoutOrder = 3
+	timerHolder.Visible = showTimerBar
+	timerHolder.Parent = card
+
+	if showTimerBar then
+		local stack = Instance.new("UIListLayout")
+		stack.SortOrder = Enum.SortOrder.LayoutOrder
+		stack.Padding = UDim.new(0, 5)
+		stack.Parent = timerHolder
+
+		local tlbl = Instance.new("TextLabel")
+		tlbl.Name = "TimeLeft"
+		tlbl.BackgroundTransparency = 1
+		tlbl.Font = Enum.Font.GothamMedium
+		tlbl.TextSize = 12
+		tlbl.TextColor3 = Theme.TextDim
+		tlbl.TextXAlignment = Enum.TextXAlignment.Right
+		tlbl.TextYAlignment = Enum.TextYAlignment.Center
+		tlbl.TextTransparency = 0.25
+		tlbl.Size = UDim2.new(1, 0, 0, 15)
+		tlbl.Text = useStepBar and string.format("Step 0 / %d", stepsTotal :: number) or string.format("%.1fs left", dur)
+		tlbl.LayoutOrder = 1
+		tlbl.Parent = timerHolder
+		timeLeftLabel = tlbl
+
+		local bar = Instance.new("Frame")
+		bar.Name = "TimerBar"
+		bar.BackgroundColor3 = Theme.SliderTrack
+		bar.BorderSizePixel = 0
+		bar.Size = UDim2.new(1, 0, 0, 5)
+		bar.ClipsDescendants = true
+		bar.LayoutOrder = 2
+		bar.Parent = timerHolder
+		corner(UDim.new(1, 0)).Parent = bar
+		local bs = stroke(Theme.Stroke, 1, math.clamp(Theme.StrokeTrans + 0.12, 0.35, 0.78))
+		bs.Parent = bar
+		timerBar = bar
+		timerBarStroke = bs
+
+		local fill = Instance.new("Frame")
+		fill.Name = "TimerFill"
+		fill.BackgroundColor3 = Color3.new(1, 1, 1)
+		fill.BorderSizePixel = 0
+		fill.Size = UDim2.fromScale(1, 1)
+		fill.Parent = bar
+		corner(UDim.new(1, 0)).Parent = fill
+		local grad = Instance.new("UIGradient")
+		grad.Color = ColorSequence.new({
+			ColorSequenceKeypoint.new(0, Theme.AccentPurple),
+			ColorSequenceKeypoint.new(1, Theme.AccentBlue),
+		})
+		grad.Parent = fill
+		timerFill = fill
+		fillGradient = grad
+
+		if hasInstanceTime and not useStepBar then
+			fill.Size = UDim2.fromScale(0, 1)
+			tlbl.Text = "…"
+		end
+	end
+
+	local cancelled = false
+	local activeTween: Tween? = nil
+	local instConn: RBXScriptConnection? = nil
+	local hbConn: RBXScriptConnection? = nil
+
+	local handle: any
+
+	local function refreshNotifyCard()
+		local T = Library.Theme
+		card.BackgroundColor3 = T.Groupbox
+		card.BackgroundTransparency = 0
+		local cc = card:FindFirstChildWhichIsA("UICorner")
+		if cc then
+			cc.CornerRadius = T.Corner
+		end
+		cardStroke.Color = T.Stroke
+		cardStroke.Transparency = math.clamp(T.StrokeTrans, 0.25, 0.62)
+		tl.TextColor3 = T.Text
+		if dl then
+			dl.TextColor3 = T.TextDim
+		end
+		if timeLeftLabel then
+			timeLeftLabel.TextColor3 = T.TextDim
+		end
+		if timerBar then
+			timerBar.BackgroundColor3 = T.SliderTrack
+		end
+		if timerBarStroke then
+			timerBarStroke.Color = T.Stroke
+			timerBarStroke.Transparency = math.clamp(T.StrokeTrans + 0.12, 0.35, 0.78)
+		end
+		if fillGradient then
+			fillGradient.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, T.AccentPurple),
+				ColorSequenceKeypoint.new(1, T.AccentBlue),
+			})
+		end
+	end
+
+	table.insert(self._notifyThemeRefreshes, refreshNotifyCard)
+
+	local function unregisterNotifyTheme()
+		for i = #self._notifyThemeRefreshes, 1, -1 do
+			if self._notifyThemeRefreshes[i] == refreshNotifyCard then
+				table.remove(self._notifyThemeRefreshes, i)
+				break
+			end
+		end
+	end
+
+	local function doDestroy()
+		if cancelled then
+			return
+		end
+		cancelled = true
+		if handle then
+			handle.Destroyed = true
+		end
+		unregisterNotifyTheme()
+		if hbConn then
+			hbConn:Disconnect()
+			hbConn = nil
+		end
+		if activeTween then
+			pcall(function()
+				activeTween:Cancel()
+			end)
+			activeTween = nil
+		end
+		if instConn then
+			instConn:Disconnect()
+			instConn = nil
+		end
+		if card.Parent then
+			card:Destroy()
+		end
+	end
+
+	handle = {
+		Destroyed = false,
+		Destroy = function()
+			if handle.Destroyed then
+				return
+			end
+			doDestroy()
+		end,
+		ChangeTitle = function(_self, text: string)
+			if tl.Parent then
+				tl.Text = tostring(text)
+			end
+		end,
+		ChangeDescription = function(_self, text: string)
+			local s = tostring(text)
+			if not dl or not dl.Parent then
+				if s == "" then
 					return
 				end
-				return R.OriginalRecoil(self, newMultiplier)
+				local d = Instance.new("TextLabel")
+				d.BackgroundTransparency = 1
+				d.Font = Enum.Font.GothamMedium
+				d.TextSize = 12
+				d.TextColor3 = Library.Theme.TextDim
+				d.TextXAlignment = Enum.TextXAlignment.Left
+				d.TextWrapped = true
+				d.AutomaticSize = Enum.AutomaticSize.Y
+				d.Size = UDim2.new(1, 0, 0, 0)
+				d.LayoutOrder = 2
+				d.Parent = card
+				dl = d
 			end
-			return R.OriginalRecoil(self, multiplier)
-		end
-	end
-	if GunModule.StartAiming then
-		R.OriginalStartAiming = GunModule.StartAiming
-		GunModule.StartAiming = function(self, p71)
-			if R.InstantADS then
-				self:SetReplicate("IsAiming", true)
-				self.StopSprinting:Fire()
-				self.ViewModel:SetAiming(true)
-				self:SetReplicate("FOVOffset", self.Info.AimFOVOffset)
-				if self.ViewModel.CurrentAimValue then
-					self.ViewModel.CurrentAimValue = 1
-				end
-				return true, "StartAiming"
+			if dl then
+				dl.Text = s
+				dl.TextColor3 = Library.Theme.TextDim
+				dl.Visible = s ~= ""
 			end
-			return R.OriginalStartAiming(self, p71)
-		end
-	end
-	if GunModule.GetAimSpeed then
-		R.OriginalGetAimSpeed = GunModule.GetAimSpeed
-		GunModule.GetAimSpeed = function(self)
-			if R.InstantADS then
-				return 999
+		end,
+		ChangeStep = function(_self, newStep: number?)
+			if typeof(stepsTotal) ~= "number" or stepsTotal <= 0 or not timerFill then
+				return
 			end
-			return R.OriginalGetAimSpeed(self)
-		end
-	end
-	if GunModule._LocalTracers then
-		R.OriginalLocalTracers = GunModule._LocalTracers
-		GunModule._LocalTracers = function(self, p109, p110)
-			if R.InstantBulletTravel then
-				local originalPierce = self.Info.RaycastPierceCount
-				local originalBounce = self.Info.RaycastBounceCount
-				local originalBounceAngle = self.Info.RaycastBounceRedirectionAngle
-				self.Info.RaycastPierceCount = 999
-				self.Info.RaycastBounceCount = 0
-				self.Info.RaycastBounceRedirectionAngle = 0
-				local result = { R.OriginalLocalTracers(self, p109, p110) }
-				self.Info.RaycastPierceCount = originalPierce
-				self.Info.RaycastBounceCount = originalBounce
-				self.Info.RaycastBounceRedirectionAngle = originalBounceAngle
-				return table.unpack(result)
+			local n = math.clamp(newStep or 0, 0, stepsTotal)
+			timerFill.Size = UDim2.fromScale(n / stepsTotal, 1)
+			if timeLeftLabel then
+				timeLeftLabel.Text = string.format("Step %d / %d", n, stepsTotal)
 			end
-			return R.OriginalLocalTracers(self, p109, p110)
-		end
-	end
-end)
+		end,
+	}
 
-task.spawn(function()
-	local success, GameplayUtility = pcall(function()
-		return require(ReplicatedStorage.Modules.GameplayUtility)
-	end)
-	if not success or not GameplayUtility or not GameplayUtility.GetSpread then
+	if useStepBar then
+		handle:ChangeStep(0)
+	end
+
+	if showTimerBar and dur > 0 and not useStepBar and not hasInstanceTime then
+		local t0 = tick()
+		hbConn = RunService.Heartbeat:Connect(function()
+			if cancelled or not timeLeftLabel or not timeLeftLabel.Parent then
+				if hbConn then
+					hbConn:Disconnect()
+					hbConn = nil
+				end
+				return
+			end
+			timeLeftLabel.Text = string.format("%.1fs left", math.max(0, dur - (tick() - t0)))
+		end)
+	end
+
+	if persist then
+		return handle
+	end
+
+	if hasInstanceTime then
+		if not timeInstance.Parent then
+			task.defer(doDestroy)
+			return handle
+		end
+		instConn = timeInstance.Destroying:Connect(function()
+			task.defer(doDestroy)
+		end)
+		return handle
+	end
+
+	if dur > 0 then
+		if useStepBar then
+			task.delay(dur, function()
+				if not cancelled then
+					doDestroy()
+				end
+			end)
+		elseif showTimerBar and timerFill then
+			timerFill.Size = UDim2.fromScale(1, 1)
+			activeTween = TweenService:Create(
+				timerFill,
+				TweenInfo.new(dur, Enum.EasingStyle.Linear, Enum.EasingDirection.InOut),
+				{ Size = UDim2.fromScale(0, 1) }
+			)
+			activeTween.Completed:Connect(function(state)
+				if state ~= Enum.PlaybackState.Cancelled and not cancelled then
+					doDestroy()
+				end
+			end)
+			activeTween:Play()
+		else
+			task.delay(dur, function()
+				if not cancelled then
+					doDestroy()
+				end
+			end)
+		end
+	else
+		task.defer(function()
+			if not cancelled then
+				doDestroy()
+			end
+		end)
+	end
+
+	return handle
+end
+
+function Library:Unload()
+	if self.Unloaded then
 		return
 	end
-	local R = genv.RivalsWeaponMods
-	R.GameplayUtility = GameplayUtility
-	R.OriginalGetSpread = GameplayUtility.GetSpread
-	GameplayUtility.GetSpread = function(spread, aimMultiplier, isAiming, isCrouching, pelletIndex, totalPellets, consistent)
-		if R.NoSpread then
-			return CFrame.new()
+	self.Unloaded = true
+	--[[ Obsidian: disconnect all GiveSignal connections first ]]
+	for Index = #self.Signals, 1, -1 do
+		local Connection = table.remove(self.Signals, Index)
+		if Connection and typeof(Connection) == "RBXScriptConnection" and Connection.Connected then
+			Connection:Disconnect()
 		end
-		return R.OriginalGetSpread(
-			spread,
-			aimMultiplier,
-			isAiming,
-			isCrouching,
-			pelletIndex,
-			totalPellets,
-			consistent
+	end
+	for _, fn in self._unloadCallbacks do
+		pcall(fn)
+	end
+	table.clear(self._unloadCallbacks)
+	if self._menuInputConn then
+		self._menuInputConn:Disconnect()
+		self._menuInputConn = nil
+	end
+	if self._windowDestroy then
+		self._windowDestroy()
+		self._windowDestroy = nil
+	end
+	self:_disconnectThemePaintSubscribers()
+	self._themePaintHost = nil
+	self:InvalidateThemePaintCache()
+	table.clear(self._themePaintTagged)
+	table.clear(self._themePaintGroupbox)
+	table.clear(self._themePaintDropdownScroll)
+	self._notifyList = nil
+	self._updateNotifyLayout = nil
+	table.clear(self._windowRefreshes)
+	table.clear(self._notifyThemeRefreshes)
+	table.clear(self.Toggles)
+	table.clear(self.Options)
+	self.ToggleKeybind = nil
+	self.CantDragForced = false
+	if self._resizeEndWrappedRefits then
+		table.clear(self._resizeEndWrappedRefits)
+	end
+end
+
+--[[ Works when Color3.fromHex is missing or picky; accepts #RGB, #RRGGBB ]]
+local function parseHexColor(raw: string): Color3?
+	local s = string.lower((raw:gsub("#", ""):gsub("%s", "")))
+	if #s == 6 then
+		local r = tonumber(s:sub(1, 2), 16)
+		local g = tonumber(s:sub(3, 4), 16)
+		local b = tonumber(s:sub(5, 6), 16)
+		if r and g and b then
+			return Color3.fromRGB(r, g, b)
+		end
+	elseif #s == 3 then
+		local r = tonumber(s:sub(1, 1), 16)
+		local g = tonumber(s:sub(2, 2), 16)
+		local b = tonumber(s:sub(3, 3), 16)
+		if r and g and b then
+			return Color3.fromRGB(r * 17, g * 17, b * 17)
+		end
+	end
+	local ok, c = pcall(function()
+		return Color3.fromHex(s)
+	end)
+	if ok and typeof(c) == "Color3" then
+		return c
+	end
+	return nil
+end
+
+--[[ Hue strip: same pattern as Obsidian (`HueSequenceTable` + `for Hue = 0, 1, step`).
+	Obsidian uses step 0.1 (11 keypoints). Many executors cap ColorSequence tables much lower
+	and still *print* "table is too long" even when the call is inside pcall — so we must not
+	try 11 first. We use step 0.25 (5 stops: 0, 0.25, …, 1); if that fails, two-keypoint API (no table). ]]
+local ColorPickerHueSequence: ColorSequence
+do
+	local HueSequenceTable: { ColorSequenceKeypoint } = {}
+	for Hue = 0, 1, 0.25 do
+		table.insert(HueSequenceTable, ColorSequenceKeypoint.new(Hue, Color3.fromHSV(Hue, 1, 1)))
+	end
+	local ok, res = pcall(function()
+		return ColorSequence.new(HueSequenceTable)
+	end)
+	if ok and res ~= nil then
+		ColorPickerHueSequence = res
+	else
+		ColorPickerHueSequence = ColorSequence.new(
+			ColorSequenceKeypoint.new(0, Color3.fromHSV(0, 1, 1)),
+			ColorSequenceKeypoint.new(1, Color3.fromHSV(1, 1, 1))
 		)
 	end
-end)
+end
 
-task.spawn(function()
-	local success, ViewModelModule = pcall(function()
-		return require(player.PlayerScripts.Modules.ViewModel)
+type GlowLayerSpec = { size: number, transparency: number }
+
+--[[ Outer glow corners track panel radius: each layer is larger by `size` px, so corner radius scales with base. ]]
+local function mainGlowCornerPx(baseCornerPx: number, layerSizePx: number): number
+	return math.max(0, math.floor(baseCornerPx + (layerSizePx + 1) / 4))
+end
+
+local function tabGlowCornerPx(baseSmPx: number, layerSizePx: number): number
+	return math.max(0, math.floor(baseSmPx + (layerSizePx + 2) / 5))
+end
+
+--[[ Panel / pill: inner = accent (purple→blue), outer eases toward Stroke — tracks ThemeManager accent ]]
+local function themeGlowLayerColor(t: number): Color3
+	local core = Theme.AccentPurple:Lerp(Theme.AccentBlue, math.clamp(t * 1.1, 0, 1))
+	return core:Lerp(Theme.Stroke, t * t * 0.52)
+end
+
+--[[ Idle tab halo: faint accent on dark backgrounds (lerp into Background) ]]
+local function themeTabIdleGlowColor(t: number): Color3
+	local c = Theme.AccentPurple:Lerp(Theme.AccentBlue, t * 0.75)
+	return c:Lerp(Theme.Background, 0.58 + t * 0.22)
+end
+
+--[[ Centered stacked frames behind a host; spills past edges when host clips are off ]]
+local function addStackedGlow(host: Frame, specs: { GlowLayerSpec }, baseCornerPx: number)
+	local steps = #specs - 1
+	for i, g in specs do
+		local t = if steps > 0 then (i - 1) / steps else 0
+		local layerColor = themeGlowLayerColor(t)
+		local layer = Instance.new("Frame")
+		layer.Name = "GlowLayer"
+		layer:SetAttribute("GlowStep", i)
+		layer:SetAttribute("GlowSize", g.size)
+		layer.AnchorPoint = Vector2.new(0.5, 0.5)
+		layer.Position = UDim2.fromScale(0.5, 0.5)
+		layer.Size = UDim2.new(1, g.size, 1, g.size)
+		layer.BackgroundColor3 = layerColor
+		layer.BackgroundTransparency = g.transparency
+		layer.BorderSizePixel = 0
+		layer.ZIndex = 0
+		layer.Parent = host
+		local gc = Instance.new("UICorner")
+		gc.CornerRadius = UDim.new(0, mainGlowCornerPx(baseCornerPx, g.size))
+		gc.Parent = layer
+	end
+end
+
+--[[ Sidebar tabs: accent-tinted halo; paintTabGlowHost updates for selected vs idle ]]
+local function addTabStackedGlow(host: Frame, specs: { GlowLayerSpec }, baseSmPx: number)
+	local n = #specs
+	for i, g in specs do
+		local t = if n > 1 then (i - 1) / (n - 1) else 0
+		local layer = Instance.new("Frame")
+		layer.Name = "GlowLayer"
+		layer:SetAttribute("GlowStep", i)
+		layer:SetAttribute("GlowSize", g.size)
+		layer.AnchorPoint = Vector2.new(0.5, 0.5)
+		layer.Position = UDim2.fromScale(0.5, 0.5)
+		layer.Size = UDim2.new(1, g.size, 1, g.size)
+		layer.BackgroundColor3 = themeTabIdleGlowColor(t)
+		layer.BackgroundTransparency = g.transparency
+		layer.BorderSizePixel = 0
+		layer.ZIndex = 0
+		layer.Parent = host
+		local gc = Instance.new("UICorner")
+		gc.CornerRadius = UDim.new(0, tabGlowCornerPx(baseSmPx, g.size))
+		gc.Parent = layer
+	end
+end
+
+--[[ Top title pill: full rounded rect glow (accent → outline), sits behind solid TopPill ]]
+local function addPillStackedGlow(host: Frame, specs: { GlowLayerSpec })
+	local n = #specs
+	for i, g in specs do
+		local t = if n > 1 then (i - 1) / (n - 1) else 0
+		local layer = Instance.new("Frame")
+		layer.Name = "PillGlowLayer"
+		layer:SetAttribute("GlowStep", i)
+		layer.AnchorPoint = Vector2.new(0.5, 0.5)
+		layer.Position = UDim2.fromScale(0.5, 0.5)
+		layer.Size = UDim2.new(1, g.size, 1, g.size)
+		layer.BackgroundColor3 = themeGlowLayerColor(t)
+		layer.BackgroundTransparency = g.transparency
+		layer.BorderSizePixel = 0
+		layer.ZIndex = 0
+		layer.Parent = host
+		local gc = Instance.new("UICorner")
+		gc.CornerRadius = UDim.new(1, 0)
+		gc.Parent = layer
+	end
+end
+
+local function paintPillGlowHost(pillGlowHost: Frame?)
+	if not pillGlowHost then
+		return
+	end
+	local layers: { Frame } = {}
+	for _, c in pillGlowHost:GetChildren() do
+		if c:IsA("Frame") and c.Name == "PillGlowLayer" then
+			table.insert(layers, c)
+		end
+	end
+	table.sort(layers, function(a, b)
+		return (tonumber(a:GetAttribute("GlowStep")) or 0) < (tonumber(b:GetAttribute("GlowStep")) or 0)
 	end)
-	if not success or not ViewModelModule or not ViewModelModule.new then
+	local steps = #layers - 1
+	for i, layer in layers do
+		local t = if steps > 0 then (i - 1) / steps else 0
+		layer.BackgroundColor3 = themeGlowLayerColor(t)
+	end
+end
+
+local function paintMainGlowHost(mainGlowHost: Frame?)
+	if not mainGlowHost then
 		return
 	end
-	local R = genv.RivalsWeaponMods
-	R.ViewModelModule = ViewModelModule
-	R.OriginalViewModelNew = ViewModelModule.new
-	local originalNew = ViewModelModule.new
-	ViewModelModule.new = function(...)
-		local viewModel = originalNew(...)
-		if viewModel.Update then
-			local originalUpdate = viewModel.Update
-			viewModel.Update = function(self, ...)
-				if R.NoWeaponBob then
-					if self.BobSpeed then
-						self.BobSpeed = 0
-					end
-					if self.BobIntensity then
-						self.BobIntensity = 0
-					end
-				end
-				return originalUpdate(self, ...)
-			end
+	local layers: { Frame } = {}
+	for _, c in mainGlowHost:GetChildren() do
+		if c:IsA("Frame") and c.Name == "GlowLayer" then
+			table.insert(layers, c)
 		end
-		return viewModel
 	end
-end)
-
-local Camera = workspace.CurrentCamera
-local LocalPlayer = player
-
-local GetPlayers = Players.GetPlayers
-local WorldToScreen = Camera.WorldToScreenPoint
-local GetPartsObscuringTarget = Camera.GetPartsObscuringTarget
-local FindFirstChild = game.FindFirstChild
-local GetMouseLocation = UserInputService.GetMouseLocation
-
-local ValidTargetParts = { "Head", "HumanoidRootPart" }
-
-local hitChanceRng = Random.new()
-
-local fov_circle
-do
-	local ok, cir = pcall(function()
-		local d = Drawing
-		return d and d.new("Circle")
+	table.sort(layers, function(a, b)
+		local sa = tonumber(a:GetAttribute("GlowStep"))
+		local sb = tonumber(b:GetAttribute("GlowStep"))
+		if typeof(sa) == "number" and typeof(sb) == "number" then
+			return sa < sb
+		end
+		return a.Size.X.Offset < b.Size.X.Offset
 	end)
-	if ok and cir then
-		fov_circle = cir
-		fov_circle.Thickness = 1
-		fov_circle.NumSides = 100
-		fov_circle.Radius = SilentAimSettings.FOVRadius
-		fov_circle.Filled = false
-		fov_circle.Visible = SilentAimSettings.FOVVisible
-		fov_circle.ZIndex = 999
-		fov_circle.Transparency = 1
-		fov_circle.Color = Color3.fromRGB(255, 255, 255)
+	local basePx = Theme.Corner.Offset
+	local steps = #layers - 1
+	for i, layer in layers do
+		local t = if steps > 0 then (i - 1) / steps else 0
+		layer.BackgroundColor3 = themeGlowLayerColor(t)
+		local sz = tonumber(layer:GetAttribute("GlowSize")) or 0
+		local gc = layer:FindFirstChildWhichIsA("UICorner")
+		if gc then
+			gc.CornerRadius = UDim.new(0, mainGlowCornerPx(basePx, sz))
+		end
 	end
 end
 
-local aimbot_fov_circle
-do
-	local ok, cir = pcall(function()
-		local d = Drawing
-		return d and d.new("Circle")
+local function paintTabGlowHost(tabGlowHost: Frame?, isSelected: boolean)
+	if not tabGlowHost then
+		return
+	end
+	local layers: { Frame } = {}
+	for _, c in tabGlowHost:GetChildren() do
+		if c:IsA("Frame") and c.Name == "GlowLayer" then
+			table.insert(layers, c)
+		end
+	end
+	table.sort(layers, function(a, b)
+		return (tonumber(a:GetAttribute("GlowStep")) or 0) < (tonumber(b:GetAttribute("GlowStep")) or 0)
 	end)
-	if ok and cir then
-		aimbot_fov_circle = cir
-		aimbot_fov_circle.Thickness = 2
-		aimbot_fov_circle.NumSides = 64
-		aimbot_fov_circle.Radius = AimbotSettings.Fov
-		aimbot_fov_circle.Filled = false
-		aimbot_fov_circle.Visible = false
-		aimbot_fov_circle.ZIndex = 998
-		aimbot_fov_circle.Transparency = 0.5
-		aimbot_fov_circle.Color = AimbotSettings.FovColor
-	end
-end
-
-local ExpectedArguments = {
-	Raycast = {
-		ArgCountRequired = 3,
-		Args = {
-			"Instance",
-			"Vector3",
-			"Vector3",
-			"RaycastParams",
-		},
-	},
-}
-
-local function CalculateChance(Percentage)
-	Percentage = math.floor(Percentage)
-	return math.floor(hitChanceRng:NextNumber(0, 1) * 100) / 100 <= Percentage / 100
-end
-
-local function getPositionOnScreen(Vector)
-	local Vec3, OnScreen = WorldToScreen(Camera, Vector)
-	return Vector2.new(Vec3.X, Vec3.Y), OnScreen
-end
-
-local function ValidateArguments(Args, RayMethod)
-	local Matches = 0
-	if #Args < RayMethod.ArgCountRequired then
-		return false
-	end
-	for Pos, Argument in next, Args do
-		if typeof(Argument) == RayMethod.Args[Pos] then
-			Matches = Matches + 1
-		end
-	end
-	return Matches >= RayMethod.ArgCountRequired
-end
-
-local function getDirection(Origin, Position)
-	return (Position - Origin).Unit * 1000
-end
-
-local function validateRaycastArgs(Arguments)
-	if #Arguments < 3 then
-		return false
-	end
-	if typeof(Arguments[1]) ~= "Instance" then
-		return false
-	end
-	if typeof(Arguments[2]) ~= "Vector3" or typeof(Arguments[3]) ~= "Vector3" then
-		return false
-	end
-	local fourth = Arguments[4]
-	if fourth ~= nil and typeof(fourth) ~= "RaycastParams" then
-		return false
-	end
-	return true
-end
-
-local function getMousePosition()
-	return GetMouseLocation(UserInputService)
-end
-
-local isCustomCharacterSystemAim = genv and genv.characters ~= nil
-
-local function GetAllCharactersForAimbot()
-	local allCharacters = {}
-	if isCustomCharacterSystemAim and genv.characters then
-		for playerName, characterData in pairs(genv.characters) do
-			if characterData and characterData.character then
-				table.insert(allCharacters, {
-					name = playerName,
-					character = characterData.character,
-					player = characterData.player or nil,
-					team = characterData.team or nil,
-				})
-			end
-		end
-	else
-		for _, pl in pairs(Players:GetPlayers()) do
-			if pl ~= LocalPlayer and pl.Character then
-				table.insert(allCharacters, {
-					name = pl.Name,
-					character = pl.Character,
-					player = pl,
-					team = pl.Team,
-				})
-			end
-		end
-	end
-	return allCharacters
-end
-
-local aimbotWallRayParams = RaycastParams.new()
-local function aimbotWallVisibleObsidian(targetPart)
-	if not AimbotSettings.WallCheck then
-		return true
-	end
-	local cam = Workspace.CurrentCamera
-	if not cam or not targetPart then
-		return false
-	end
-	local ignore = { LocalPlayer.Character, cam }
-	local dir = (targetPart.Position - cam.CFrame.Position).Unit * 500
-	local origin = cam.CFrame.Position
-	local ray = Ray.new(origin, dir)
-	if type(Workspace.FindPartOnRayWithIgnoreList) == "function" then
-		local ok, hit = pcall(Workspace.FindPartOnRayWithIgnoreList, Workspace, ray, ignore)
-		if ok then
-			return not hit or hit:IsDescendantOf(targetPart.Parent)
-		end
-	end
-	aimbotWallRayParams.FilterType = Enum.RaycastFilterType.Blacklist
-	aimbotWallRayParams.FilterDescendantsInstances = ignore
-	local r = Workspace:Raycast(origin, dir, aimbotWallRayParams)
-	return not r or r.Instance:IsDescendantOf(targetPart.Parent)
-end
-
-local aimbotCachedPart, aimbotCacheTime, AIMBOT_CACHE_REFRESH = nil, 0, 0.06
-
-local function aimbotIsTeammatePlayer(pl)
-	if not AimbotSettings.TeamCheck or not pl then
-		return false
-	end
-	return pl.Team ~= nil and LocalPlayer.Team ~= nil and pl.Team == LocalPlayer.Team
-end
-
-local function aimbotIsTeammateFromData(characterData)
-	if not AimbotSettings.TeamCheck then
-		return false
-	end
-	local pl = characterData.player or Players:GetPlayerFromCharacter(characterData.character)
-	if pl then
-		return aimbotIsTeammatePlayer(pl)
-	end
-	if characterData.team and LocalPlayer.Team then
-		return characterData.team == LocalPlayer.Team
-	end
-	return false
-end
-
-local function resolveAimbotPart(character)
-	if not character then
-		return nil
-	end
-	local ap = AimbotSettings.AimPart
-	local targetPart = nil
-	if ap == "Head" then
-		targetPart = character:FindFirstChild("Head") or character:FindFirstChild("Head", true)
-	elseif ap == "HumanoidRootPart" then
-		targetPart = character:FindFirstChild("HumanoidRootPart") or character:FindFirstChild("HumanoidRootPart", true)
-	elseif ap == "Torso" then
-		targetPart = character:FindFirstChild("Torso") or character:FindFirstChild("UpperTorso")
-	elseif ap == "UpperTorso" then
-		targetPart = character:FindFirstChild("UpperTorso") or character:FindFirstChild("Torso")
-	end
-	if not targetPart then
-		targetPart = character:FindFirstChild("HumanoidRootPart")
-			or character:FindFirstChild("HumanoidRootPart", true)
-			or character:FindFirstChild("Head")
-			or character:FindFirstChild("Head", true)
-	end
-	return targetPart
-end
-
-local function aimbotGetTarget()
-	local now = tick()
-	if now - aimbotCacheTime < AIMBOT_CACHE_REFRESH and aimbotCachedPart and aimbotCachedPart.Parent then
-		local hum = aimbotCachedPart.Parent and aimbotCachedPart.Parent:FindFirstChildOfClass("Humanoid")
-		if hum and hum.Health > 0 then
-			return aimbotCachedPart
-		end
-	end
-	local mouse = getMousePosition()
-	local best, bestDist = nil, AimbotSettings.Fov or 120
-	local cam = Workspace.CurrentCamera
-	if not cam then
-		return nil
-	end
-
-	local function checkModel(model)
-		if model == LocalPlayer.Character then
-			return
-		end
-		local hum = model:FindFirstChildOfClass("Humanoid")
-		if not hum or hum.Parent ~= model or hum.Health <= 0 then
-			return
-		end
-		local aimPart = resolveAimbotPart(model)
-		if not aimPart then
-			return
-		end
-		local sp, on = cam:WorldToViewportPoint(aimPart.Position)
-		if not on then
-			return
-		end
-		local dist = (Vector2.new(sp.X, sp.Y) - mouse).Magnitude
-		if dist < bestDist then
-			if not aimbotWallVisibleObsidian(aimPart) then
-				return
-			end
-			best = aimPart
-			bestDist = dist
-		end
-	end
-
-	for _, characterData in ipairs(GetAllCharactersForAimbot()) do
-		local char = characterData.character
-		if char and not aimbotIsTeammateFromData(characterData) then
-			checkModel(char)
-		end
-	end
-	aimbotCachedPart = best
-	aimbotCacheTime = now
-	return best
-end
-
-local function aimbotKeyHeld()
-	local key = AimbotSettings.Key
-	if typeof(key) == "EnumItem" then
-		if key.EnumType == Enum.UserInputType then
-			return UserInputService:IsMouseButtonPressed(key)
-		elseif key.EnumType == Enum.KeyCode then
-			return UserInputService:IsKeyDown(key)
-		end
-	end
-	return false
-end
-
--- Many executors expose mouse movement only on getgenv(), not as a global
-local aimbotMouseMoveRel = (function()
-	if typeof(mousemoverel) == "function" then
-		return mousemoverel
-	end
-	if getgenv then
-		local ok, g = pcall(getgenv)
-		if ok and g and typeof(g.mousemoverel) == "function" then
-			return g.mousemoverel
-		end
-	end
-	return function() end
-end)()
-
-local function aimbotMoveMouseTowardWorld(worldPos)
-	local cam = Workspace.CurrentCamera
-	if not cam then
-		return
-	end
-	local sp, onScr = cam:WorldToViewportPoint(worldPos)
-	if not onScr then
-		return
-	end
-	local m = UserInputService:GetMouseLocation()
-	local dx = sp.X - m.X
-	local dy = sp.Y - m.Y
-	if math.abs(dx) < 0.02 and math.abs(dy) < 0.02 then
-		return
-	end
-	local factor = 1
-	if AimbotSettings.SmoothingEnabled and AimbotSettings.Smoothing > 0 then
-		factor = math.clamp(AimbotSettings.Smoothing, 0.01, 1)
-	end
-	dx *= factor
-	dy *= factor
-	aimbotMouseMoveRel(dx, dy)
-end
-
-local function shouldRedirectRaycast(origin, direction)
-	if typeof(origin) ~= "Vector3" or typeof(direction) ~= "Vector3" then
-		return false
-	end
-	if direction.Magnitude < 25 then
-		return false
-	end
-	if (origin - Camera.CFrame.Position).Magnitude > 20 then
-		return false
-	end
-	return true
-end
-
-local function IsPlayerVisible(TargetPlayer)
-	local PlayerCharacter = TargetPlayer.Character
-	local LocalPlayerCharacter = LocalPlayer.Character
-
-	if not (PlayerCharacter or LocalPlayerCharacter) then
-		return
-	end
-
-	local PlayerRoot = FindFirstChild(PlayerCharacter, Options.TargetPart.Value)
-		or FindFirstChild(PlayerCharacter, "HumanoidRootPart")
-
-	if not PlayerRoot then
-		return
-	end
-
-	local CastPoints, IgnoreList =
-		{ PlayerRoot.Position, LocalPlayerCharacter, PlayerCharacter },
-		{ LocalPlayerCharacter, PlayerCharacter }
-	local ObscuringObjects = #GetPartsObscuringTarget(Camera, CastPoints, IgnoreList)
-
-	return ((ObscuringObjects == 0 and true) or (ObscuringObjects > 0 and false))
-end
-
-local function getClosestPlayer()
-	if not Options.TargetPart.Value then
-		return
-	end
-	local Closest
-	local DistanceToMouse
-	local teamCheck = Toggles.TeamCheck.Value
-	local localTeam = teamCheck and LocalPlayer.Team
-	for _, Plr in next, GetPlayers(Players) do
-		if Plr == LocalPlayer then
-			continue
-		end
-		if teamCheck and Plr.Team and localTeam and Plr.Team == localTeam then
-			continue
-		end
-
-		local Character = Plr.Character
-		if not Character then
-			continue
-		end
-
-		if Toggles.VisibleCheck.Value and not IsPlayerVisible(Plr) then
-			continue
-		end
-
-		local HumanoidRootPart = FindFirstChild(Character, "HumanoidRootPart")
-		local Humanoid = FindFirstChild(Character, "Humanoid")
-		if not HumanoidRootPart or not Humanoid or Humanoid and Humanoid.Health <= 0 then
-			continue
-		end
-
-		local ScreenPosition, OnScreen = getPositionOnScreen(HumanoidRootPart.Position)
-		if not OnScreen then
-			continue
-		end
-
-		local fovLimit = Options.Radius.Value or SilentAimSettings.FOVRadius or 2000
-		local Distance = (getMousePosition() - ScreenPosition).Magnitude
-		if Distance <= fovLimit and (not DistanceToMouse or Distance < DistanceToMouse) then
-			Closest = (
-				(
-					Options.TargetPart.Value == "Random"
-						and Character[ValidTargetParts[math.random(1, #ValidTargetParts)]]
-				)
-				or Character[Options.TargetPart.Value]
-			)
-			DistanceToMouse = Distance
-		end
-	end
-	return Closest
-end
-
-local SilentAimGroup = SilentAimTabPage:AddLeftGroupbox("Silent Aim", { Icon = "target" })
-
-SilentAimGroup:AddToggle({
-	Text = "Enable Silent Aim",
-	Default = SilentAimSettings.Enabled,
-	Idx = "aim_Enabled",
-}):AddKeybind({
-	Default = false,
-	Idx = "aim_Enabled_Key",
-	SyncToggleState = true,
-})
-
-Toggles.aim_Enabled:OnChanged(function()
-	SilentAimSettings.Enabled = Toggles.aim_Enabled.Value
-end)
-
-SilentAimGroup:AddToggle({
-	Text = "Team Check",
-	Default = SilentAimSettings.TeamCheck,
-	Idx = "TeamCheck",
-})
-Toggles.TeamCheck:OnChanged(function()
-	SilentAimSettings.TeamCheck = Toggles.TeamCheck.Value
-end)
-
-local _fovVis = SilentAimGroup:AddToggle({
-	Text = "Show FOV Circle",
-	Default = SilentAimSettings.FOVVisible,
-	Idx = "Visible",
-})
-if typeof(_fovVis.AddColorPicker) == "function" then
-	_fovVis:AddColorPicker({
-		Default = fov_circle and fov_circle.Color or Color3.fromRGB(255, 255, 255),
-		Idx = "Color",
-	})
-else
-	SilentAimGroup:AddColorPicker({
-		Text = "FOV circle color",
-		Default = fov_circle and fov_circle.Color or Color3.fromRGB(255, 255, 255),
-		Idx = "Color",
-	})
-end
-
-Toggles.Visible:OnChanged(function()
-	if fov_circle then
-		fov_circle.Visible = Toggles.Visible.Value
-	end
-	SilentAimSettings.FOVVisible = Toggles.Visible.Value
-end)
-Options.Color:OnChanged(function()
-	if fov_circle then
-		fov_circle.Color = Options.Color.Value
-	end
-end)
-
-SilentAimGroup:AddToggle({
-	Text = "Visible Check",
-	Default = SilentAimSettings.VisibleCheck,
-	Idx = "VisibleCheck",
-})
-Toggles.VisibleCheck:OnChanged(function()
-	SilentAimSettings.VisibleCheck = Toggles.VisibleCheck.Value
-end)
-
-SilentAimGroup:AddDropdown({
-	Text = "Target Part",
-	AllowNull = false,
-	Options = { "Head", "HumanoidRootPart", "Random" },
-	Default = SilentAimSettings.TargetPart,
-	Idx = "TargetPart",
-})
-Options.TargetPart:OnChanged(function()
-	SilentAimSettings.TargetPart = Options.TargetPart.Value
-end)
-
-SilentAimGroup:AddSlider({
-	Text = "Hit chance",
-	Min = 0,
-	Max = 100,
-	Default = SilentAimSettings.HitChance,
-	Rounding = 1,
-	Idx = "HitChance",
-})
-Options.HitChance:OnChanged(function()
-	SilentAimSettings.HitChance = Options.HitChance.Value
-end)
-
-SilentAimGroup:AddSlider({
-	Text = "FOV Circle Radius",
-	Min = 0,
-	Max = 360,
-	Default = SilentAimSettings.FOVRadius,
-	Rounding = 0,
-	Idx = "Radius",
-})
-Options.Radius:OnChanged(function()
-	if fov_circle then
-		fov_circle.Radius = Options.Radius.Value
-	end
-	SilentAimSettings.FOVRadius = Options.Radius.Value
-end)
-
-if Options.Radius and Options.Radius.Value and fov_circle then
-	fov_circle.Radius = Options.Radius.Value
-end
-if Options.Color and Options.Color.Value and fov_circle then
-	fov_circle.Color = Options.Color.Value
-end
-
-local MiscWeaponGroup = SilentAimTabPage:AddLeftGroupbox("Misc", { Icon = "zap", DefaultExpanded = true })
-
-MiscWeaponGroup:AddToggle({
-	Text = "Rapid Fire",
-	Default = false,
-	Idx = "rivmisc_RapidFire",
-})
-MiscWeaponGroup:AddSlider({
-	Text = "Rapid fire cooldown",
-	Min = 0.001,
-	Max = 0.5,
-	Rounding = 3,
-	Default = 0.01,
-	Idx = "rivmisc_RapidFireSpeed",
-})
-MiscWeaponGroup:AddToggle({
-	Text = "No Recoil",
-	Default = false,
-	Idx = "rivmisc_NoRecoil",
-})
-MiscWeaponGroup:AddSlider({
-	Text = "Recoil reduction %",
-	Min = 0,
-	Max = 100,
-	Rounding = 0,
-	Default = 100,
-	Idx = "rivmisc_RecoilReduction",
-})
-MiscWeaponGroup:AddToggle({
-	Text = "No Spread",
-	Default = false,
-	Idx = "rivmisc_NoSpread",
-})
-MiscWeaponGroup:AddToggle({
-	Text = "No Weapon Bob",
-	Default = false,
-	Idx = "rivmisc_NoWeaponBob",
-})
-MiscWeaponGroup:AddToggle({
-	Text = "Instant ADS",
-	Default = false,
-	Idx = "rivmisc_InstantADS",
-})
-MiscWeaponGroup:AddToggle({
-	Text = "Infinite Ammo",
-	Default = false,
-	Idx = "rivmisc_InfiniteAmmo",
-})
-MiscWeaponGroup:AddToggle({
-	Text = "Instant Bullet Travel",
-	Default = false,
-	Idx = "rivmisc_InstantBulletTravel",
-})
-
-local function syncRivalsWeaponModsFromOptions()
-	local R = genv.RivalsWeaponMods
-	if not R then
-		return
-	end
-	R.RapidFire = Toggles.rivmisc_RapidFire.Value
-	R.RapidFireSpeed = Options.rivmisc_RapidFireSpeed.Value
-	R.NoRecoil = Toggles.rivmisc_NoRecoil.Value
-	R.RecoilReduction = Options.rivmisc_RecoilReduction.Value
-	R.NoSpread = Toggles.rivmisc_NoSpread.Value
-	R.NoWeaponBob = Toggles.rivmisc_NoWeaponBob.Value
-	R.InstantADS = Toggles.rivmisc_InstantADS.Value
-	R.InfiniteAmmo = Toggles.rivmisc_InfiniteAmmo.Value
-	R.InstantBulletTravel = Toggles.rivmisc_InstantBulletTravel.Value
-end
-
-Toggles.rivmisc_RapidFire:OnChanged(syncRivalsWeaponModsFromOptions)
-Options.rivmisc_RapidFireSpeed:OnChanged(syncRivalsWeaponModsFromOptions)
-Toggles.rivmisc_NoRecoil:OnChanged(syncRivalsWeaponModsFromOptions)
-Options.rivmisc_RecoilReduction:OnChanged(syncRivalsWeaponModsFromOptions)
-Toggles.rivmisc_NoSpread:OnChanged(syncRivalsWeaponModsFromOptions)
-Toggles.rivmisc_NoWeaponBob:OnChanged(syncRivalsWeaponModsFromOptions)
-Toggles.rivmisc_InstantADS:OnChanged(syncRivalsWeaponModsFromOptions)
-Toggles.rivmisc_InfiniteAmmo:OnChanged(syncRivalsWeaponModsFromOptions)
-Toggles.rivmisc_InstantBulletTravel:OnChanged(syncRivalsWeaponModsFromOptions)
-
-local aimbotActivateKeyMap = {
-	MouseButton2 = Enum.UserInputType.MouseButton2,
-	X = Enum.KeyCode.X,
-}
-
-local AimbotGroup = AimbotSubTabPage:AddLeftGroupbox("Aimbot", { Icon = "crosshair" })
-
-AimbotGroup:AddToggle({
-	Text = "Enabled",
-	Default = AimbotSettings.Enabled,
-	Idx = "aimbot_Enabled",
-}):AddKeybind({
-	Default = false,
-	Idx = "aimbot_Enabled_Key",
-	SyncToggleState = true,
-})
-Toggles.aimbot_Enabled:OnChanged(function()
-	AimbotSettings.Enabled = Toggles.aimbot_Enabled.Value
-end)
-
-AimbotGroup:AddToggle({
-	Text = "Prediction",
-	Default = AimbotSettings.PredictionEnabled,
-	Idx = "aimbot_Prediction",
-}):AddKeybind({
-	Default = false,
-	Idx = "aimbot_Prediction_Key",
-	SyncToggleState = true,
-})
-Toggles.aimbot_Prediction:OnChanged(function()
-	AimbotSettings.PredictionEnabled = Toggles.aimbot_Prediction.Value
-end)
-
-AimbotGroup:AddToggle({
-	Text = "Smoothing",
-	Default = AimbotSettings.SmoothingEnabled,
-	Idx = "aimbot_SmoothingEnabled",
-})
-Toggles.aimbot_SmoothingEnabled:OnChanged(function()
-	AimbotSettings.SmoothingEnabled = Toggles.aimbot_SmoothingEnabled.Value
-end)
-
-AimbotGroup:AddToggle({
-	Text = "Wall Check",
-	Default = AimbotSettings.WallCheck,
-	Idx = "aimbot_WallCheck",
-}):AddKeybind({
-	Default = false,
-	Idx = "aimbot_WallCheck_Key",
-	SyncToggleState = true,
-})
-Toggles.aimbot_WallCheck:OnChanged(function()
-	AimbotSettings.WallCheck = Toggles.aimbot_WallCheck.Value
-end)
-
-AimbotGroup:AddToggle({
-	Text = "Team Check",
-	Default = AimbotSettings.TeamCheck,
-	Idx = "aimbot_TeamCheck",
-})
-Toggles.aimbot_TeamCheck:OnChanged(function()
-	AimbotSettings.TeamCheck = Toggles.aimbot_TeamCheck.Value
-end)
-
-local _aimbotFovVis = AimbotGroup:AddToggle({
-	Text = "Show Aimbot FOV",
-	Default = AimbotSettings.FOVCircleVisible,
-	Idx = "aimbot_FOVCircleVisible",
-})
-if typeof(_aimbotFovVis.AddColorPicker) == "function" then
-	_aimbotFovVis:AddColorPicker({
-		Default = Color3.fromRGB(255, 255, 255),
-		Idx = "aimbot_FOVCircleColor",
-	})
-else
-	AimbotGroup:AddColorPicker({
-		Text = "Aimbot FOV color",
-		Default = Color3.fromRGB(255, 255, 255),
-		Idx = "aimbot_FOVCircleColor",
-	})
-end
-Toggles.aimbot_FOVCircleVisible:OnChanged(function()
-	AimbotSettings.FOVCircleVisible = Toggles.aimbot_FOVCircleVisible.Value
-end)
-Options.aimbot_FOVCircleColor:OnChanged(function()
-	local c = Options.aimbot_FOVCircleColor.Value
-	AimbotSettings.FovColor = c
-	if aimbot_fov_circle then
-		aimbot_fov_circle.Color = c
-	end
-end)
-
-AimbotGroup:AddSlider({
-	Text = "Aimbot FOV (px)",
-	Min = 20,
-	Max = 400,
-	Rounding = 0,
-	Default = AimbotSettings.Fov,
-	Idx = "aimbot_FOV",
-})
-Options.aimbot_FOV:OnChanged(function()
-	local r = Options.aimbot_FOV.Value
-	AimbotSettings.Fov = r
-	if aimbot_fov_circle then
-		aimbot_fov_circle.Radius = r
-	end
-end)
-
-AimbotGroup:AddSlider({
-	Text = "Prediction (s)",
-	Min = 0,
-	Max = 0.25,
-	Rounding = 3,
-	Default = AimbotSettings.PredictionAmount,
-	Idx = "aimbot_PredictionAmount",
-})
-Options.aimbot_PredictionAmount:OnChanged(function()
-	AimbotSettings.PredictionAmount = Options.aimbot_PredictionAmount.Value
-end)
-
-AimbotGroup:AddSlider({
-	Text = "Smoothing",
-	Min = 0,
-	Max = 1,
-	Rounding = 2,
-	Default = AimbotSettings.Smoothing,
-	Idx = "aimbot_Smoothing",
-})
-Options.aimbot_Smoothing:OnChanged(function()
-	AimbotSettings.Smoothing = Options.aimbot_Smoothing.Value
-end)
-
-AimbotGroup:AddDropdown({
-	Text = "Aim Part",
-	Options = { "Head", "HumanoidRootPart", "Torso", "UpperTorso" },
-	Default = AimbotSettings.AimPart,
-	Idx = "aimbot_AimPart",
-})
-Options.aimbot_AimPart:OnChanged(function()
-	AimbotSettings.AimPart = Options.aimbot_AimPart.Value
-end)
-
-AimbotGroup:AddDropdown({
-	Text = "Aim Key",
-	Options = { "MouseButton2", "X" },
-	Default = AimbotSettings.KeyName,
-	Idx = "aimbot_ActivateKey",
-})
-local function syncAimbotActivateKey()
-	local name = Options.aimbot_ActivateKey.Value
-	if name and aimbotActivateKeyMap[name] then
-		AimbotSettings.KeyName = name
-		AimbotSettings.Key = aimbotActivateKeyMap[name]
-	end
-end
-Options.aimbot_ActivateKey:OnChanged(syncAimbotActivateKey)
-syncAimbotActivateKey()
-
-if Options.aimbot_FOV and Options.aimbot_FOV.Value and aimbot_fov_circle then
-	aimbot_fov_circle.Radius = Options.aimbot_FOV.Value
-end
-if Options.aimbot_FOVCircleColor and Options.aimbot_FOVCircleColor.Value and aimbot_fov_circle then
-	aimbot_fov_circle.Color = Options.aimbot_FOVCircleColor.Value
-	AimbotSettings.FovColor = Options.aimbot_FOVCircleColor.Value
-end
-
-local silentAimAndAimbotRenderConn
-
-local oldNamecall
-if typeof(hookmetamethod) == "function" and typeof(newcclosure) == "function" and typeof(getnamecallmethod) == "function" and typeof(checkcaller) == "function" then
-	oldNamecall = hookmetamethod(game, "__namecall", newcclosure(function(...)
-		if checkcaller() then
-			return oldNamecall(...)
-		end
-		local Method = getnamecallmethod()
-		local Arguments = { ... }
-		local self = Arguments[1]
-		if not Toggles.aim_Enabled.Value or self ~= Workspace then
-			return oldNamecall(...)
-		end
-		local hc = SilentAimSettings.HitChance
-		if hc < 100 and not CalculateChance(hc) then
-			return oldNamecall(...)
-		end
-		if Method == "Raycast" then
-			if not validateRaycastArgs(Arguments) and not ValidateArguments(Arguments, ExpectedArguments.Raycast) then
-				return oldNamecall(...)
-			end
-			local A_Origin = Arguments[2]
-			local A_Direction = Arguments[3]
-
-			if not shouldRedirectRaycast(A_Origin, A_Direction) then
-				return oldNamecall(...)
-			end
-
-			local HitPart = getClosestPlayer()
-			if HitPart then
-				Arguments[3] = getDirection(A_Origin, HitPart.Position)
-				return oldNamecall(unpack(Arguments))
-			end
-		end
-		return oldNamecall(...)
-	end))
-else
-	warn("[AcidHub] Silent Aim: namecall hook unavailable in this environment")
-end
-
-silentAimAndAimbotRenderConn = RunService.RenderStepped:Connect(function()
-	local cursor = getMousePosition()
-	if Toggles.Visible.Value and fov_circle then
-		fov_circle.Visible = true
-		local col = Options.Color and Options.Color.Value
-		if col then
-			fov_circle.Color = col
-		end
-		fov_circle.Position = cursor
-	elseif fov_circle then
-		fov_circle.Visible = false
-	end
-
-	if aimbot_fov_circle then
-		aimbot_fov_circle.Position = cursor
-		aimbot_fov_circle.Radius = AimbotSettings.Fov
-		aimbot_fov_circle.Color = AimbotSettings.FovColor
-		aimbot_fov_circle.Visible = AimbotSettings.FOVCircleVisible and AimbotSettings.Enabled
-	end
-
-	if AimbotSettings.Enabled and aimbotKeyHeld() then
-		local t = aimbotGetTarget()
-		if t then
-			local vel = (AimbotSettings.PredictionEnabled and t.AssemblyLinearVelocity) or Vector3.zero
-			local ap = t.Position + vel * AimbotSettings.PredictionAmount
-			aimbotMoveMouseTowardWorld(ap)
-		end
-	end
-end)
-
-Rivals_UnloadWeaponMods = function()
-	local R = genv.RivalsWeaponMods
-	if not R then
-		return
-	end
-	local GunModule = R.GunModule
-	if GunModule then
-		if R.OriginalStartShooting then
-			GunModule.StartShooting = R.OriginalStartShooting
-		end
-		if R.OriginalRecoil then
-			GunModule._Recoil = R.OriginalRecoil
-		end
-		if R.OriginalStartAiming then
-			GunModule.StartAiming = R.OriginalStartAiming
-		end
-		if R.OriginalGetAimSpeed then
-			GunModule.GetAimSpeed = R.OriginalGetAimSpeed
-		end
-		if R.OriginalLocalTracers then
-			GunModule._LocalTracers = R.OriginalLocalTracers
-		end
-	end
-	local GameplayUtility = R.GameplayUtility
-	if GameplayUtility and R.OriginalGetSpread then
-		GameplayUtility.GetSpread = R.OriginalGetSpread
-	end
-	local ViewModelModule = R.ViewModelModule
-	if ViewModelModule and R.OriginalViewModelNew then
-		ViewModelModule.new = R.OriginalViewModelNew
-	end
-	genv.RivalsWeaponMods = nil
-end
-
-Rivals_UnloadSilentAim = function()
-	Rivals_UnloadWeaponMods()
-	if silentAimAndAimbotRenderConn then
-		silentAimAndAimbotRenderConn:Disconnect()
-		silentAimAndAimbotRenderConn = nil
-	end
-	pcall(function()
-		if aimbot_fov_circle then
-			aimbot_fov_circle:Remove()
-		end
-	end)
-	if oldNamecall and typeof(hookmetamethod) == "function" then
-		pcall(function()
-			hookmetamethod(game, "__namecall", oldNamecall)
-		end)
-	end
-end
-end
-
--- §09b MAIN — Teleport & Movement -------------------------------------------
-local Rivals_UnloadMovement
-do
-local movementCameraFlightCF
-local movCharacter
-local movRoot
-local movHumanoid
-
-local MovementSettings = {
-	flightConnection = nil,
-	speedConnection = nil,
-	infJumpConnection = nil,
-	noclipConnection = nil,
-	noclipOriginalCollisions = {},
-	FlightSpeed = 50,
-	WalkSpeed = 16,
-}
-
-local function movGetCharacterReferences()
-	local currentCharacter = player.Character
-	if not currentCharacter or not currentCharacter.Parent then
-		movCharacter, movRoot, movHumanoid = nil, nil, nil
-		movementCameraFlightCF = nil
-		return nil, nil, nil
-	end
-	if movCharacter ~= currentCharacter then
-		movCharacter = currentCharacter
-		movRoot = nil
-		movHumanoid = nil
-		movementCameraFlightCF = nil
-	end
-	if not movRoot or movRoot.Parent ~= movCharacter then
-		movRoot = movCharacter:FindFirstChild("HumanoidRootPart")
-	end
-	if not movHumanoid or movHumanoid.Parent ~= movCharacter then
-		movHumanoid = movCharacter:FindFirstChildOfClass("Humanoid")
-	end
-	return movCharacter, movRoot, movHumanoid
-end
-
-local function movFlightStep(dt)
-	local _, currentRoot, currentHumanoid = movGetCharacterReferences()
-	if not (currentRoot and currentHumanoid) then
-		return
-	end
-	if not movementCameraFlightCF then
-		movementCameraFlightCF = CFrame.new(currentRoot.CFrame.Position)
-	end
-	local cam = Workspace.CurrentCamera
-	if not cam then
-		return
-	end
-	local camCF = cam.CFrame
-	local speed = MovementSettings.FlightSpeed
-	local force = Vector3.zero
-	if UserInputService:IsKeyDown(Enum.KeyCode.W) then
-		force += camCF.LookVector * speed
-	end
-	if UserInputService:IsKeyDown(Enum.KeyCode.S) then
-		force -= camCF.LookVector * speed
-	end
-	if UserInputService:IsKeyDown(Enum.KeyCode.A) then
-		force -= camCF.RightVector * speed
-	end
-	if UserInputService:IsKeyDown(Enum.KeyCode.D) then
-		force += camCF.RightVector * speed
-	end
-	if UserInputService:IsKeyDown(Enum.KeyCode.Space) then
-		force += camCF.UpVector * speed
-	end
-	if UserInputService:IsKeyDown(Enum.KeyCode.LeftShift) then
-		force -= camCF.UpVector * speed
-	end
-	force *= dt
-	movementCameraFlightCF = movementCameraFlightCF * CFrame.new(force)
-	currentRoot.CFrame = CFrame.lookAt(
-		movementCameraFlightCF.Position,
-		camCF.Position + camCF.LookVector * 10000
-	)
-	currentRoot.AssemblyLinearVelocity = Vector3.zero
-end
-
-local function movTpWalkStep(dt)
-	local currentCharacter, _, currentHumanoid = movGetCharacterReferences()
-	if not (currentCharacter and currentHumanoid) then
-		return
-	end
-	if currentHumanoid.MoveDirection.Magnitude > 0 then
-		local speedMultiplier = MovementSettings.WalkSpeed / 16
-		currentCharacter:TranslateBy(currentHumanoid.MoveDirection * speedMultiplier * dt * 10)
-	end
-end
-
-local function movSetPartCollisions(enabled)
-	local currentCharacter = movGetCharacterReferences()
-	if not currentCharacter then
-		return
-	end
-	for _, part in ipairs(currentCharacter:GetDescendants()) do
-		if part:IsA("BasePart") then
-			if not enabled then
-				if MovementSettings.noclipOriginalCollisions[part] == nil then
-					MovementSettings.noclipOriginalCollisions[part] = part.CanCollide
-				end
-				part.CanCollide = false
-			else
-				local originalState = MovementSettings.noclipOriginalCollisions[part]
-				if originalState ~= nil then
-					part.CanCollide = originalState
-					MovementSettings.noclipOriginalCollisions[part] = nil
-				else
-					part.CanCollide = true
-				end
-			end
-		end
-	end
-end
-
-local function movToggleNoclip(enabled)
-	if MovementSettings.noclipConnection then
-		MovementSettings.noclipConnection:Disconnect()
-		MovementSettings.noclipConnection = nil
-	end
-	if enabled then
-		movSetPartCollisions(false)
-		MovementSettings.noclipConnection = RunService.Heartbeat:Connect(function()
-			local currentCharacter = movGetCharacterReferences()
-			if not currentCharacter then
-				return
-			end
-			for _, part in ipairs(currentCharacter:GetDescendants()) do
-				if part:IsA("BasePart") and part.CanCollide then
-					if MovementSettings.noclipOriginalCollisions[part] == nil then
-						MovementSettings.noclipOriginalCollisions[part] = true
-					end
-					part.CanCollide = false
-				end
-			end
-		end)
-	else
-		movSetPartCollisions(true)
-	end
-end
-
-local function rivBuildTeleportNames()
-	local list = {}
-	for _, pl in ipairs(Players:GetPlayers()) do
-		if pl ~= player then
-			table.insert(list, pl.Name)
-		end
-	end
-	table.sort(list)
-	if #list == 0 then
-		table.insert(list, "(No other players)")
-	end
-	return list
-end
-
-local function rivRefreshTeleportDropdown()
-	if not Options.teleport_target then
-		return
-	end
-	local opts = rivBuildTeleportNames()
-	local prev = Options.teleport_target.Value
-	Options.teleport_target:SetValues(opts)
-	if prev and table.find(opts, prev) then
-		Options.teleport_target:SetValue(prev)
-	end
-end
-
-local MovementGroup = Tabs.Main:AddRightGroupbox("Movement", { Icon = "person-standing", DefaultExpanded = true })
-
-MovementGroup:AddToggle({
-	Text = "Flight",
-	Default = false,
-	Idx = "mov_Flight",
-})
-Toggles.mov_Flight:OnChanged(function(v)
-	if MovementSettings.flightConnection then
-		MovementSettings.flightConnection:Disconnect()
-		MovementSettings.flightConnection = nil
-	end
-	movementCameraFlightCF = nil
-	if v then
-		MovementSettings.flightConnection = RunService.Heartbeat:Connect(movFlightStep)
-	end
-end)
-
-MovementGroup:AddToggle({
-	Text = "Walk speed",
-	Default = false,
-	Idx = "mov_WalkSpeed",
-})
-Toggles.mov_WalkSpeed:OnChanged(function(v)
-	if MovementSettings.speedConnection then
-		MovementSettings.speedConnection:Disconnect()
-		MovementSettings.speedConnection = nil
-	end
-	if v then
-		MovementSettings.speedConnection = RunService.Heartbeat:Connect(movTpWalkStep)
-	end
-end)
-
-MovementGroup:AddToggle({
-	Text = "Inf Jump",
-	Default = false,
-	Idx = "mov_InfJump",
-})
-Toggles.mov_InfJump:OnChanged(function(v)
-	if MovementSettings.infJumpConnection then
-		MovementSettings.infJumpConnection:Disconnect()
-		MovementSettings.infJumpConnection = nil
-	end
-	if v then
-		MovementSettings.infJumpConnection = UserInputService.JumpRequest:Connect(function()
-			local _, _, hum = movGetCharacterReferences()
-			if hum then
-				hum:ChangeState(Enum.HumanoidStateType.Jumping)
-			end
-		end)
-	end
-end)
-
-MovementGroup:AddToggle({
-	Text = "Noclip",
-	Default = false,
-	Idx = "mov_Noclip",
-})
-Toggles.mov_Noclip:OnChanged(function(v)
-	movToggleNoclip(v)
-end)
-
-MovementGroup:AddSlider({
-	Text = "Flight speed",
-	Min = 0,
-	Max = 500,
-	Default = MovementSettings.FlightSpeed,
-	Rounding = 0,
-	Idx = "mov_FlightSpeed",
-})
-Options.mov_FlightSpeed:OnChanged(function()
-	MovementSettings.FlightSpeed = Options.mov_FlightSpeed.Value
-end)
-
-MovementGroup:AddSlider({
-	Text = "Speed value",
-	Min = 0,
-	Max = 500,
-	Default = MovementSettings.WalkSpeed,
-	Rounding = 0,
-	Idx = "mov_WalkSpeedVal",
-})
-Options.mov_WalkSpeedVal:OnChanged(function()
-	MovementSettings.WalkSpeed = Options.mov_WalkSpeedVal.Value
-end)
-
-if Options.mov_FlightSpeed and Options.mov_FlightSpeed.Value then
-	MovementSettings.FlightSpeed = Options.mov_FlightSpeed.Value
-end
-if Options.mov_WalkSpeedVal and Options.mov_WalkSpeedVal.Value then
-	MovementSettings.WalkSpeed = Options.mov_WalkSpeedVal.Value
-end
-
-local TELEPORT_COOLDOWN_SEC = 1
-local rivTeleportLastAt = 0
-local teleportBehindConn = nil
-
-local function rivApplyBehindSelectedTarget()
-	local name = Options.teleport_target and Options.teleport_target.Value
-	if not name or name == "(No other players)" then
-		return false
-	end
-	local targetPlr = Players:FindFirstChild(name)
-	if not targetPlr or not targetPlr:IsA("Player") or targetPlr == player then
-		return false
-	end
-	local char = player.Character
-	local hrp = char and char:FindFirstChild("HumanoidRootPart")
-	local tChar = targetPlr.Character
-	local tHrp = tChar and tChar:FindFirstChild("HumanoidRootPart")
-	if not (hrp and tHrp) then
-		return false
-	end
-	local look = tHrp.CFrame.LookVector
-	local flat = Vector3.new(look.X, 0, look.Z)
-	if flat.Magnitude > 0.05 then
-		flat = flat.Unit
-	else
-		flat = look.Unit
-	end
-	local backOffset = 5
-	-- Same vertical level as target (no +Y); avoids floating above them when going "behind"
-	local pos = tHrp.Position - flat * backOffset
-	hrp.CFrame = CFrame.lookAt(pos, tHrp.Position)
-	hrp.AssemblyLinearVelocity = Vector3.zero
-	return true
-end
-
-local TeleportGroup = Tabs.Main:AddRightGroupbox("Teleport", { Icon = "map-pin", DefaultExpanded = true })
-TeleportGroup:AddDropdown({
-	Text = "Player",
-	Options = rivBuildTeleportNames(),
-	Default = 1,
-	Searchable = true,
-	Idx = "teleport_target",
-})
-TeleportGroup:AddButton({
-	Text = "Teleport to player",
-	Func = function()
-		local name = Options.teleport_target and Options.teleport_target.Value
-		if not name or name == "(No other players)" then
-			return
-		end
-		local targetPlr = Players:FindFirstChild(name)
-		if not targetPlr or not targetPlr:IsA("Player") or targetPlr == player then
-			return
-		end
-		local now = tick()
-		local since = now - rivTeleportLastAt
-		if since < TELEPORT_COOLDOWN_SEC then
-			task.wait(TELEPORT_COOLDOWN_SEC - since)
-		end
-		local char = player.Character
-		local hrp = char and char:FindFirstChild("HumanoidRootPart")
-		local tChar = targetPlr.Character
-		local tHrp = tChar and tChar:FindFirstChild("HumanoidRootPart")
-		if not (hrp and tHrp) then
-			return
-		end
-		local behind = Toggles.teleport_behind and Toggles.teleport_behind.Value
-		if behind then
-			rivApplyBehindSelectedTarget()
+	local baseSm = Theme.CornerSm.Offset
+	local steps = #layers - 1
+	for i, layer in layers do
+		local t = if steps > 0 then (i - 1) / steps else 0
+		if isSelected then
+			local hot = Theme.AccentPurple:Lerp(Theme.AccentBlue, t)
+			layer.BackgroundColor3 = hot:Lerp(Theme.Stroke, t * t * 0.38)
 		else
-			hrp.CFrame = tHrp.CFrame + Vector3.new(0, 2.5, 0)
+			layer.BackgroundColor3 = themeTabIdleGlowColor(t)
 		end
-		rivTeleportLastAt = tick()
-	end,
-})
-TeleportGroup:AddToggle({
-	Text = "Teleport to player",
-	Default = false,
-	Idx = "teleport_behind",
-})
-Toggles.teleport_behind:OnChanged(function(v)
-	if teleportBehindConn then
-		teleportBehindConn:Disconnect()
-		teleportBehindConn = nil
+		local sz = tonumber(layer:GetAttribute("GlowSize")) or 0
+		local gc = layer:FindFirstChildWhichIsA("UICorner")
+		if gc then
+			gc.CornerRadius = UDim.new(0, tabGlowCornerPx(baseSm, sz))
+		end
 	end
-	if v then
-		teleportBehindConn = RunService.Heartbeat:Connect(function()
-			rivApplyBehindSelectedTarget()
+end
+
+-- ----------------------------------------------------------------------------- Lucide ([lucide.dev](https://lucide.dev) — executor loads sprite module like Obsidian)
+local LUCIDE_ROBLOX_DIRECT =
+	"https://raw.githubusercontent.com/deividcomsono/lucide-roblox-direct/refs/heads/main/source.lua"
+
+local loadchunk = loadstring or load
+
+function Library.IsValidCustomIcon(Icon: any): boolean
+	return typeof(Icon) == "string"
+		and (
+			Icon:match("rbxasset") ~= nil
+			or Icon:match("roblox%.com/asset/%?id=") ~= nil
+			or Icon:match("rbxthumb://type=") ~= nil
+		)
+end
+
+local LucideFetchOk = false
+local LucideModule: any = nil
+
+local function tryInitLucideModule()
+	local ok, mod = pcall(function()
+		local g: any = game
+		local src = g:HttpGet(LUCIDE_ROBLOX_DIRECT)
+		if not loadchunk then
+			error("loadstring/load not available")
+		end
+		local chunk = loadchunk(src)
+		if not chunk then
+			error("invalid lucide module source")
+		end
+		return chunk()
+	end)
+	if ok and mod ~= nil and typeof(mod.GetAsset) == "function" then
+		LucideFetchOk = true
+		LucideModule = mod
+	else
+		LucideFetchOk = false
+		LucideModule = nil
+	end
+end
+
+tryInitLucideModule()
+
+function Library:GetIcon(IconName: string): any
+	if not LucideFetchOk or LucideModule == nil then
+		return nil
+	end
+	local success, icon = pcall(function()
+		return LucideModule.GetAsset(IconName)
+	end)
+	if not success then
+		return nil
+	end
+	return icon
+end
+
+function Library:GetCustomIcon(IconName: any): any
+	if typeof(IconName) == "number" then
+		return {
+			Url = string.format("rbxassetid://%d", IconName),
+			ImageRectOffset = Vector2.zero,
+			ImageRectSize = Vector2.zero,
+			Custom = true,
+			Untinted = true,
+		}
+	end
+	if typeof(IconName) ~= "string" then
+		return nil
+	end
+	if IconName:match("^%s*%d+%s*$") then
+		local id = tonumber((IconName :: string):gsub("%s", ""))
+		if id then
+			return {
+				Url = string.format("rbxassetid://%d", id),
+				ImageRectOffset = Vector2.zero,
+				ImageRectSize = Vector2.zero,
+				Custom = true,
+				Untinted = true,
+			}
+		end
+	end
+	if Library.IsValidCustomIcon(IconName) then
+		return {
+			Url = IconName,
+			ImageRectOffset = Vector2.zero,
+			ImageRectSize = Vector2.zero,
+			Custom = true,
+			Untinted = true,
+		}
+	end
+	local lucide = Library:GetIcon(IconName)
+	if lucide then
+		return lucide
+	end
+	return nil
+end
+
+--[[ Replace remote module (e.g. offline require) — same idea as Obsidian SetIconModule ]]
+function Library:SetIconModule(module: any)
+	if module ~= nil and typeof(module.GetAsset) == "function" then
+		LucideFetchOk = true
+		LucideModule = module
+	end
+end
+
+export type WindowConfig = {
+	Title: string?,
+	Subtitle: string?,
+	--[[ optional: replaces purple header dot — rbxassetid number, digit string, or rbxasset:// URL (same as tab icons) ]]
+	TitleIcon: string | number?,
+	--[[ optional rbxasset:// or http url for left mascot ]]
+	MascotImage: string?,
+	Size: Vector2?,
+	--[[ minimum body content size (width × height below title bar); root adds mascot + 48px header ]]
+	MinSize: Vector2?,
+	Resizable: boolean?,
+	GlowEnabled: boolean?,
+	--[[ stacked halo behind each sidebar tab; on by default (set false to disable) ]]
+	TabGlowEnabled: boolean?,
+	--[[ Dropdowns default to Multi when Multi is omitted (Obsidian-style) ]]
+	MultiDropdownByDefault: boolean?,
+	--[[ Mobile: "Left" | "Right" — floating Menu / Lock chips ]]
+	MobileButtonsSide: string?,
+	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
+	UnlockMouseWhileOpen: boolean?,
+}
+
+function Library.new(config: WindowConfig)
+	config = config or {}
+	local titleText = config.Title or "UI"
+	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
+	local titleIcon = config.TitleIcon
+	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Left"))
+	if mobileSide ~= "right" then
+		mobileSide = "left"
+	end
+	local unlockMouseWhileOpen = config.UnlockMouseWhileOpen ~= false
+	local defaultMin = if Library.IsMobile then Vector2.new(300, 200) else Vector2.new(380, 300)
+	local minContent = config.MinSize or defaultMin
+	local size = config.Size or (if Library.IsMobile then Vector2.new(480, 360) else Vector2.new(520, 440))
+	size = Vector2.new(math.max(size.X, minContent.X), math.max(size.Y, minContent.Y))
+	local cam0 = workspace.CurrentCamera
+	if cam0 then
+		local vs = cam0.ViewportSize
+		local margin = 28
+		local maxW = math.max(minContent.X, vs.X - margin)
+		local maxH = math.max(minContent.Y, vs.Y - margin)
+		size = Vector2.new(math.clamp(size.X, minContent.X, maxW), math.clamp(size.Y, minContent.Y, maxH))
+	end
+	local mascotId = config.MascotImage
+	local mascotOffset = if mascotId then 72 else 0
+	local minRootW = minContent.X + mascotOffset
+	local minRootH = minContent.Y + 48
+	local tabGlowEnabled = config.TabGlowEnabled ~= false
+	local dropdownMultiDefault = config.MultiDropdownByDefault == true
+	Library.MultiDropdownByDefault = dropdownMultiDefault
+
+	local screenGui = Instance.new("ScreenGui")
+	screenGui.Name = "HubUI"
+	screenGui.ResetOnSpawn = false
+	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
+	screenGui.IgnoreGuiInset = true
+	--[[ Obsidian-style: protect before parenting, then gethui with PlayerGui fallback ]]
+	pcall(protectgui, screenGui)
+	local parentOk = pcall(function()
+		screenGui.Parent = gethui()
+	end)
+	if not parentOk or not screenGui.Parent then
+		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
+	end
+
+	--[[ Obsidian-style 0×0 modal sink: improves camera / world input while GUI is open on mobile ]]
+	local modalSink = Instance.new("TextButton")
+	modalSink.Name = "ModalSink"
+	modalSink.BackgroundTransparency = 1
+	modalSink.Text = ""
+	modalSink.Size = UDim2.fromOffset(0, 0)
+	modalSink.AnchorPoint = Vector2.zero
+	modalSink.Position = UDim2.fromScale(0, 0)
+	modalSink.Modal = false
+	modalSink.ZIndex = -500
+	modalSink.Active = false
+	modalSink.AutoButtonColor = false
+	modalSink.Parent = screenGui
+
+	Library.Unloaded = false
+	table.clear(Library.Toggles)
+	table.clear(Library.Options)
+	Library._resizeEndWrappedRefits = {}
+
+	local toggleThemeRows: { { track: Frame, getOn: () -> boolean } } = {}
+	local sliderGradients: { UIGradient } = {}
+	--[[ After theme paint, restore section chevrons (ImageRect can get cleared on some clients). ]]
+	local sectionChevronRefreshes: { () -> () } = {}
+
+	-- Notify UI is parented after root (see below) so it stacks above the window with Global ZIndex
+
+	-- Tooltips (hover label / tab — same idea as Obsidian AddTooltip)
+	local tooltipLabel = Instance.new("TextLabel")
+	tooltipLabel.Name = "LibTooltip"
+	tooltipLabel.BackgroundColor3 = Theme.Elevated
+	tooltipLabel.BackgroundTransparency = 0.08
+	tooltipLabel.TextColor3 = Theme.Text
+	tooltipLabel.TextSize = 13
+	tooltipLabel.Font = Enum.Font.GothamMedium
+	tooltipLabel.TextXAlignment = Enum.TextXAlignment.Left
+	tooltipLabel.TextYAlignment = Enum.TextYAlignment.Top
+	tooltipLabel.TextWrapped = true
+	tooltipLabel.Visible = false
+	tooltipLabel.AutomaticSize = Enum.AutomaticSize.XY
+	tooltipLabel.ZIndex = 950
+	tooltipLabel.Parent = screenGui
+	corner(Theme.CornerSm).Parent = tooltipLabel
+	local ttPad = Instance.new("UIPadding")
+	ttPad.PaddingLeft = UDim.new(0, 8)
+	ttPad.PaddingRight = UDim.new(0, 8)
+	ttPad.PaddingTop = UDim.new(0, 6)
+	ttPad.PaddingBottom = UDim.new(0, 6)
+	ttPad.Parent = tooltipLabel
+	stroke(Theme.Stroke, 1, 0.45).Parent = tooltipLabel
+
+	local tooltipToken = 0
+	local tooltipLoopToken = 0
+	local function hideTooltip()
+		tooltipLoopToken += 1
+		tooltipLabel.Visible = false
+	end
+	local function bindTooltipToInstances(instances: { GuiObject }, tip: string?)
+		if typeof(tip) ~= "string" or tip == "" then
+			return
+		end
+		local hoverDepth = 0
+		local hideScheduled = false
+		local function scheduleHide()
+			if hideScheduled then
+				return
+			end
+			hideScheduled = true
+			task.defer(function()
+				hideScheduled = false
+				if hoverDepth <= 0 then
+					hideTooltip()
+				end
+			end)
+		end
+		local function onEnter()
+			hoverDepth += 1
+			if hoverDepth > 1 then
+				return
+			end
+			tooltipToken += 1
+			local showTok = tooltipToken
+			tooltipLoopToken += 1
+			local loopTok = tooltipLoopToken
+			tooltipLabel.Text = tip
+			tooltipLabel.Visible = true
+			task.spawn(function()
+				while
+					tooltipLabel.Visible
+					and loopTok == tooltipLoopToken
+					and showTok == tooltipToken
+				do
+					local px: number
+					local py: number
+					if Library.IsMobile then
+						local ml = UserInputService:GetMouseLocation()
+						px = ml.X
+						py = ml.Y
+					else
+						px = PlayerMouse.X
+						py = PlayerMouse.Y
+					end
+					local cam = workspace.CurrentCamera
+					local vw = if cam then cam.ViewportSize.X else 1920
+					local vh = if cam then cam.ViewportSize.Y else 1080
+					local ax = tooltipLabel.AbsoluteSize.X
+					local ay = tooltipLabel.AbsoluteSize.Y
+					local x = math.clamp(px + 14, 6, math.max(6, vw - ax - 6))
+					local y = math.clamp(py + 14, 6, math.max(6, vh - ay - 6))
+					tooltipLabel.Position = UDim2.fromOffset(x, y)
+					RunService.RenderStepped:Wait()
+				end
+			end)
+		end
+		local function onLeave()
+			hoverDepth = math.max(0, hoverDepth - 1)
+			if hoverDepth == 0 then
+				scheduleHide()
+			end
+		end
+		for _, inst in instances do
+			inst.MouseEnter:Connect(onEnter)
+			inst.MouseLeave:Connect(onLeave)
+		end
+	end
+
+	--[[ Right-click key cap → Toggle / Hold (Obsidian-style). One menu per window. ]]
+	local keybindModeMenu: Frame? = nil
+	local keybindModeMenuConn: RBXScriptConnection? = nil
+
+	local function destroyKeybindModeMenu()
+		if keybindModeMenuConn then
+			keybindModeMenuConn:Disconnect()
+			keybindModeMenuConn = nil
+		end
+		if keybindModeMenu then
+			keybindModeMenu:Destroy()
+			keybindModeMenu = nil
+		end
+	end
+
+	local function showKeybindModeMenu(anchor: GuiObject, currentMode: string, onPick: (string) -> ())
+		destroyKeybindModeMenu()
+		local menu = Instance.new("Frame")
+		menu.Name = "KeybindModeMenu"
+		menu.BackgroundColor3 = Theme.Elevated
+		menu.BackgroundTransparency = 0.05
+		menu.BorderSizePixel = 0
+		menu.ZIndex = 2000
+		menu.AutomaticSize = Enum.AutomaticSize.Y
+		menu.Size = UDim2.fromOffset(92, 0)
+		local ap = anchor.AbsolutePosition
+		local asz = anchor.AbsoluteSize
+		menu.Position = UDim2.fromOffset(ap.X + asz.X + 3, ap.Y)
+		menu.Parent = screenGui
+		corner(Theme.CornerSm).Parent = menu
+		stroke(Theme.Stroke, 1, 0.45).Parent = menu
+		local mpad = Instance.new("UIPadding")
+		mpad.PaddingTop = UDim.new(0, 4)
+		mpad.PaddingBottom = UDim.new(0, 4)
+		mpad.PaddingLeft = UDim.new(0, 4)
+		mpad.PaddingRight = UDim.new(0, 4)
+		mpad.Parent = menu
+		local list = Instance.new("UIListLayout")
+		list.Padding = UDim.new(0, 2)
+		list.Parent = menu
+
+		local modes = { "Toggle", "Hold" }
+		for _, mName in modes do
+			local sel = mName == currentMode
+			local btn = Instance.new("TextButton")
+			btn.AutoButtonColor = false
+			btn.Size = UDim2.new(1, 0, 0, 22)
+			btn.Text = mName
+			btn.Font = Enum.Font.GothamMedium
+			btn.TextSize = 13
+			btn.TextColor3 = Theme.Text
+			btn.BackgroundColor3 = if sel then Theme.AccentBlue else Theme.Background
+			btn.BackgroundTransparency = if sel then 0.2 else 0.35
+			btn:SetAttribute("UiBg", if sel then "AccentBlue" else "Background")
+			btn:SetAttribute("UiText", "Text")
+			btn.Parent = menu
+			corner(Theme.CornerSm).Parent = btn
+			btn.MouseButton1Click:Connect(function()
+				onPick(mName)
+				destroyKeybindModeMenu()
+			end)
+		end
+
+		keybindModeMenu = menu
+		task.defer(function()
+			if keybindModeMenu ~= menu then
+				return
+			end
+			keybindModeMenuConn = UserInputService.InputBegan:Connect(function(input: InputObject)
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				local loc = Vector2.new(input.Position.X, input.Position.Y)
+				local mp = menu.AbsolutePosition
+				local ms = menu.AbsoluteSize
+				if loc.X >= mp.X and loc.X <= mp.X + ms.X and loc.Y >= mp.Y and loc.Y <= mp.Y + ms.Y then
+					return
+				end
+				if
+					loc.X >= ap.X
+					and loc.X <= ap.X + asz.X
+					and loc.Y >= ap.Y
+					and loc.Y <= ap.Y + asz.Y
+				then
+					return
+				end
+				destroyKeybindModeMenu()
+			end)
 		end)
 	end
-end)
 
-local teleportListConns = {}
-table.insert(
-	teleportListConns,
-	Players.PlayerAdded:Connect(function()
-		task.defer(rivRefreshTeleportDropdown)
-	end)
-)
-	table.insert(
-	teleportListConns,
-	Players.PlayerRemoving:Connect(function()
-		task.defer(rivRefreshTeleportDropdown)
-	end)
-)
+	local root = Instance.new("Frame")
+	root.Name = "Root"
+	root.AnchorPoint = Vector2.new(0.5, 0.5)
+	root.Position = UDim2.new(0.5, 0, 0.5, 0)
+	root.Size = UDim2.fromOffset(size.X + mascotOffset, size.Y + 48)
+	root.BackgroundTransparency = 1
+	root.Parent = screenGui
 
-Rivals_UnloadMovement = function()
-	if teleportBehindConn then
-		teleportBehindConn:Disconnect()
-		teleportBehindConn = nil
+	local function setRootVisible(v: boolean)
+		root.Visible = v
+		if unlockMouseWhileOpen and Library.IsMobile then
+			modalSink.Modal = v
+		end
 	end
-	for _, c in ipairs(teleportListConns) do
-		if c then
+
+	-- Toasts: created after root so with Sibling ZIndex they stack above the window; high ZIndex vs root (0)
+	local notifyHost = Instance.new("Frame")
+	notifyHost.Name = "NotifyHost"
+	notifyHost.Size = UDim2.fromScale(1, 1)
+	notifyHost.BackgroundTransparency = 1
+	notifyHost.ZIndex = 800
+	notifyHost.Active = false
+	notifyHost.Parent = screenGui
+	local notifyList = Instance.new("Frame")
+	notifyList.Name = "NotifyList"
+	notifyList.Size = UDim2.new(0, 300, 1, -24)
+	notifyList.BackgroundTransparency = 1
+	notifyList.ZIndex = 801
+	notifyList.Parent = notifyHost
+	local nlayout = Instance.new("UIListLayout")
+	nlayout.SortOrder = Enum.SortOrder.LayoutOrder
+	nlayout.VerticalAlignment = Enum.VerticalAlignment.Top
+	nlayout.Padding = UDim.new(0, 8)
+	nlayout.Parent = notifyList
+
+	local function updateNotifyLayout()
+		local side = string.lower(Library.NotifySide or "right")
+		if side == "left" then
+			notifyList.AnchorPoint = Vector2.new(0, 0)
+			notifyList.Position = UDim2.new(0, 12, 0, 12)
+			nlayout.HorizontalAlignment = Enum.HorizontalAlignment.Left
+		else
+			notifyList.AnchorPoint = Vector2.new(1, 0)
+			notifyList.Position = UDim2.new(1, -12, 0, 12)
+			nlayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+		end
+	end
+	updateNotifyLayout()
+	Library._notifyList = notifyList
+	Library._updateNotifyLayout = updateNotifyLayout
+
+	-- top row: mascot + pill
+	local topRow = Instance.new("Frame")
+	topRow.Name = "TopRow"
+	topRow.Size = UDim2.new(1, 0, 0, 40)
+	topRow.BackgroundTransparency = 1
+	topRow.ZIndex = 3
+	topRow.Parent = root
+
+	local topLayout = Instance.new("UIListLayout")
+	topLayout.FillDirection = Enum.FillDirection.Horizontal
+	topLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	topLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	topLayout.Padding = UDim.new(0, 10)
+	topLayout.Parent = topRow
+
+	local mascot: ImageLabel? = nil
+	if mascotId then
+		local m = Instance.new("ImageLabel")
+		m.Name = "Mascot"
+		m.Size = UDim2.fromOffset(64, 64)
+		m.BackgroundTransparency = 1
+		m.Image = mascotId
+		m.ScaleType = Enum.ScaleType.Fit
+		m.LayoutOrder = 0
+		m.Parent = topRow
+		mascot = m
+	end
+
+	local pillOuter = Instance.new("Frame")
+	pillOuter.Name = "TopPillOuter"
+	pillOuter.Size = UDim2.new(1, mascot and -74 or 0, 0, 36)
+	pillOuter.BackgroundTransparency = 1
+	pillOuter.BorderSizePixel = 0
+	pillOuter.LayoutOrder = 1
+	pillOuter.ClipsDescendants = false
+	pillOuter.Parent = topRow
+
+	local pillGlowHost: Frame? = nil
+	if config.GlowEnabled ~= false then
+		local gh = Instance.new("Frame")
+		gh.Name = "PillGlowHost"
+		gh.Size = UDim2.fromScale(1, 1)
+		gh.BackgroundTransparency = 1
+		gh.BorderSizePixel = 0
+		gh.ZIndex = 0
+		gh.Parent = pillOuter
+		pillGlowHost = gh
+		addPillStackedGlow(gh, {
+			{ size = 4, transparency = 0.84 },
+			{ size = 10, transparency = 0.91 },
+			{ size = 16, transparency = 0.95 },
+		})
+	end
+
+	local pill = Instance.new("Frame")
+	pill.Name = "TopPill"
+	pill.Size = UDim2.fromScale(1, 1)
+	pill.Position = UDim2.fromScale(0, 0)
+	pill.ZIndex = 1
+	pill.BackgroundColor3 = Theme.Background
+	pill.BackgroundTransparency = 0
+	pill.BorderSizePixel = 0
+	pill.Parent = pillOuter
+	corner(UDim.new(1, 0)).Parent = pill
+	stroke(Theme.Stroke, 1, 0.65).Parent = pill
+	pad(12).Parent = pill
+
+	local pillLayout = Instance.new("UIListLayout")
+	pillLayout.FillDirection = Enum.FillDirection.Horizontal
+	pillLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	pillLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+	pillLayout.Padding = UDim.new(0, 10)
+	pillLayout.Parent = pill
+
+	local logo: GuiObject
+	if titleIcon ~= nil then
+		local img = Instance.new("ImageLabel")
+		img.Name = "TitleIcon"
+		img.Size = UDim2.fromOffset(18, 18)
+		img.BackgroundTransparency = 1
+		img.ScaleType = Enum.ScaleType.Fit
+		img.LayoutOrder = 0
+		local parsed = Library:GetCustomIcon(titleIcon)
+		if parsed then
+			img.Image = parsed.Url
+			img.ImageRectOffset = parsed.ImageRectOffset
+			img.ImageRectSize = parsed.ImageRectSize
+			if parsed.Untinted then
+				img.ImageColor3 = Color3.new(1, 1, 1)
+			else
+				img.ImageColor3 = Theme.AccentPurple
+				img:SetAttribute("UiImg", "AccentPurple")
+			end
+		end
+		img.Parent = pill
+		corner(UDim.new(1, 0)).Parent = img
+		logo = img
+	else
+		local fr = Instance.new("Frame")
+		fr.Name = "LogoDot"
+		fr.Size = UDim2.fromOffset(18, 18)
+		fr.BackgroundColor3 = Theme.AccentPurple
+		fr.LayoutOrder = 0
+		fr.Parent = pill
+		corner(UDim.new(1, 0)).Parent = fr
+		logo = fr
+	end
+
+	local subtitle = Instance.new("TextLabel")
+	subtitle.Name = "Subtitle"
+	subtitle.Size = UDim2.new(1, -28, 1, 0)
+	subtitle.BackgroundTransparency = 1
+	subtitle.Font = Enum.Font.GothamMedium
+	subtitle.TextSize = 13
+	subtitle.TextColor3 = Theme.TextDim
+	subtitle.TextXAlignment = Enum.TextXAlignment.Left
+	subtitle.Text = subtitleText
+	subtitle.LayoutOrder = 1
+	subtitle.Parent = pill
+
+	-- body: sidebar + panel
+	local body = Instance.new("Frame")
+	body.Name = "Body"
+	body.Position = UDim2.new(0, 0, 0, 48)
+	body.Size = UDim2.new(1, 0, 1, -48)
+	body.BackgroundTransparency = 1
+	body.ZIndex = 1
+	body.Parent = root
+
+	local bodyLayout = Instance.new("UIListLayout")
+	bodyLayout.FillDirection = Enum.FillDirection.Horizontal
+	bodyLayout.SortOrder = Enum.SortOrder.LayoutOrder
+	bodyLayout.Padding = UDim.new(0, 10)
+	bodyLayout.Parent = body
+
+	local sidebar = Instance.new("Frame")
+	sidebar.Name = "Sidebar"
+	sidebar.Size = UDim2.fromOffset(52, 0)
+	sidebar.AutomaticSize = Enum.AutomaticSize.Y
+	sidebar.BackgroundTransparency = 1
+	sidebar.LayoutOrder = 0
+	sidebar.Parent = body
+
+	local sideList = Instance.new("UIListLayout")
+	sideList.Padding = UDim.new(0, 6)
+	sideList.SortOrder = Enum.SortOrder.LayoutOrder
+	sideList.HorizontalAlignment = Enum.HorizontalAlignment.Center
+	sideList.Parent = sidebar
+
+	--[[ One shell: transparent MainPanel holds glow + inner face (no extra MainPanelWrap in the tree) ]]
+	local mainPanel = Instance.new("Frame")
+	mainPanel.Name = "MainPanel"
+	mainPanel.Size = UDim2.new(1, -62, 1, 0)
+	mainPanel.LayoutOrder = 1
+	mainPanel.BackgroundTransparency = 1
+	mainPanel.BorderSizePixel = 0
+	mainPanel.ClipsDescendants = false
+	mainPanel.Parent = body
+
+	local panelGlowHost: Frame? = nil
+	if config.GlowEnabled ~= false then
+		local gh = Instance.new("Frame")
+		gh.Name = "MainGlowHost"
+		gh.Size = UDim2.fromScale(1, 1)
+		gh.Position = UDim2.fromScale(0, 0)
+		gh.BackgroundTransparency = 1
+		gh.BorderSizePixel = 0
+		gh.ZIndex = 0
+		gh.Parent = mainPanel
+		panelGlowHost = gh
+		addStackedGlow(gh, {
+			{ size = 5, transparency = 0.82 },
+			{ size = 11, transparency = 0.9 },
+			{ size = 17, transparency = 0.95 },
+			{ size = 22, transparency = 0.98 },
+		}, Library.CornerRadius)
+	end
+
+	local panelFace = Instance.new("Frame")
+	panelFace.Name = "PanelFace"
+	panelFace.Size = UDim2.fromScale(1, 1)
+	panelFace.Position = UDim2.fromScale(0, 0)
+	panelFace.ZIndex = 1
+	panelFace.BackgroundColor3 = Theme.Panel
+	panelFace.BackgroundTransparency = Theme.PanelTrans
+	panelFace.ClipsDescendants = true
+	panelFace.Parent = mainPanel
+	corner(Theme.Corner).Parent = panelFace
+	local panelOutline = stroke(Theme.Stroke, 2, math.clamp(Theme.StrokeTrans - 0.15, 0.2, 0.55))
+	panelOutline.Name = "PanelOutline"
+	panelOutline.Parent = panelFace
+	pcall(function()
+		panelOutline.LineJoinMode = Enum.LineJoinMode.Round
+	end)
+
+	local panelTitle = Instance.new("TextLabel")
+	panelTitle.Name = "WindowTitle"
+	panelTitle.Size = UDim2.new(1, -24, 0, 28)
+	panelTitle.Position = UDim2.new(0, 12, 0, 10)
+	panelTitle.BackgroundTransparency = 1
+	panelTitle.Font = Enum.Font.GothamBold
+	panelTitle.TextSize = 18
+	panelTitle.TextColor3 = Theme.Text
+	panelTitle.TextXAlignment = Enum.TextXAlignment.Left
+	panelTitle.Text = titleText
+	panelTitle.Parent = panelFace
+
+	local contentHost = Instance.new("Frame")
+	contentHost.Name = "ContentHost"
+	contentHost.Position = UDim2.new(0, 0, 0, 44)
+	contentHost.Size = UDim2.new(1, 0, 1, -44)
+	contentHost.BackgroundTransparency = 1
+	contentHost.Parent = panelFace
+
+	local tabButtons: { TextButton } = {}
+	local tabScrolls: { GuiObject } = {}
+	local activeTab = 0
+
+	local function selectTab(index: number)
+		activeTab = index
+		for i, btn in tabButtons do
+			local isSel = (i == index)
+			local tabSlot = btn.Parent
+			if tabSlot and tabSlot:IsA("Frame") then
+				paintTabGlowHost(tabSlot:FindFirstChild("TabGlowHost") :: Frame?, isSel)
+			end
+			btn.BackgroundTransparency = if isSel then 0.08 else 0.45
+			local icon = btn:FindFirstChild("LucideIcon")
+			if icon and icon:IsA("ImageLabel") then
+				if icon:GetAttribute("UiTabIconUntinted") == true then
+					icon.ImageColor3 = Color3.new(1, 1, 1)
+				else
+					icon.ImageColor3 = if isSel then Color3.new(1, 1, 1) else Theme.Text
+				end
+			else
+				btn.TextColor3 = if isSel then Color3.new(1, 1, 1) else Theme.Text
+			end
+		end
+		for i, sc in tabScrolls do
+			sc.Visible = (i == index)
+		end
+	end
+
+	local resizeHandle: TextButton? = nil
+	if config.Resizable ~= false then
+		local rh = Instance.new("TextButton")
+		rh.Name = "ResizeGrip"
+		rh.AnchorPoint = Vector2.new(1, 1)
+		rh.Position = UDim2.new(1, -4, 1, -4)
+		rh.Size = UDim2.fromOffset(28, 28)
+		rh.BackgroundTransparency = 1
+		rh.Text = ""
+		rh.AutoButtonColor = false
+		rh.Active = true
+		rh.Selectable = false
+		rh.ZIndex = 50
+		rh.Parent = root
+		local resizeIcon = Library:GetIcon("move-diagonal-2")
+		if resizeIcon and typeof(resizeIcon.Url) == "string" and resizeIcon.Url ~= "" then
+			local gripImg = Instance.new("ImageLabel")
+			gripImg.Name = "ResizeIcon"
+			gripImg.BackgroundTransparency = 1
+			gripImg.AnchorPoint = Vector2.new(1, 1)
+			gripImg.Position = UDim2.new(1, -2, 1, -2)
+			gripImg.Size = UDim2.fromOffset(18, 18)
+			gripImg.Image = resizeIcon.Url
+			gripImg.ImageRectOffset = resizeIcon.ImageRectOffset or Vector2.zero
+			gripImg.ImageRectSize = resizeIcon.ImageRectSize or Vector2.zero
+			gripImg.ImageColor3 = Theme.TextDim
+			gripImg.ImageTransparency = 0.35
+			gripImg.ScaleType = Enum.ScaleType.Fit
+			gripImg.ZIndex = 51
+			gripImg.Parent = rh
+		else
+			local grip = Instance.new("TextLabel")
+			grip.BackgroundTransparency = 1
+			grip.Size = UDim2.fromScale(1, 1)
+			grip.Text = "⋰"
+			grip.TextColor3 = Theme.TextDim
+			grip.TextTransparency = 0.45
+			grip.TextSize = 16
+			grip.Font = Enum.Font.GothamBold
+			grip.ZIndex = 51
+			grip.Parent = rh
+		end
+		resizeHandle = rh
+	end
+
+	--[[ Floating Menu / Lock (Obsidian-style) — keyboard toggle is unreliable on pure touch clients ]]
+	if Library.IsMobile then
+		local chipOuter = Instance.new("Frame")
+		chipOuter.Name = "MobileTools"
+		chipOuter.BackgroundTransparency = 1
+		chipOuter.Size = UDim2.fromOffset(92, 78)
+		chipOuter.ZIndex = 950
+		chipOuter.Parent = screenGui
+		if mobileSide == "right" then
+			chipOuter.AnchorPoint = Vector2.new(1, 0)
+			chipOuter.Position = UDim2.new(1, -10, 0, 10)
+		else
+			chipOuter.Position = UDim2.fromOffset(10, 10)
+		end
+		local _chipList = Instance.new("UIListLayout")
+		_chipList.Padding = UDim.new(0, 6)
+		_chipList.Parent = chipOuter
+
+		local function makeMobileChip(label: string): TextButton
+			local b = Instance.new("TextButton")
+			b.Size = UDim2.fromOffset(86, 34)
+			b.BackgroundColor3 = Theme.Elevated
+			b.BackgroundTransparency = 0.08
+			b.Text = label
+			b.TextColor3 = Theme.Text
+			b.TextSize = 13
+			b.Font = Enum.Font.GothamMedium
+			b.AutoButtonColor = false
+			b.BorderSizePixel = 0
+			b.Parent = chipOuter
+			corner(Theme.CornerSm).Parent = b
+			stroke(Theme.Stroke, 1, 0.5).Parent = b
+			return b
+		end
+
+		makeMobileChip("Menu").MouseButton1Click:Connect(function()
+			setRootVisible(not root.Visible)
+		end)
+
+		local lockChip = makeMobileChip("Lock")
+		lockChip.MouseButton1Click:Connect(function()
+			Library.CantDragForced = not Library.CantDragForced
+			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
+		end)
+	end
+
+	setRootVisible(true)
+
+	--[[ Window drag: global Input*. Resize: same as Obsidian `Library:MakeResizable(MainFrame, ResizeButton, …)` — one InputChanged path, no duplicate resize handling. ]]
+	local dragConn: { RBXScriptConnection } = {}
+	local function beginDrag()
+		local dragging = false
+		local dragStart: Vector2
+		local startPos: UDim2
+
+		local function inputBegan(input: InputObject, gp: boolean)
+			if Library.CantDragForced then
+				return
+			end
+			if
+				input.UserInputType ~= Enum.UserInputType.MouseButton1
+				and input.UserInputType ~= Enum.UserInputType.Touch
+			then
+				return
+			end
+			local p = Vector2.new(input.Position.X, input.Position.Y)
+			local function inDragRegion(): boolean
+				local ap = mainPanel.AbsolutePosition
+				local as = mainPanel.AbsoluteSize
+				if
+					p.X >= ap.X
+					and p.X <= ap.X + as.X
+					and p.Y >= ap.Y
+					and p.Y <= ap.Y + 44
+				then
+					return true
+				end
+				local pap = pill.AbsolutePosition
+				local pas = pill.AbsoluteSize
+				if
+					pap.X <= p.X
+					and p.X <= pap.X + pas.X
+					and pap.Y <= p.Y
+					and p.Y <= pap.Y + pas.Y
+				then
+					return true
+				end
+				return false
+			end
+			if gp and not inDragRegion() then
+				return
+			end
+			if not inDragRegion() then
+				return
+			end
+			dragging = true
+			dragStart = p
+			startPos = root.Position
+		end
+		local function inputMoved(input: InputObject, gp: boolean)
+			if Library.CantDragForced then
+				dragging = false
+				return
+			end
+			if gp and not dragging then
+				return
+			end
+			if not dragging then
+				return
+			end
+			if
+				input.UserInputType ~= Enum.UserInputType.MouseMovement
+				and input.UserInputType ~= Enum.UserInputType.Touch
+			then
+				return
+			end
+			local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+			root.Position = UDim2.new(
+				startPos.X.Scale,
+				startPos.X.Offset + delta.X,
+				startPos.Y.Scale,
+				startPos.Y.Offset + delta.Y
+			)
+		end
+		local function inputEnded(input: InputObject)
+			if
+				input.UserInputType == Enum.UserInputType.MouseButton1
+				or input.UserInputType == Enum.UserInputType.Touch
+			then
+				dragging = false
+			end
+		end
+		table.insert(dragConn, UserInputService.InputBegan:Connect(inputBegan))
+		table.insert(dragConn, UserInputService.InputChanged:Connect(inputMoved))
+		table.insert(dragConn, UserInputService.InputEnded:Connect(inputEnded))
+	end
+	beginDrag()
+
+	Library.MinSize = Vector2.new(minRootW, minRootH)
+	if resizeHandle then
+		--[[ `body` = sidebar + main panel: freeze auto layout during grip so resize stays smooth (Obsidian-sized trees are lighter). ]]
+		Library:MakeResizable(root, resizeHandle, nil, dragConn, body)
+	end
+
+	local refreshThemeFn: () -> ()
+	refreshThemeFn = function()
+		tooltipLabel.BackgroundColor3 = Theme.Elevated
+		tooltipLabel.TextColor3 = Theme.Text
+		for _, ch in tooltipLabel:GetChildren() do
+			if ch:IsA("UIStroke") then
+				ch.Color = Theme.Stroke
+			end
+		end
+		pill.BackgroundColor3 = Theme.Background
+		for _, ch in pill:GetChildren() do
+			if ch:IsA("UIStroke") then
+				ch.Color = Theme.Stroke
+			end
+		end
+		paintPillGlowHost(pillGlowHost)
+		do
+			local mg = mainPanel:FindFirstChild("MainGlowHost")
+			if mg and mg:IsA("Frame") then
+				paintMainGlowHost(mg)
+			else
+				paintMainGlowHost(panelGlowHost)
+			end
+		end
+		if logo:IsA("Frame") then
+			logo.BackgroundColor3 = Theme.AccentPurple
+		elseif logo:IsA("ImageLabel") then
+			local ak = logo:GetAttribute("UiImg")
+			if typeof(ak) == "string" and typeof(Theme[ak]) == "Color3" then
+				logo.ImageColor3 = Theme[ak]
+			end
+		end
+		subtitle.TextColor3 = Theme.TextDim
+		panelFace.BackgroundColor3 = Theme.Panel
+		panelFace.BackgroundTransparency = Theme.PanelTrans
+		for _, ch in panelFace:GetChildren() do
+			if ch.Name == "PanelOutline" and ch:IsA("UIStroke") then
+				ch.Color = Theme.Stroke
+				ch.Transparency = math.clamp(Theme.StrokeTrans - 0.15, 0.2, 0.55)
+			end
+		end
+		panelTitle.TextColor3 = Theme.Text
+		for _, sc in tabScrolls do
+			local function styleScroll(sf: ScrollingFrame)
+				--[[ Transparent: PanelFace already draws the rounded shell; an opaque rect here covers the bottom corners. ]]
+				sf.BackgroundTransparency = 1
+				sf.ScrollBarImageColor3 = Theme.AccentBlue
+			end
+			if sc:IsA("ScrollingFrame") then
+				styleScroll(sc)
+			else
+				for _, ch in sc:GetChildren() do
+					if ch:IsA("ScrollingFrame") then
+						styleScroll(ch)
+					end
+				end
+			end
+		end
+		for _, row in toggleThemeRows do
+			row.track.BackgroundColor3 = if row.getOn() then Theme.ToggleOn else Theme.ToggleOff
+		end
+		for _, grad in sliderGradients do
+			grad.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Theme.AccentPurple),
+				ColorSequenceKeypoint.new(1, Theme.AccentBlue),
+			})
+		end
+		Library:_paintThemeContentHost(contentHost)
+		for _, chevRefresh in sectionChevronRefreshes do
+			pcall(chevRefresh)
+		end
+		selectTab(activeTab)
+		if resizeHandle then
+			local grip = resizeHandle:FindFirstChild("ResizeIcon")
+			if grip and grip:IsA("ImageLabel") then
+				grip.ImageColor3 = Theme.TextDim
+			end
+			local g2 = resizeHandle:FindFirstChildOfClass("TextLabel")
+			if g2 then
+				g2.TextColor3 = Theme.TextDim
+			end
+		end
+	end
+
+	if Library._menuInputConn then
+		Library._menuInputConn:Disconnect()
+		Library._menuInputConn = nil
+	end
+	Library._menuInputConn = UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
+		if gameProcessed or Library.Unloaded then
+			return
+		end
+		if not Library.IsRobloxFocused then
+			return
+		end
+		local tb = Library.ToggleKeybind
+		if not tb or typeof(tb.Value) ~= "EnumItem" then
+			return
+		end
+		if tb.Value == Enum.KeyCode.Unknown then
+			return
+		end
+		if input.UserInputType ~= Enum.UserInputType.Keyboard then
+			return
+		end
+		if input.KeyCode ~= tb.Value then
+			return
+		end
+		setRootVisible(not root.Visible)
+	end)
+
+	local window = {
+		_gui = screenGui,
+		_root = root,
+		_main = mainPanel,
+		_contentHost = contentHost,
+		_tabButtons = tabButtons,
+		_tabScrolls = tabScrolls,
+		_selectTab = selectTab,
+		_dragConn = dragConn,
+	}
+
+	local function destroyWindowGui()
+		destroyKeybindModeMenu()
+		if Library._resizeEndWrappedRefits then
+			table.clear(Library._resizeEndWrappedRefits)
+		end
+		for _, c in dragConn do
 			c:Disconnect()
 		end
+		table.clear(dragConn)
+		for i, fn in Library._windowRefreshes do
+			if fn == refreshThemeFn then
+				table.remove(Library._windowRefreshes, i)
+				break
+			end
+		end
+		if screenGui.Parent then
+			screenGui:Destroy()
+		end
 	end
-	table.clear(teleportListConns)
-	if MovementSettings.flightConnection then
-		MovementSettings.flightConnection:Disconnect()
-		MovementSettings.flightConnection = nil
+
+	Library._windowDestroy = destroyWindowGui
+	table.insert(Library._windowRefreshes, refreshThemeFn)
+
+	function window:Destroy()
+		Library:Unload()
 	end
-	if MovementSettings.speedConnection then
-		MovementSettings.speedConnection:Disconnect()
-		MovementSettings.speedConnection = nil
+
+	function window:SetTitle(t: string)
+		panelTitle.Text = t
 	end
-	if MovementSettings.infJumpConnection then
-		MovementSettings.infJumpConnection:Disconnect()
-		MovementSettings.infJumpConnection = nil
+
+	function window:SetSubtitle(t: string)
+		subtitle.Text = t
 	end
-	if MovementSettings.noclipConnection then
-		MovementSettings.noclipConnection:Disconnect()
-		MovementSettings.noclipConnection = nil
+
+	function window:SetCornerRadius(n: number)
+		n = math.clamp(math.floor(n + 0.5), 0, 32)
+		Library.CornerRadius = n
+		Theme.Corner = UDim.new(0, n)
+		Theme.CornerSm = UDim.new(0, math.max(0, math.floor(n * 0.75)))
+		local pf = panelFace:FindFirstChildWhichIsA("UICorner")
+		if pf then
+			pf.CornerRadius = Theme.Corner
+		end
+		local mg = mainPanel:FindFirstChild("MainGlowHost")
+		if mg and mg:IsA("Frame") then
+			paintMainGlowHost(mg :: Frame)
+		else
+			paintMainGlowHost(panelGlowHost)
+		end
+		selectTab(activeTab)
 	end
-	for part, state in pairs(MovementSettings.noclipOriginalCollisions) do
-		pcall(function()
-			if part and part.Parent then
-				part.CanCollide = state
+
+	-- Tab API
+	local Tab = {}
+	Tab.__index = Tab
+
+	--[[ Horizontal sub-tabs inside a column; each :AddTab returns a proxy Tab (use AddLeftGroupbox / AddSection on it). ]]
+	local function makeTabbox(parentScroll: Instance, layoutOrder: number, boxTitle: string?): any
+		local root = Instance.new("Frame")
+		root.Name = "TabboxRoot"
+		root.BackgroundTransparency = 1
+		root.BorderSizePixel = 0
+		root.Size = UDim2.new(1, 0, 0, 0)
+		root.AutomaticSize = Enum.AutomaticSize.Y
+		root.LayoutOrder = layoutOrder
+		root.Parent = parentScroll
+
+		local vList = Instance.new("UIListLayout")
+		vList.FillDirection = Enum.FillDirection.Vertical
+		vList.SortOrder = Enum.SortOrder.LayoutOrder
+		vList.Padding = UDim.new(0, 6)
+		vList.Parent = root
+
+		local nextLo = 1
+		if typeof(boxTitle) == "string" and boxTitle ~= "" then
+			local title = Instance.new("TextLabel")
+			title.BackgroundTransparency = 1
+			title.Size = UDim2.new(1, 0, 0, 14)
+			title.Font = Enum.Font.GothamBold
+			title.TextSize = 11
+			title.TextColor3 = Theme.TextDim
+			title.TextXAlignment = Enum.TextXAlignment.Left
+			title.Text = string.upper(boxTitle)
+			title.LayoutOrder = nextLo
+			title:SetAttribute("UiText", "TextDim")
+			nextLo += 1
+			title.Parent = root
+		end
+
+		local strip = Instance.new("Frame")
+		strip.Name = "TabboxStrip"
+		strip.BackgroundColor3 = Theme.Background
+		strip.BackgroundTransparency = 0.35
+		strip.BorderSizePixel = 0
+		strip.Size = UDim2.new(1, 0, 0, UID.TabboxStripH)
+		strip.LayoutOrder = nextLo
+		nextLo += 1
+		strip:SetAttribute("UiBg", "Background")
+		strip.Parent = root
+		corner(Theme.CornerSm).Parent = strip
+		local stripPad = Instance.new("UIPadding")
+		stripPad.PaddingLeft = UDim.new(0, 4)
+		stripPad.PaddingRight = UDim.new(0, 4)
+		stripPad.PaddingTop = UDim.new(0, 4)
+		stripPad.PaddingBottom = UDim.new(0, 4)
+		stripPad.Parent = strip
+
+		local hList = Instance.new("UIListLayout")
+		hList.FillDirection = Enum.FillDirection.Horizontal
+		hList.SortOrder = Enum.SortOrder.LayoutOrder
+		hList.Padding = UDim.new(0, 4)
+		hList.VerticalAlignment = Enum.VerticalAlignment.Center
+		hList.Parent = strip
+
+		local contentHost = Instance.new("Frame")
+		contentHost.Name = "TabboxContent"
+		contentHost.BackgroundTransparency = 1
+		contentHost.BorderSizePixel = 0
+		contentHost.Size = UDim2.new(1, 0, 0, 0)
+		contentHost.AutomaticSize = Enum.AutomaticSize.Y
+		contentHost.LayoutOrder = nextLo
+		contentHost.Parent = root
+
+		local chList = Instance.new("UIListLayout")
+		chList.SortOrder = Enum.SortOrder.LayoutOrder
+		chList.Padding = UDim.new(0, 0)
+		chList.Parent = contentHost
+
+		local entries: { { btn: TextButton, inner: Frame, proxy: any } } = {}
+		local activeSub = 1
+
+		local function paintStrip(sel: number)
+			for i, e in entries do
+				local on = i == sel
+				e.btn.BackgroundTransparency = if on then 0.08 else 0.55
+				e.btn.BackgroundColor3 = if on then Theme.Elevated else Theme.Background
+				e.btn.TextColor3 = if on then Theme.Text else Theme.TextDim
+				e.btn:SetAttribute("UiBg", if on then "Elevated" else "Background")
+				e.btn:SetAttribute("UiText", if on then "Text" else "TextDim")
+			end
+		end
+
+		local function selectSub(i: number)
+			if i < 1 or i > #entries then
+				return
+			end
+			activeSub = i
+			for j, e in entries do
+				e.inner.Visible = j == i
+			end
+			paintStrip(i)
+		end
+
+		local box = {}
+		function box:AddTab(name: string)
+			local idx = #entries + 1
+			local btn = Instance.new("TextButton")
+			btn.Name = "SubTab_" .. name
+			btn.AutoButtonColor = false
+			btn.Size = UDim2.new(0, 0, 0, UID.TabboxBtnH)
+			btn.AutomaticSize = Enum.AutomaticSize.X
+			btn.Font = Enum.Font.GothamMedium
+			btn.TextSize = UID.TabboxBtnText
+			btn.Text = name
+			btn.BackgroundColor3 = Theme.Background
+			btn.BackgroundTransparency = 0.55
+			btn.TextColor3 = Theme.TextDim
+			btn.LayoutOrder = idx
+			btn:SetAttribute("UiBg", "Background")
+			btn:SetAttribute("UiText", "TextDim")
+			btn.Parent = strip
+			corner(Theme.CornerSm).Parent = btn
+			pad(8).Parent = btn
+
+			local inner = Instance.new("Frame")
+			inner.Name = "TabboxPage_" .. name
+			inner.BackgroundTransparency = 1
+			inner.BorderSizePixel = 0
+			inner.Size = UDim2.new(1, 0, 0, 0)
+			inner.AutomaticSize = Enum.AutomaticSize.Y
+			inner.Visible = idx == 1
+			inner.LayoutOrder = 1
+			inner.Parent = contentHost
+
+			local innerList = Instance.new("UIListLayout")
+			innerList.SortOrder = Enum.SortOrder.LayoutOrder
+			innerList.Padding = UDim.new(0, 12)
+			innerList.Parent = inner
+
+			local proxy = setmetatable({
+				_scroll = inner,
+				_list = innerList,
+				_split = false,
+				_scrollLeft = nil,
+				_scrollRight = nil,
+				_listLeft = nil,
+				_listRight = nil,
+				_name = name,
+				_sectionOrder = 0,
+				_sectionOrderLeft = 0,
+				_sectionOrderRight = 0,
+			}, Tab)
+
+			table.insert(entries, { btn = btn, inner = inner, proxy = proxy })
+			btn.MouseButton1Click:Connect(function()
+				selectSub(idx)
+			end)
+			selectSub(activeSub)
+			return proxy
+		end
+
+		return box
+	end
+
+	--[[ Tab icons: Lucide name (e.g. "layout-grid", "eye") or rbxassetid://… — same as Obsidian GetCustomIcon
+	    SplitColumns: two-column layout (left/right ScrollingFrames); use AddLeftGroupbox / AddRightGroupbox / AddLeftTabbox / AddRightTabbox ]]
+	function window:AddTab(opts: { Name: string?, Icon: (string | number)?, Tooltip: string?, SplitColumns: boolean? })
+		opts = opts or {}
+		local idx = #tabScrolls + 1
+		local splitColumns = opts.SplitColumns == true
+		local rawIcon = opts.Icon
+		local parsed: any = nil
+		if rawIcon ~= nil and not (typeof(rawIcon) == "string" and rawIcon == "") then
+			parsed = Library:GetCustomIcon(rawIcon)
+		end
+
+		local tabSlot = Instance.new("Frame")
+		tabSlot.Name = "TabSlot_" .. idx
+		tabSlot.Size = UDim2.fromOffset(44, 44)
+		tabSlot.BackgroundTransparency = 1
+		tabSlot.BorderSizePixel = 0
+		tabSlot.ClipsDescendants = false
+		tabSlot.LayoutOrder = idx
+		tabSlot.Parent = sidebar
+
+		if tabGlowEnabled then
+			local tabGlowHost = Instance.new("Frame")
+			tabGlowHost.Name = "TabGlowHost"
+			tabGlowHost.Size = UDim2.fromScale(1, 1)
+			tabGlowHost.BackgroundTransparency = 1
+			tabGlowHost.BorderSizePixel = 0
+			tabGlowHost.ZIndex = 0
+			tabGlowHost.Parent = tabSlot
+			addTabStackedGlow(tabGlowHost, {
+				{ size = 2, transparency = 0.88 },
+				{ size = 6, transparency = 0.93 },
+				{ size = 11, transparency = 0.97 },
+			}, math.max(0, math.floor(Library.CornerRadius * 0.75)))
+		end
+
+		local btn = Instance.new("TextButton")
+		btn.Name = "Tab_" .. idx
+		btn.Size = UDim2.fromScale(1, 1)
+		btn.ZIndex = 2
+		btn.AutoButtonColor = false
+		btn.BackgroundColor3 = Theme.Elevated
+		btn.BackgroundTransparency = 0.45
+		btn.Text = ""
+		btn.Parent = tabSlot
+
+		if parsed then
+			local img = Instance.new("ImageLabel")
+			img.Name = "LucideIcon"
+			img.BackgroundTransparency = 1
+			img.AnchorPoint = Vector2.new(0.5, 0.5)
+			img.Position = UDim2.fromScale(0.5, 0.5)
+			img.Size = UDim2.fromOffset(22, 22)
+			img.ScaleType = Enum.ScaleType.Fit
+			img.Image = parsed.Url
+			img.ImageRectOffset = parsed.ImageRectOffset or Vector2.zero
+			img.ImageRectSize = parsed.ImageRectSize or Vector2.zero
+			if parsed.Untinted == true then
+				img.ImageColor3 = Color3.new(1, 1, 1)
+				img:SetAttribute("UiTabIconUntinted", true)
+			else
+				img.ImageColor3 = Theme.Text
+			end
+			img.Parent = btn
+		else
+			local fallback = "◫"
+			if rawIcon and rawIcon ~= "" then
+				-- kebab-case / lucide-like token → keep placeholder; otherwise treat as literal glyph (emoji, etc.)
+				if not string.match(rawIcon, "^[%w%-]+$") then
+					fallback = rawIcon
+				end
+			end
+			btn.Text = fallback
+			btn.TextColor3 = Theme.Text
+			btn.TextSize = 18
+			btn.Font = Enum.Font.GothamBold
+		end
+		corner(Theme.CornerSm).Parent = btn
+
+		btn.MouseEnter:Connect(function()
+			if idx ~= activeTab then
+				tween(btn, TweenInfo.new(0.12), { BackgroundTransparency = 0.25 }):Play()
 			end
 		end)
-	end
-	table.clear(MovementSettings.noclipOriginalCollisions)
-	movementCameraFlightCF = nil
-	movCharacter = nil
-	movRoot = nil
-	movHumanoid = nil
-end
-end
-
--- §10 VISUALS TAB — ESP (world + Drawing overlays) --------------------------
-local Rivals_UnloadESP
-do
-local ESPSettings = {
-	Box = { Enabled = false, BoxColor = Color3.fromRGB(75, 0, 10), TeamColor = Color3.fromRGB(0, 255, 0) },
-	Names = { Enabled = false, Color = Color3.fromRGB(255, 255, 255), TeamColor = Color3.fromRGB(0, 255, 0) },
-	Distance = { Enabled = false, Color = Color3.fromRGB(255, 255, 255), TeamColor = Color3.fromRGB(0, 255, 0) },
-	Health = { Enabled = false, Type = "Both", Color = Color3.fromRGB(255, 255, 255), TeamColor = Color3.fromRGB(0, 255, 0) },
-	Tracers = {
-		Enabled = false,
-		Origin = "Top",
-		Visibility = "On Screen Only",
-		Color = Color3.fromRGB(255, 255, 255),
-		TeamColor = Color3.fromRGB(0, 255, 0),
-		Thickness = 1,
-	},
-	Skeleton = { Enabled = false, Color = Color3.fromRGB(255, 255, 255), TeamColor = Color3.fromRGB(0, 255, 0), Thickness = 2 },
-	Chams = {
-		Enabled = false,
-		FillColor = Color3.fromRGB(75, 0, 10),
-		OutlineColor = Color3.fromRGB(0, 0, 0),
-		TeamFillColor = Color3.fromRGB(0, 255, 0),
-		TeamOutlineColor = Color3.fromRGB(0, 255, 0),
-	},
-	TeamCheck = false,
-}
-
-local isCustomCharacterSystem = (getgenv and getgenv().characters) ~= nil
-local ESPObjects = {}
-local espHeartbeatConn
-
-local BoxESPGui = Instance.new("ScreenGui")
-BoxESPGui.Name = "AcidHubESP"
-BoxESPGui.ResetOnSpawn = false
-BoxESPGui.Parent = player:WaitForChild("PlayerGui")
-
-local HighlightGui = Instance.new("ScreenGui")
-HighlightGui.Name = "AcidHubChams"
-HighlightGui.ResetOnSpawn = false
-HighlightGui.Parent = player:WaitForChild("PlayerGui")
-
-local function GetAllCharactersESP()
-	local all = {}
-	if isCustomCharacterSystem and getgenv().characters then
-		for playerName, characterData in pairs(getgenv().characters) do
-			if characterData and characterData.character then
-				table.insert(all, {
-					name = playerName,
-					character = characterData.character,
-					player = characterData.player,
-					team = characterData.team,
-				})
+		btn.MouseLeave:Connect(function()
+			if idx ~= activeTab then
+				tween(btn, TweenInfo.new(0.12), { BackgroundTransparency = 0.45 }):Play()
 			end
+		end)
+		btn.MouseButton1Click:Connect(function()
+			selectTab(idx)
+		end)
+
+		local tipStr = opts.Tooltip
+		if typeof(tipStr) ~= "string" or tipStr == "" then
+			tipStr = opts.Name
 		end
-	else
-		for _, plr in pairs(Players:GetPlayers()) do
-			if plr ~= player and plr.Character then
-				table.insert(all, { name = plr.Name, character = plr.Character, player = plr, team = plr.Team })
+		if typeof(tipStr) == "string" and tipStr ~= "" then
+			bindTooltipToInstances({ btn }, tipStr)
+		end
+
+		local scroll: ScrollingFrame
+		local list: UIListLayout
+		local scrollLeft: ScrollingFrame? = nil
+		local scrollRight: ScrollingFrame? = nil
+		local listLeft: UIListLayout? = nil
+		local listRight: UIListLayout? = nil
+
+		if splitColumns then
+			local host = Instance.new("Frame")
+			host.Name = "TabSplitHost_" .. idx
+			host.Size = UDim2.fromScale(1, 1)
+			host.BackgroundTransparency = 1
+			host.BorderSizePixel = 0
+			host.Visible = (idx == 1)
+			host.Parent = contentHost
+
+			local function makeColumn(name: string, xScale: number, xOffset: number): (ScrollingFrame, UIListLayout)
+				local sc = Instance.new("ScrollingFrame")
+				sc.Name = name
+				sc.Size = UDim2.new(0.5, -7, 1, 0)
+				sc.Position = UDim2.new(xScale, xOffset, 0, 0)
+				sc.BackgroundTransparency = 1
+				sc.BorderSizePixel = 0
+				sc.ScrollBarThickness = 4
+				sc.ScrollBarImageColor3 = Theme.AccentBlue
+				sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+				sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+				sc.Parent = host
+
+				local lst = Instance.new("UIListLayout")
+				lst.SortOrder = Enum.SortOrder.LayoutOrder
+				lst.Padding = UDim.new(0, 12)
+				lst.Parent = sc
+
+				local pad = Instance.new("UIPadding")
+				pad.PaddingLeft = UDim.new(0, 14)
+				pad.PaddingRight = UDim.new(0, 14)
+				pad.PaddingTop = UDim.new(0, 8)
+				pad.PaddingBottom = UDim.new(0, 20)
+				pad.Parent = sc
+
+				return sc, lst
 			end
+
+			local sl, ll = makeColumn("TabColumn_Left_" .. idx, 0, 0)
+			local sr, lr = makeColumn("TabColumn_Right_" .. idx, 0.5, 7)
+			scrollLeft, listLeft = sl, ll
+			scrollRight, listRight = sr, lr
+			scroll = sl
+			list = ll
+			table.insert(tabScrolls, host)
+		else
+			local sc = Instance.new("ScrollingFrame")
+			sc.Name = "TabContent_" .. idx
+			sc.Size = UDim2.fromScale(1, 1)
+			sc.BackgroundTransparency = 1
+			sc.BorderSizePixel = 0
+			sc.ScrollBarThickness = 4
+			sc.ScrollBarImageColor3 = Theme.AccentBlue
+			sc.AutomaticCanvasSize = Enum.AutomaticSize.Y
+			sc.CanvasSize = UDim2.new(0, 0, 0, 0)
+			sc.Visible = (idx == 1)
+			sc.Parent = contentHost
+			scroll = sc
+
+			local lst = Instance.new("UIListLayout")
+			lst.SortOrder = Enum.SortOrder.LayoutOrder
+			lst.Padding = UDim.new(0, 12)
+			lst.Parent = scroll
+			list = lst
+
+			local padScroll = Instance.new("UIPadding")
+			padScroll.PaddingLeft = UDim.new(0, 14)
+			padScroll.PaddingRight = UDim.new(0, 14)
+			padScroll.PaddingTop = UDim.new(0, 8)
+			padScroll.PaddingBottom = UDim.new(0, 20)
+			padScroll.Parent = scroll
+
+			table.insert(tabScrolls, scroll)
 		end
-	end
-	return all
-end
 
-local r15Skel = {
-	{ "HumanoidRootPart", "UpperTorso" }, { "UpperTorso", "LowerTorso" }, { "UpperTorso", "Head" },
-	{ "UpperTorso", "LeftUpperArm" }, { "LeftUpperArm", "LeftLowerArm" }, { "LeftLowerArm", "LeftHand" },
-	{ "UpperTorso", "RightUpperArm" }, { "RightUpperArm", "RightLowerArm" }, { "RightLowerArm", "RightHand" },
-	{ "LowerTorso", "LeftUpperLeg" }, { "LeftUpperLeg", "LeftLowerLeg" }, { "LeftLowerLeg", "LeftFoot" },
-	{ "LowerTorso", "RightUpperLeg" }, { "RightUpperLeg", "RightLowerLeg" }, { "RightLowerLeg", "RightFoot" },
-}
-local r6Skel = {
-	{ "HumanoidRootPart", "Torso" }, { "Torso", "Head" }, { "Torso", "Left Arm" }, { "Torso", "Right Arm" },
-	{ "Torso", "Left Leg" }, { "Torso", "Right Leg" },
-}
+		table.insert(tabButtons, btn)
 
-local function CreateTracerESP(characterData)
-	local line
-	if Drawing and Drawing.new then
-		line = Drawing.new("Line")
-		line.Visible = false
-		line.Thickness = ESPSettings.Tracers.Thickness
-		line.Transparency = 1
-		line.Color = ESPSettings.Tracers.Color
-	end
-	local pl = characterData.player or Players:FindFirstChild(characterData.name)
-	if not pl then return end
-	ESPObjects[pl] = ESPObjects[pl] or {}
-	ESPObjects[pl].TracerLine = line
-end
+		local tab = setmetatable({
+			_scroll = scroll,
+			_list = list,
+			_split = splitColumns,
+			_scrollLeft = scrollLeft,
+			_scrollRight = scrollRight,
+			_listLeft = listLeft,
+			_listRight = listRight,
+			_name = opts.Name or ("Tab " .. idx),
+			_sectionOrder = 0,
+			_sectionOrderLeft = 0,
+			_sectionOrderRight = 0,
+		}, Tab)
 
-local function CreateSkeletonESP(characterData)
-	local maxL = math.max(#r15Skel, #r6Skel)
-	local boneLines = {}
-	for i = 1, maxL do
-		if Drawing and Drawing.new then
-			local ln = Drawing.new("Line")
-			ln.Visible = false
-			ln.Thickness = ESPSettings.Skeleton.Thickness
-			ln.Transparency = 1
-			boneLines[i] = { line = ln, from = "", to = "" }
+		if idx == 1 then
+			selectTab(1)
 		end
+
+		return tab
 	end
-	local pl = characterData.player or Players:FindFirstChild(characterData.name)
-	if not pl then return end
-	ESPObjects[pl] = ESPObjects[pl] or {}
-	ESPObjects[pl].SkeletonLines = boneLines
-	ESPObjects[pl].R15Connections = r15Skel
-	ESPObjects[pl].R6Connections = r6Skel
-end
 
-local function CreateBoxESP(characterData)
-	local billboard = Instance.new("BillboardGui")
-	billboard.Name = characterData.name
-	billboard.AlwaysOnTop = true
-	billboard.Size = UDim2.new(4, 0, 5.4, 0)
-	billboard.ClipsDescendants = false
-	billboard.Enabled = false
-	billboard.LightInfluence = 0
-	billboard.SizeOffset = Vector2.new(0, 0)
-	billboard.Parent = BoxESPGui
-	local outlines = Instance.new("Frame")
-	outlines.Size = UDim2.new(1, 0, 1, 0)
-	outlines.BorderSizePixel = 1
-	outlines.BackgroundTransparency = 1
-	outlines.Parent = billboard
-	local left = Instance.new("Frame")
-	left.BorderSizePixel = 1
-	left.Size = UDim2.new(0, 1, 1, 0)
-	left.Parent = outlines
-	local right = left:Clone()
-	right.Parent = outlines
-	right.Size = UDim2.new(0, -1, 1, 0)
-	right.Position = UDim2.new(1, 0, 0, 0)
-	local up = left:Clone()
-	up.Parent = outlines
-	up.Size = UDim2.new(1, 0, 0, 1)
-	local down = left:Clone()
-	down.Parent = outlines
-	down.Size = UDim2.new(1, 0, 0, -1)
-	down.Position = UDim2.new(0, 0, 1, 0)
-	local pl = characterData.player or Players:FindFirstChild(characterData.name)
-	if not pl then return end
-	ESPObjects[pl] = ESPObjects[pl] or {}
-	ESPObjects[pl].Billboard = billboard
-	ESPObjects[pl].Elements = { Outlines = outlines, Left = left, Right = right, Up = up, Down = down }
-end
+	--[[ Section: optional Collapsible, DefaultExpanded, Tooltip; Column "Left"|"Right" when tab uses SplitColumns ]]
+	function Tab:AddSection(
+		header: string,
+		sectionOpts: {
+			Collapsible: boolean?,
+			DefaultExpanded: boolean?,
+			Tooltip: string?,
+			Column: string?,
+			--[[ Roblox asset id (number or numeric string), rbxasset URL, or Lucide icon name ]]
+			Icon: (number | string)?,
+		}?
+	)
+		sectionOpts = sectionOpts or {}
+		local collapsible = sectionOpts.Collapsible ~= false
+		local expanded = sectionOpts.DefaultExpanded ~= false
 
-local function CreateChamsESP(characterData)
-	local pl = characterData.player or Players:FindFirstChild(characterData.name)
-	if not pl then
-		return
-	end
-	ESPObjects[pl] = ESPObjects[pl] or {}
-	local highlight = Instance.new("Highlight")
-	highlight.Name = pl.Name
-	highlight.Parent = HighlightGui
-	highlight.Enabled = false
-	if pl.Character then
-		highlight.Adornee = pl.Character
-	end
-	local charAddedConn = pl.CharacterAdded:Connect(function(char)
-		task.wait(0.1)
-		local data = ESPObjects[pl]
-		if data and data.Highlight then
-			data.Highlight.Adornee = char
-		end
-	end)
-	ESPObjects[pl].Highlight = highlight
-	ESPObjects[pl].ChamsCharAddedConnection = charAddedConn
-end
-
-local function CreateNameESP(characterData)
-	local nameText
-	if Drawing and Drawing.new then
-		nameText = Drawing.new("Text")
-		nameText.Text = characterData.name
-		nameText.Size = 13
-		nameText.Center = true
-		nameText.Outline = true
-		nameText.OutlineColor = Color3.fromRGB(0, 0, 0)
-		nameText.Color = ESPSettings.Names.Color
-		nameText.Font = 0
-		nameText.Visible = false
-	end
-	local pl = characterData.player or Players:FindFirstChild(characterData.name)
-	if not pl then return end
-	ESPObjects[pl] = ESPObjects[pl] or {}
-	ESPObjects[pl].NameText = nameText
-end
-
-local function CreateDistanceESP(characterData)
-	local distanceText
-	if Drawing and Drawing.new then
-		distanceText = Drawing.new("Text")
-		distanceText.Text = "0m"
-		distanceText.Size = 12
-		distanceText.Center = true
-		distanceText.Outline = true
-		distanceText.OutlineColor = Color3.fromRGB(0, 0, 0)
-		distanceText.Color = ESPSettings.Distance.Color
-		distanceText.Font = 2
-		distanceText.Visible = false
-	end
-	local pl = characterData.player or Players:FindFirstChild(characterData.name)
-	if not pl then return end
-	ESPObjects[pl] = ESPObjects[pl] or {}
-	ESPObjects[pl].DistanceText = distanceText
-end
-
-local function CreateHealthESP(characterData)
-	local healthText
-	if Drawing and Drawing.new then
-		healthText = Drawing.new("Text")
-		healthText.Text = "100"
-		healthText.Size = 12
-		healthText.Center = true
-		healthText.Outline = true
-		healthText.OutlineColor = Color3.fromRGB(0, 0, 0)
-		healthText.Color = ESPSettings.Health.Color
-		healthText.Font = 0
-		healthText.Visible = false
-	end
-	local healthBarGui = Instance.new("BillboardGui")
-	healthBarGui.Name = characterData.name .. "_health"
-	healthBarGui.Size = UDim2.new(4.5, 0, 6, 0)
-	healthBarGui.AlwaysOnTop = true
-	healthBarGui.ClipsDescendants = false
-	healthBarGui.Enabled = false
-	healthBarGui.LightInfluence = 0
-	healthBarGui.SizeOffset = Vector2.new(0, 0)
-	healthBarGui.Parent = BoxESPGui
-	local healthBar = Instance.new("Frame")
-	healthBar.Name = "healthbar"
-	healthBar.BackgroundColor3 = Color3.fromRGB(40, 40, 40)
-	healthBar.BorderColor3 = Color3.fromRGB(0, 0, 0)
-	healthBar.Size = UDim2.new(0.04, 0, 0.9, 0)
-	healthBar.Position = UDim2.new(0, 0, 0.05, 0)
-	healthBar.Parent = healthBarGui
-	local bar = Instance.new("Frame")
-	bar.Name = "bar"
-	bar.BorderSizePixel = 0
-	bar.BackgroundColor3 = Color3.fromRGB(94, 255, 69)
-	bar.AnchorPoint = Vector2.new(0, 1)
-	bar.Position = UDim2.new(0, 0, 1, 0)
-	bar.Size = UDim2.new(1, 0, 1, 0)
-	bar.Parent = healthBar
-	local pl = characterData.player or Players:FindFirstChild(characterData.name)
-	if not pl then return end
-	ESPObjects[pl] = ESPObjects[pl] or {}
-	ESPObjects[pl].HealthBarGui = healthBarGui
-	ESPObjects[pl].HealthText = healthText
-	ESPObjects[pl].HealthBar = healthBar
-	ESPObjects[pl].Bar = bar
-end
-
-local function spawnESPForCharacterData(cd)
-	CreateBoxESP(cd)
-	CreateChamsESP(cd)
-	CreateNameESP(cd)
-	CreateDistanceESP(cd)
-	CreateHealthESP(cd)
-	CreateTracerESP(cd)
-	CreateSkeletonESP(cd)
-end
-
-local function UpdateESP()
-	local Camera = Workspace.CurrentCamera
-	if not Camera then return end
-	for plr, espData in pairs(ESPObjects) do
-		if not Players:FindFirstChild(plr.Name) then
-			if espData.Billboard then espData.Billboard:Destroy() end
-			if espData.NameText then pcall(function() espData.NameText:Remove() end) end
-			if espData.DistanceText then pcall(function() espData.DistanceText:Remove() end) end
-			if espData.HealthBarGui then espData.HealthBarGui:Destroy() end
-			if espData.HealthText then pcall(function() espData.HealthText:Remove() end) end
-			if espData.TracerLine then pcall(function() espData.TracerLine:Remove() end) end
-			if espData.SkeletonLines then
-				for _, bd in ipairs(espData.SkeletonLines) do
-					if bd and bd.line then pcall(function() bd.line:Remove() end) end
-				end
-			end
-			if espData.Highlight then
-				espData.Highlight:Destroy()
-			end
-			if espData.ChamsCharAddedConnection then
-				espData.ChamsCharAddedConnection:Disconnect()
-			end
-			ESPObjects[plr] = nil
-			continue
-		end
-		local character = plr.Character
-		local hrp = character and character:FindFirstChild("HumanoidRootPart")
-		local hum = character and character:FindFirstChild("Humanoid")
-		local alive = hum and hum.Health > 0
-		local isTeammate = ESPSettings.TeamCheck and plr.Team and player.Team and plr.Team == player.Team
-		local dist = 0
-		if player.Character and player.Character:FindFirstChild("HumanoidRootPart") and hrp then
-			dist = (player.Character.HumanoidRootPart.Position - hrp.Position).Magnitude
-		end
-		if espData.Billboard and espData.Elements and ESPSettings.Box.Enabled then
-			if character and hrp and alive and not isTeammate then
-				espData.Billboard.Adornee = hrp
-				espData.Billboard.Enabled = true
-				espData.Elements.Outlines.Visible = true
-				local col = (plr.Team and player.Team and plr.Team == player.Team) and ESPSettings.Box.TeamColor or ESPSettings.Box.BoxColor
-				espData.Elements.Left.BackgroundColor3 = col
-				espData.Elements.Right.BackgroundColor3 = col
-				espData.Elements.Up.BackgroundColor3 = col
-				espData.Elements.Down.BackgroundColor3 = col
+		local parentScroll: ScrollingFrame
+		local layoutOrder: number
+		if self._split and self._scrollLeft and self._scrollRight then
+			local col = sectionOpts.Column
+			if col == "Right" then
+				parentScroll = self._scrollRight
+				self._sectionOrderRight += 1
+				layoutOrder = self._sectionOrderRight
 			else
-				espData.Billboard.Enabled = false
-			end
-		elseif espData.Billboard then
-			espData.Billboard.Enabled = false
-		end
-		if espData.NameText and ESPSettings.Names.Enabled then
-			if character and hrp and alive and not isTeammate then
-				local sp, onScr = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 4, 0))
-				if onScr then
-					espData.NameText.Position = Vector2.new(sp.X, sp.Y)
-					espData.NameText.Color = (plr.Team and player.Team and plr.Team == player.Team) and ESPSettings.Names.TeamColor or ESPSettings.Names.Color
-					espData.NameText.Visible = true
-				else
-					espData.NameText.Visible = false
-				end
-			else
-				espData.NameText.Visible = false
-			end
-		elseif espData.NameText then
-			espData.NameText.Visible = false
-		end
-		if espData.DistanceText and ESPSettings.Distance.Enabled then
-			if character and hrp and alive and not isTeammate then
-				local sp, onScr = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, -3.5, 0))
-				if onScr then
-					espData.DistanceText.Position = Vector2.new(sp.X, sp.Y)
-					espData.DistanceText.Text = tostring(math.floor(dist + 0.5)) .. "m"
-					espData.DistanceText.Color = (plr.Team and player.Team and plr.Team == player.Team) and ESPSettings.Distance.TeamColor or ESPSettings.Distance.Color
-					espData.DistanceText.Visible = true
-				else
-					espData.DistanceText.Visible = false
-				end
-			else
-				espData.DistanceText.Visible = false
-			end
-		elseif espData.DistanceText then
-			espData.DistanceText.Visible = false
-		end
-		if ESPSettings.Health.Enabled and character and hrp and hum and alive and not isTeammate then
-			local hp, maxHp = hum.Health, hum.MaxHealth
-			local pct = hp / maxHp
-			local hcol = (plr.Team and player.Team and plr.Team == player.Team) and ESPSettings.Health.TeamColor or ESPSettings.Health.Color
-			if espData.HealthBarGui and espData.Bar and (ESPSettings.Health.Type == "Bar" or ESPSettings.Health.Type == "Both") then
-				espData.HealthBarGui.Adornee = hrp
-				espData.HealthBarGui.Enabled = true
-				espData.Bar.Size = UDim2.new(1, 0, pct, 0)
-				if pct > 0.75 then espData.Bar.BackgroundColor3 = Color3.fromRGB(0, 255, 0)
-				elseif pct >= 0.5 then espData.Bar.BackgroundColor3 = Color3.fromRGB(255, 255, 0)
-				elseif pct >= 0.25 then espData.Bar.BackgroundColor3 = Color3.fromRGB(255, 165, 0)
-				else espData.Bar.BackgroundColor3 = Color3.fromRGB(255, 0, 0) end
-			elseif espData.HealthBarGui then
-				espData.HealthBarGui.Enabled = false
-			end
-			if espData.HealthText and (ESPSettings.Health.Type == "Text" or ESPSettings.Health.Type == "Both") then
-				local sp, onScr = Camera:WorldToViewportPoint(hrp.Position + Vector3.new(0, 3.2, 0))
-				if onScr then
-					espData.HealthText.Position = Vector2.new(sp.X, sp.Y)
-					espData.HealthText.Text = tostring(math.floor(hp)) .. "/" .. tostring(math.floor(maxHp))
-					espData.HealthText.Color = hcol
-					espData.HealthText.Visible = true
-				else
-					espData.HealthText.Visible = false
-				end
-			elseif espData.HealthText then
-				espData.HealthText.Visible = false
+				parentScroll = self._scrollLeft
+				self._sectionOrderLeft += 1
+				layoutOrder = self._sectionOrderLeft
 			end
 		else
-			if espData.HealthBarGui then espData.HealthBarGui.Enabled = false end
-			if espData.HealthText then espData.HealthText.Visible = false end
+			parentScroll = self._scroll
+			self._sectionOrder += 1
+			layoutOrder = self._sectionOrder
 		end
-		if espData.TracerLine then
-			if character and hrp and alive and ESPSettings.Tracers.Enabled and not isTeammate then
-				local hrpPos, onScr = Camera:WorldToViewportPoint(hrp.Position)
-				local show = true
-				local toPos = Vector2.new(hrpPos.X, hrpPos.Y)
-				if ESPSettings.Tracers.Visibility == "On Screen Only" then
-					show = onScr
-				elseif ESPSettings.Tracers.Visibility == "Everywhere" and not onScr then
-					local vs = Camera.ViewportSize
-					local m = 50
-					toPos = Vector2.new(math.clamp(hrpPos.X, m, vs.X - m), math.clamp(hrpPos.Y, m, vs.Y - m))
-				end
-				if show then
-					local fromPos
-					if ESPSettings.Tracers.Origin == "Top" then
-						fromPos = Vector2.new(Camera.ViewportSize.X / 2, 0)
-					elseif ESPSettings.Tracers.Origin == "Bottom" then
-						fromPos = Vector2.new(Camera.ViewportSize.X / 2, Camera.ViewportSize.Y)
-					else
-						local mp = UserInputService:GetMouseLocation()
-						fromPos = Vector2.new(mp.X, mp.Y)
+
+		local wrap = Instance.new("Frame")
+		wrap.Name = "Section_" .. header
+		wrap.Size = UDim2.new(1, 0, 0, 0)
+		wrap.AutomaticSize = Enum.AutomaticSize.Y
+		wrap.BackgroundColor3 = Theme.Groupbox
+		wrap.BackgroundTransparency = Theme.GroupboxTrans
+		wrap.BorderSizePixel = 0
+		wrap.LayoutOrder = layoutOrder
+		wrap:SetAttribute("UiBg", "Groupbox")
+		wrap.Parent = parentScroll
+		corner(Theme.Corner).Parent = wrap
+		local gbStroke = stroke(Theme.AccentBlue, 1, math.clamp(Theme.StrokeTrans, 0.22, 0.58))
+		gbStroke:SetAttribute("UiStroke", "AccentBlue")
+		gbStroke.Parent = wrap
+		local wrapOuterPad = Instance.new("UIPadding")
+		wrapOuterPad.PaddingLeft = UDim.new(0, UID.SectionOuterPad)
+		wrapOuterPad.PaddingRight = UDim.new(0, UID.SectionOuterPad)
+		wrapOuterPad.PaddingTop = UDim.new(0, UID.SectionOuterPad)
+		wrapOuterPad.PaddingBottom = UDim.new(0, UID.SectionOuterPad)
+		wrapOuterPad.Parent = wrap
+
+		local wrapList = Instance.new("UIListLayout")
+		wrapList.FillDirection = Enum.FillDirection.Vertical
+		wrapList.SortOrder = Enum.SortOrder.LayoutOrder
+		wrapList.Padding = UDim.new(0, 0)
+		wrapList.Parent = wrap
+
+		local headerRow: GuiObject
+		if collapsible then
+			local hb = Instance.new("TextButton")
+			hb.Name = "Header"
+			hb.Size = UDim2.new(1, 0, 0, UID.SectionHeaderH)
+			hb.BackgroundTransparency = 1
+			hb.Text = ""
+			hb.AutoButtonColor = false
+			hb.LayoutOrder = 1
+			hb.Parent = wrap
+			headerRow = hb
+		else
+			local hf = Instance.new("Frame")
+			hf.Name = "Header"
+			hf.Size = UDim2.new(1, 0, 0, UID.SectionHeaderH)
+			hf.BackgroundTransparency = 1
+			hf.LayoutOrder = 1
+			hf.Parent = wrap
+			headerRow = hf
+		end
+		pad(UID.SectionHeaderInnerPad).Parent = headerRow
+
+		local hLayout = Instance.new("UIListLayout")
+		hLayout.FillDirection = Enum.FillDirection.Horizontal
+		pcall(function()
+			hLayout.HorizontalFlex = Enum.UIFlexAlignment.Fill
+		end)
+		hLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		hLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+		hLayout.Padding = UDim.new(0, 6)
+		hLayout.Parent = headerRow
+
+		local headerLayoutNext = 0
+		if sectionOpts.Icon ~= nil then
+			local spec: { Url: string, ImageRectOffset: Vector2, ImageRectSize: Vector2, Untinted: boolean }? = nil
+			local ri = sectionOpts.Icon
+			if typeof(ri) == "number" then
+				spec = {
+					Url = string.format("rbxassetid://%d", ri),
+					ImageRectOffset = Vector2.zero,
+					ImageRectSize = Vector2.zero,
+					Untinted = true,
+				}
+			elseif typeof(ri) == "string" then
+				if Library.IsValidCustomIcon(ri) then
+					spec = {
+						Url = ri,
+						ImageRectOffset = Vector2.zero,
+						ImageRectSize = Vector2.zero,
+						Untinted = true,
+					}
+				elseif ri:match("^%s*%d+%s*$") then
+					local id = tonumber((ri :: string):gsub("%s", ""))
+					if id then
+						spec = {
+							Url = string.format("rbxassetid://%d", id),
+							ImageRectOffset = Vector2.zero,
+							ImageRectSize = Vector2.zero,
+							Untinted = true,
+						}
 					end
-					espData.TracerLine.From = fromPos
-					espData.TracerLine.To = toPos
-					espData.TracerLine.Color = (plr.Team and player.Team and plr.Team == player.Team) and ESPSettings.Tracers.TeamColor or ESPSettings.Tracers.Color
-					espData.TracerLine.Thickness = ESPSettings.Tracers.Thickness
-					espData.TracerLine.Visible = true
 				else
-					espData.TracerLine.Visible = false
+					local ci = Library:GetCustomIcon(ri :: string)
+					if ci and typeof(ci.Url) == "string" and ci.Url ~= "" then
+						spec = {
+							Url = ci.Url,
+							ImageRectOffset = ci.ImageRectOffset or Vector2.zero,
+							ImageRectSize = ci.ImageRectSize or Vector2.zero,
+							Untinted = false,
+						}
+					end
 				end
-			else
-				espData.TracerLine.Visible = false
+			end
+			if spec then
+				local img = Instance.new("ImageLabel")
+				img.Name = "SectionIcon"
+				img.BackgroundTransparency = 1
+				img.Size = UDim2.fromOffset(UID.SectionIcon, UID.SectionIcon)
+				img.Image = spec.Url
+				img.ImageRectOffset = spec.ImageRectOffset
+				img.ImageRectSize = spec.ImageRectSize
+				img.ScaleType = Enum.ScaleType.Fit
+				img.LayoutOrder = headerLayoutNext
+				img.Parent = headerRow
+				if spec.Untinted then
+					img.ImageColor3 = Color3.new(1, 1, 1)
+				else
+					img.ImageColor3 = Theme.AccentBlue
+					img:SetAttribute("UiImg", "AccentBlue")
+				end
+				headerLayoutNext += 1
 			end
 		end
-		if espData.SkeletonLines then
-			if ESPSettings.Skeleton.Enabled and character and hrp and alive and not isTeammate then
-				local isR15 = character:FindFirstChild("UpperTorso") ~= nil
-				local conns = isR15 and espData.R15Connections or espData.R6Connections
-				local skCol = (plr.Team and player.Team and plr.Team == player.Team) and ESPSettings.Skeleton.TeamColor or ESPSettings.Skeleton.Color
-				for i, conn in ipairs(conns) do
-					local bd = espData.SkeletonLines[i]
-					if bd and bd.line then bd.from = conn[1]; bd.to = conn[2] end
+
+		local hText = Instance.new("TextLabel")
+		hText.Size = UDim2.new(0, 100, 1, 0)
+		hText.AutomaticSize = Enum.AutomaticSize.X
+		hText.BackgroundTransparency = 1
+		hText.Font = Enum.Font.GothamBold
+		hText.TextSize = UID.SectionTitle
+		hText.TextColor3 = Theme.Text
+		hText.TextXAlignment = Enum.TextXAlignment.Left
+		hText.Text = string.upper(header)
+		hText.LayoutOrder = headerLayoutNext
+		hText.Parent = headerRow
+		headerLayoutNext += 1
+		local flexGrow = Instance.new("UIFlexItem")
+		flexGrow.FlexMode = Enum.UIFlexMode.Grow
+		flexGrow.Parent = hText
+
+		--[[ Collapsible: swap Lucide chevron-down (expanded) / chevron-up (collapsed). ImageButton so the glyph receives clicks (ImageLabel often lets hits fall through oddly). ]]
+		local chevBtn: ImageButton? = nil
+		local specChevExpanded: any = nil
+		local specChevCollapsed: any = nil
+		local function lucideSpriteUrl(spec: any): string?
+			if typeof(spec) ~= "table" then
+				return nil
+			end
+			local u = spec.Url or spec.url
+			if typeof(u) == "string" and u ~= "" then
+				return u
+			end
+			return nil
+		end
+		local function applyLucideSprite(btn: ImageButton, spec: any)
+			local u = lucideSpriteUrl(spec)
+			if not u then
+				return
+			end
+			btn.Image = u
+			local ro = spec.ImageRectOffset or spec.imageRectOffset
+			local rs = spec.ImageRectSize or spec.imageRectSize
+			btn.ImageRectOffset = if typeof(ro) == "Vector2" then ro else Vector2.zero
+			btn.ImageRectSize = if typeof(rs) == "Vector2" then rs else Vector2.zero
+		end
+		if collapsible then
+			specChevExpanded = Library:GetIcon("chevron-down")
+			specChevCollapsed = Library:GetIcon("chevron-up")
+			if not lucideSpriteUrl(specChevExpanded) or not lucideSpriteUrl(specChevCollapsed) then
+				error("Library: Lucide chevron-down and chevron-up are required for collapsible sections.")
+			end
+			local btn = Instance.new("ImageButton")
+			btn.Name = "Chevron"
+			btn.AutoButtonColor = false
+			btn.BackgroundTransparency = 1
+			btn.Size = UDim2.fromOffset(UID.Chevron, UID.Chevron)
+			btn.ImageColor3 = Theme.TextDim
+			btn.LayoutOrder = headerLayoutNext
+			btn.ScaleType = Enum.ScaleType.Fit
+			btn.ZIndex = 2
+			btn.Selectable = false
+			btn.Parent = headerRow
+			chevBtn = btn
+		end
+
+		hText:SetAttribute("UiText", "Text")
+		if chevBtn then
+			chevBtn:SetAttribute("UiImg", "TextDim")
+		end
+
+		if typeof(sectionOpts.Tooltip) == "string" and sectionOpts.Tooltip ~= "" then
+			local ttParts: { GuiObject } = { headerRow, hText }
+			if chevBtn then
+				table.insert(ttParts, chevBtn)
+			end
+			bindTooltipToInstances(ttParts, sectionOpts.Tooltip)
+		end
+
+		local titleSep = Instance.new("Frame")
+		titleSep.Name = "SectionTitleSep"
+		titleSep.Size = UDim2.new(1, 0, 0, 1)
+		titleSep.BorderSizePixel = 0
+		titleSep.BackgroundColor3 = Theme.AccentBlue
+		titleSep.BackgroundTransparency = math.clamp(Theme.StrokeTrans, 0.28, 0.65)
+		titleSep.LayoutOrder = 2
+		titleSep.Parent = wrap
+		titleSep:SetAttribute("UiBg", "AccentBlue")
+
+		local bodyF = Instance.new("Frame")
+		bodyF.Name = "Body"
+		bodyF.Size = UDim2.new(1, 0, 0, 0)
+		bodyF.AutomaticSize = Enum.AutomaticSize.Y
+		bodyF.BackgroundTransparency = 1
+		bodyF.LayoutOrder = 3
+		bodyF.Parent = wrap
+
+		local bodyList = Instance.new("UIListLayout")
+		bodyList.SortOrder = Enum.SortOrder.LayoutOrder
+		bodyList.Padding = UDim.new(0, UID.BodyListPad)
+		bodyList.Parent = bodyF
+
+		local sectionExpanded = expanded
+		local function applyChevronSprite(on: boolean)
+			if not chevBtn or not specChevExpanded or not specChevCollapsed then
+				return
+			end
+			local spec = if on then specChevExpanded else specChevCollapsed
+			applyLucideSprite(chevBtn, spec)
+		end
+		local function applySectionExpanded(on: boolean)
+			sectionExpanded = on
+			if not collapsible then
+				return
+			end
+			bodyF.Visible = on
+			applyChevronSprite(on)
+		end
+		local lastSectionToggleClock = 0.0
+		local function toggleSectionExpanded()
+			local t = os.clock()
+			if t - lastSectionToggleClock < 0.08 then
+				return
+			end
+			lastSectionToggleClock = t
+			applySectionExpanded(not sectionExpanded)
+		end
+		if collapsible and headerRow:IsA("TextButton") then
+			(headerRow :: TextButton).MouseButton1Click:Connect(toggleSectionExpanded)
+		end
+		if chevBtn then
+			chevBtn.MouseButton1Click:Connect(toggleSectionExpanded)
+		end
+		if collapsible then
+			applySectionExpanded(expanded)
+			table.insert(sectionChevronRefreshes, function()
+				applyChevronSprite(sectionExpanded)
+			end)
+		else
+			bodyF.Visible = true
+		end
+
+		local section = {
+			_frame = bodyF,
+		}
+
+		--[[ Forward declare: toggle :AddColorPicker calls this before the assignment below. ]]
+		local mountColorPicker: (any, any) -> any
+
+		--[[ Save files / other UIs use "None" for unbound; Enum.KeyCode has no None (indexing errors). ]]
+		local function enumKeyCodeFromString(raw: string): (Enum.KeyCode, string)
+			local t = raw:gsub("^%s+", ""):gsub("%s+$", "")
+			if t == "" or string.lower(t) == "none" then
+				return Enum.KeyCode.Unknown, ""
+			end
+			local ok, k = pcall(function()
+				return Enum.KeyCode[t]
+			end)
+			if ok and typeof(k) == "EnumItem" and k.EnumType == Enum.KeyCode then
+				return k, k.Name
+			end
+			return Enum.KeyCode.Unknown, ""
+		end
+
+		--[[ nil / omitted Default -> RightShift; false, "", or whitespace-only -> unbound (Unknown). ]]
+		local function resolveKeybindDefault(defaultField: any): (Enum.KeyCode, string)
+			if defaultField == false then
+				return Enum.KeyCode.Unknown, ""
+			end
+			if defaultField == nil then
+				return Enum.KeyCode.RightShift, "RightShift"
+			end
+			if typeof(defaultField) == "string" then
+				return enumKeyCodeFromString(defaultField :: string)
+			end
+			return Enum.KeyCode.RightShift, "RightShift"
+		end
+
+		local function keyCapLabel(kcode: Enum.KeyCode, name: string): string
+			if kcode == Enum.KeyCode.Unknown or name == "" then
+				return "-"
+			end
+			return name
+		end
+
+		--[[ Stack inline widgets right-to-left: [label …][color?][key?][track]. ]]
+		local function layoutToggleInlineExtras(row: Frame, label: TextLabel, track: TextButton)
+			local TW = UID.ToggleTrackW
+			local keyW, keyH = UID.ToggleInlineKeyW, UID.ToggleInlineKeyH
+			local colW, colH = UID.ToggleInlineColorW, UID.ToggleInlineColorH
+			local g = UID.ToggleInlineKeyGap
+			local cap = row:FindFirstChild("ToggleKeybind")
+			local sw = row:FindFirstChild("ToggleColorSwatch")
+			--[[ Outward from track: color swatch by the switch, then keybind (Obsidian-style). ]]
+			local cursor = TW
+			if sw and sw:IsA("GuiObject") then
+				cursor += g + colW
+				sw.Position = UDim2.new(1, -cursor, 0.5, -colH / 2)
+			end
+			if cap and cap:IsA("GuiObject") then
+				cursor += g + keyW
+				cap.Position = UDim2.new(1, -cursor, 0.5, -keyH / 2)
+			end
+			label.Size = UDim2.new(1, -(UID.ToggleLabelReserve + (cursor - TW)), 1, 0)
+		end
+
+		local function refreshToggleTooltip(reg: any)
+			local tt = reg._toggleTooltip
+			if typeof(tt) ~= "string" or tt == "" then
+				return
+			end
+			local trow = reg._toggleRow
+			local tlabel = reg._toggleLabel
+			local ttrack = reg._toggleTrack
+			if not trow or not tlabel or not ttrack then
+				return
+			end
+			local parts: { GuiObject } = { tlabel, ttrack }
+			local cap = trow:FindFirstChild("ToggleKeybind")
+			local sw = trow:FindFirstChild("ToggleColorSwatch")
+			if cap and cap:IsA("GuiObject") then
+				table.insert(parts, cap)
+			end
+			if sw and sw:IsA("GuiObject") then
+				table.insert(parts, sw)
+			end
+			bindTooltipToInstances(parts, tt)
+		end
+
+		--[[ Obsidian-style: compact key cap on the toggle row; optional SyncToggleState (default true). ]]
+		local function attachInlineKeybindToToggle(
+			row: Frame,
+			label: TextLabel,
+			track: TextButton,
+			apply: (boolean) -> (),
+			toggleReg: any,
+			ko: any
+		): any
+			if toggleReg._inlineKeyReg ~= nil then
+				return toggleReg._inlineKeyReg
+			end
+			ko = ko or {}
+			local kc, keyName = resolveKeybindDefault(ko.Default)
+			local TW, TH = UID.ToggleTrackW, UID.ToggleTrackH
+			local keyW, keyH = UID.ToggleInlineKeyW, UID.ToggleInlineKeyH
+			local gapK = UID.ToggleInlineKeyGap
+			local syncToggle = ko.SyncToggleState ~= false
+
+			local capBtn = Instance.new("TextButton")
+			capBtn.Name = "ToggleKeybind"
+			capBtn.AutoButtonColor = false
+			capBtn.Size = UDim2.fromOffset(keyW, keyH)
+			capBtn.BackgroundColor3 = Theme.Background
+			capBtn.BackgroundTransparency = 0.15
+			capBtn.Text = keyCapLabel(kc, keyName)
+			capBtn.Font = Enum.Font.GothamBold
+			capBtn.TextSize = UID.SliderValText
+			capBtn.TextColor3 = Theme.Text
+			capBtn.TextTruncate = Enum.TextTruncate.AtEnd
+			capBtn:SetAttribute("UiBg", "Background")
+			capBtn:SetAttribute("UiText", "Text")
+			capBtn.Parent = row
+			corner(Theme.CornerSm).Parent = capBtn
+			do
+				local kp = Instance.new("UIPadding")
+				kp.PaddingLeft = UDim.new(0, 4)
+				kp.PaddingRight = UDim.new(0, 4)
+				kp.Parent = capBtn
+			end
+
+			local listening = false
+			local keyCbs: { () -> () } = {}
+			local bindMode: string = ko.Mode == "Hold" and "Hold" or "Toggle"
+
+			local keyReg: any = {
+				Type = "KeyPicker",
+				Value = kc,
+				Mode = bindMode,
+				Modifiers = {},
+				Toggled = false,
+			}
+
+			local function applyKey(newK: Enum.KeyCode, name: string)
+				kc = newK
+				keyName = name
+				keyReg.Value = kc
+				capBtn.Text = keyCapLabel(kc, keyName)
+				for _, cb in keyCbs do
+					task.spawn(cb)
 				end
-				for i, bd in ipairs(espData.SkeletonLines) do
-					if bd and bd.line and bd.from ~= "" and bd.to ~= "" then
-						local fp = character:FindFirstChild(bd.from)
-						local tp = character:FindFirstChild(bd.to)
-						if fp and tp then
-							local fv, fo = Camera:WorldToViewportPoint(fp.Position)
-							local tv, to = Camera:WorldToViewportPoint(tp.Position)
-							if fo and to then
-								bd.line.From = Vector2.new(fv.X, fv.Y)
-								bd.line.To = Vector2.new(tv.X, tv.Y)
-								bd.line.Color = skCol
-								bd.line.Thickness = ESPSettings.Skeleton.Thickness
-								bd.line.Visible = true
-							else
-								bd.line.Visible = false
+			end
+
+			local function setBindMode(m: string)
+				if m ~= "Toggle" and m ~= "Hold" then
+					return
+				end
+				bindMode = m
+				keyReg.Mode = bindMode
+				for _, cb in keyCbs do
+					task.spawn(cb)
+				end
+			end
+
+			keyReg.SetValue = function(_: any, v: any)
+				if type(v) ~= "table" then
+					return
+				end
+				if typeof(v[1]) == "string" then
+					local kc2, nm2 = enumKeyCodeFromString(v[1])
+					applyKey(kc2, nm2)
+				end
+				if typeof(v[2]) == "string" then
+					setBindMode(v[2])
+				end
+			end
+			keyReg.OnChanged = function(_: any, cb: () -> ())
+				table.insert(keyCbs, cb)
+			end
+
+			local function keyMatches(input: InputObject): boolean
+				if kc == Enum.KeyCode.Unknown then
+					return false
+				end
+				if input.UserInputType ~= Enum.UserInputType.Keyboard then
+					return false
+				end
+				return input.KeyCode == kc
+			end
+
+			keyReg.GetState = function(): boolean
+				if Library.Unloaded then
+					return false
+				end
+				if bindMode == "Hold" then
+					if kc == Enum.KeyCode.Unknown then
+						return false
+					end
+					if UserInputService:GetFocusedTextBox() then
+						return false
+					end
+					return UserInputService:IsKeyDown(kc)
+				end
+				if syncToggle then
+					return toggleReg.Value == true
+				end
+				return keyReg.Toggled == true
+			end
+
+			local capConn: RBXScriptConnection? = nil
+			capBtn.MouseButton1Click:Connect(function()
+				if listening then
+					return
+				end
+				listening = true
+				capBtn.Text = "…"
+				if capConn then
+					capConn:Disconnect()
+				end
+				capConn = UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
+					if gp then
+						return
+					end
+					if input.UserInputType == Enum.UserInputType.Keyboard then
+						if input.KeyCode == Enum.KeyCode.Escape then
+							if capConn then
+								capConn:Disconnect()
+								capConn = nil
+							end
+							listening = false
+							capBtn.Text = keyCapLabel(kc, keyName)
+							return
+						end
+						if input.KeyCode ~= Enum.KeyCode.Unknown then
+							if capConn then
+								capConn:Disconnect()
+								capConn = nil
+							end
+							listening = false
+							applyKey(input.KeyCode, input.KeyCode.Name)
+							if ko.Idx == "MenuKeybind" or ko.NoUI then
+								Library.ToggleKeybind = keyReg
+							end
+						end
+					end
+				end)
+			end)
+
+			capBtn.MouseButton2Click:Connect(function()
+				showKeybindModeMenu(capBtn, bindMode, setBindMode)
+			end)
+
+			UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
+				if Library.Unloaded or listening or gp then
+					return
+				end
+				if not Library.IsRobloxFocused then
+					return
+				end
+				if UserInputService:GetFocusedTextBox() then
+					return
+				end
+				if not keyMatches(input) then
+					return
+				end
+				if syncToggle then
+					if bindMode == "Toggle" then
+						apply(not toggleReg.Value)
+					else
+						apply(true)
+					end
+					return
+				end
+				if typeof(ko.Callback) == "function" then
+					if bindMode == "Toggle" then
+						keyReg.Toggled = not keyReg.Toggled
+						ko.Callback(keyReg.Toggled)
+					else
+						ko.Callback(true)
+					end
+					return
+				end
+				if bindMode == "Toggle" then
+					keyReg.Toggled = not keyReg.Toggled
+				end
+			end)
+
+			UserInputService.InputEnded:Connect(function(input: InputObject, gp: boolean)
+				if Library.Unloaded or listening then
+					return
+				end
+				if bindMode ~= "Hold" then
+					return
+				end
+				if not keyMatches(input) then
+					return
+				end
+				if syncToggle then
+					apply(false)
+				elseif typeof(ko.Callback) == "function" then
+					ko.Callback(false)
+				end
+			end)
+
+			if ko.Idx == "MenuKeybind" or ko.NoUI then
+				Library.ToggleKeybind = keyReg
+			end
+			if typeof(ko.Idx) == "string" and ko.Idx ~= "" then
+				Library.Options[ko.Idx] = keyReg
+			end
+
+			if typeof(ko.Tooltip) == "string" and ko.Tooltip ~= "" then
+				bindTooltipToInstances({ capBtn }, ko.Tooltip)
+			end
+
+			layoutToggleInlineExtras(row, label, track)
+
+			toggleReg._inlineKeyReg = keyReg
+			return keyReg
+		end
+
+		function section:AddToggle(o: {
+			Text: string,
+			Default: boolean?,
+			Callback: ((boolean) -> ())?,
+			Tooltip: string?,
+			Idx: string?,
+			Keybind: {
+				Default: string?,
+				Idx: string?,
+				Mode: string?,
+				SyncToggleState: boolean?,
+				NoUI: boolean?,
+				Tooltip: string?,
+				Callback: ((boolean) -> ())?,
+			}?,
+		})
+			local TW, TH = UID.ToggleTrackW, UID.ToggleTrackH
+			local K = UID.ToggleKnob
+			local knobHalf = K / 2
+			local kOff = UDim2.new(0, 2, 0.5, -knobHalf)
+			local kOn = UDim2.new(1, -(2 + K), 0.5, -knobHalf)
+
+			local row = Instance.new("Frame")
+			row.BackgroundTransparency = 1
+			row.Size = UDim2.new(1, 0, 0, UID.ToggleRowH)
+			row.Parent = bodyF
+
+			local label = Instance.new("TextLabel")
+			label.Size = UDim2.new(1, -UID.ToggleLabelReserve, 1, 0)
+			label.BackgroundTransparency = 1
+			label.Font = Enum.Font.GothamMedium
+			label.TextSize = UID.FontWidget
+			label.TextColor3 = Theme.Text
+			label.TextXAlignment = Enum.TextXAlignment.Left
+			label.Text = o.Text
+			label:SetAttribute("UiText", "Text")
+			label.Parent = row
+
+			local on = o.Default == true
+			local track = Instance.new("TextButton")
+			track.AutoButtonColor = false
+			track.Size = UDim2.fromOffset(TW, TH)
+			track.Position = UDim2.new(1, -TW, 0.5, -TH / 2)
+			track.BackgroundColor3 = if on then Theme.ToggleOn else Theme.ToggleOff
+			track.Text = ""
+			track.Parent = row
+			corner(UDim.new(1, 0)).Parent = track
+
+			local knob = Instance.new("Frame")
+			knob.Size = UDim2.fromOffset(K, K)
+			knob.Position = if on then kOn else kOff
+			knob.BackgroundColor3 = Color3.new(1, 1, 1)
+			knob.Parent = track
+			corner(UDim.new(1, 0)).Parent = knob
+
+			table.insert(toggleThemeRows, {
+				track = track,
+				getOn = function()
+					return on
+				end,
+			})
+
+			local changeCbs: { (boolean) -> () } = {}
+			local reg: any = {
+				Type = "Toggle",
+				Value = on,
+			}
+			reg._toggleRow = row
+			reg._toggleLabel = label
+			reg._toggleTrack = track
+			reg._toggleTooltip = o.Tooltip
+
+			local function apply(v: boolean)
+				on = v
+				reg.Value = v
+				tween(track, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
+					BackgroundColor3 = if on then Theme.ToggleOn else Theme.ToggleOff,
+				}):Play()
+				tween(knob, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
+					Position = if on then kOn else kOff,
+				}):Play()
+				for _, cb in changeCbs do
+					task.spawn(cb, on)
+				end
+				if o.Callback then
+					o.Callback(on)
+				end
+			end
+
+			reg.Set = function(_: any, v: boolean)
+				apply(v)
+			end
+			reg.Get = function()
+				return on
+			end
+			reg.SetValue = reg.Set
+			reg.OnChanged = function(_: any, cb: (boolean) -> ())
+				table.insert(changeCbs, cb)
+			end
+
+			track.MouseButton1Click:Connect(function()
+				apply(not on)
+			end)
+
+			function reg:AddKeybind(ko: any): any
+				local kr = attachInlineKeybindToToggle(row, label, track, apply, reg, ko)
+				if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+					refreshToggleTooltip(reg)
+				elseif typeof(ko.Tooltip) == "string" and ko.Tooltip ~= "" then
+					local cap = row:FindFirstChild("ToggleKeybind")
+					if cap and cap:IsA("GuiObject") then
+						bindTooltipToInstances({ cap }, ko.Tooltip)
+					end
+				end
+				--[[ Return toggle for chaining (:AddKeybind():AddColorPicker()). KeyPicker stays in Library.Options[ko.Idx]. ]]
+				return reg
+			end
+
+			function reg:AddColorPicker(co: any): any
+				if reg._inlineColorReg ~= nil then
+					return reg
+				end
+				co = co or {}
+				local cr = mountColorPicker(co, {
+					Mode = "toggle",
+					row = row,
+					label = label,
+					track = track,
+				})
+				reg._inlineColorReg = cr
+				if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+					refreshToggleTooltip(reg)
+				elseif typeof(co.Tooltip) == "string" and co.Tooltip ~= "" then
+					local sw = row:FindFirstChild("ToggleColorSwatch")
+					if sw and sw:IsA("GuiObject") then
+						bindTooltipToInstances({ sw }, co.Tooltip)
+					end
+				end
+				--[[ Return toggle for chaining (:AddColorPicker():AddKeybind()). ColorPicker stays in Library.Options[co.Idx]. ]]
+				return reg
+			end
+
+			if o.Keybind then
+				reg:AddKeybind(o.Keybind)
+			elseif typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+				refreshToggleTooltip(reg)
+			end
+
+			if typeof(o.Idx) == "string" and o.Idx ~= "" then
+				Library.Toggles[o.Idx] = reg
+			end
+
+			return reg
+		end
+
+		function section:AddSlider(o: {
+			Text: string,
+			Min: number,
+			Max: number,
+			Default: number?,
+			Rounding: number?,
+			Callback: ((number) -> ())?,
+			Tooltip: string?,
+			Idx: string?,
+		})
+			local minV, maxV = o.Min, o.Max
+			local round = o.Rounding or 0
+			local val = math.clamp(o.Default or minV, minV, maxV)
+
+			local row = Instance.new("Frame")
+			row.BackgroundTransparency = 1
+			row.Size = UDim2.new(1, 0, 0, UID.SliderRowH)
+			row.Parent = bodyF
+
+			local top = Instance.new("Frame")
+			top.Size = UDim2.new(1, 0, 0, UID.SliderTopH)
+			top.BackgroundTransparency = 1
+			top.Parent = row
+
+			local lbl = Instance.new("TextLabel")
+			lbl.Size = UDim2.new(1, -(UID.SliderValW + 4), 1, 0)
+			lbl.BackgroundTransparency = 1
+			lbl.Font = Enum.Font.GothamMedium
+			lbl.TextSize = UID.SliderLblText
+			lbl.TextColor3 = Theme.Text
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.Text = o.Text
+			lbl:SetAttribute("UiText", "Text")
+			lbl.Parent = top
+
+			local valBox = Instance.new("TextBox")
+			valBox.Size = UDim2.fromOffset(UID.SliderValW, UID.SliderValH)
+			valBox.Position = UDim2.new(1, -UID.SliderValW, 0, -2)
+			valBox.BackgroundColor3 = Theme.Background
+			valBox.BackgroundTransparency = 0.15
+			valBox.Font = Enum.Font.GothamBold
+			valBox.TextSize = UID.SliderValText
+			valBox.TextColor3 = Theme.Text
+			valBox.Text = tostring(val)
+			valBox.ClearTextOnFocus = false
+			valBox.TextEditable = true
+			valBox.TextXAlignment = Enum.TextXAlignment.Center
+			valBox:SetAttribute("UiBg", "Background")
+			valBox:SetAttribute("UiText", "Text")
+			valBox:SetAttribute("UiPlaceholder", "TextDim")
+			valBox.Parent = top
+			corner(Theme.CornerSm).Parent = valBox
+			pad(4).Parent = valBox
+			local valStroke = stroke(Theme.Stroke, 1, 0.65)
+			valStroke:SetAttribute("UiStroke", "Stroke")
+			valStroke.Parent = valBox
+
+			local track = Instance.new("Frame")
+			track.Name = "Track"
+			track.Size = UDim2.new(1, 0, 0, UID.SliderTrackH)
+			track.Position = UDim2.new(0, 0, 0, UID.SliderTrackY)
+			track.BackgroundColor3 = Theme.SliderTrack
+			track:SetAttribute("UiBg", "SliderTrack")
+			track.Parent = row
+			corner(UDim.new(1, 0)).Parent = track
+
+			local fill = Instance.new("Frame")
+			fill.Name = "Fill"
+			fill.Size = UDim2.new((val - minV) / (maxV - minV), 0, 1, 0)
+			fill.BackgroundColor3 = Color3.new(1, 1, 1)
+			fill.BorderSizePixel = 0
+			fill.Parent = track
+			corner(UDim.new(1, 0)).Parent = fill
+			local grad = Instance.new("UIGradient")
+			grad.Color = ColorSequence.new({
+				ColorSequenceKeypoint.new(0, Theme.AccentPurple),
+				ColorSequenceKeypoint.new(1, Theme.AccentBlue),
+			})
+			grad.Parent = fill
+			table.insert(sliderGradients, grad)
+
+			local sliderCbs: { (number) -> () } = {}
+			local reg: any = { Type = "Slider", Value = val }
+
+			local function format(n: number): string
+				if round <= 0 then
+					return tostring(math.floor(n + 0.5))
+				end
+				local m = 10 ^ round
+				return tostring(math.floor(n * m + 0.5) / m)
+			end
+
+			local function setFromAlpha(a: number)
+				a = math.clamp(a, 0, 1)
+				val = minV + (maxV - minV) * a
+				if round <= 0 then
+					val = math.floor(val + 0.5)
+				else
+					local m = 10 ^ round
+					val = math.floor(val * m + 0.5) / m
+				end
+				val = math.clamp(val, minV, maxV)
+				fill.Size = UDim2.new((val - minV) / (maxV - minV), 0, 1, 0)
+				valBox.Text = format(val)
+				reg.Value = val
+				for _, cb in sliderCbs do
+					task.spawn(cb, val)
+				end
+				if o.Callback then
+					o.Callback(val)
+				end
+			end
+
+			valBox.FocusLost:Connect(function()
+				local n = tonumber(valBox.Text)
+				if n == nil then
+					valBox.Text = format(val)
+					return
+				end
+				n = math.clamp(n, minV, maxV)
+				setFromAlpha((n - minV) / math.max(maxV - minV, 1e-9))
+			end)
+
+			if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+				bindTooltipToInstances({ lbl, valBox, track }, o.Tooltip)
+			end
+
+			local dragging = false
+			local function posToAlpha(x: number): number
+				local ap = track.AbsolutePosition.X
+				local aw = track.AbsoluteSize.X
+				return (x - ap) / math.max(aw, 1)
+			end
+
+			track.InputBegan:Connect(function(input)
+				if
+					input.UserInputType == Enum.UserInputType.MouseButton1
+					or input.UserInputType == Enum.UserInputType.Touch
+				then
+					dragging = true
+					setFromAlpha(posToAlpha(input.Position.X))
+				end
+			end)
+			UserInputService.InputEnded:Connect(function(input)
+				if
+					input.UserInputType == Enum.UserInputType.MouseButton1
+					or input.UserInputType == Enum.UserInputType.Touch
+				then
+					dragging = false
+				end
+			end)
+			UserInputService.InputChanged:Connect(function(input)
+				if not dragging then
+					return
+				end
+				if
+					input.UserInputType == Enum.UserInputType.MouseMovement
+					or input.UserInputType == Enum.UserInputType.Touch
+				then
+					setFromAlpha(posToAlpha(input.Position.X))
+				end
+			end)
+
+			reg.Set = function(_: any, n: number)
+				n = math.clamp(n, minV, maxV)
+				setFromAlpha((n - minV) / math.max(maxV - minV, 1e-9))
+			end
+			reg.Get = function()
+				return val
+			end
+			reg.SetValue = function(_: any, v: any)
+				local n = tonumber(v)
+				if n == nil then
+					return
+				end
+				reg.Set(nil, n)
+			end
+			reg.OnChanged = function(_: any, cb: (number) -> ())
+				table.insert(sliderCbs, cb)
+			end
+
+			if typeof(o.Idx) == "string" and o.Idx ~= "" then
+				Library.Options[o.Idx] = reg
+			end
+
+			return reg
+		end
+
+		function section:AddDropdown(o: {
+			Text: string,
+			Options: { string },
+			Multi: boolean?,
+			Default: any?,
+			Callback: ((any) -> ())?,
+			Tooltip: string?,
+			AllowNull: boolean?,
+			Idx: string?,
+			--[[ Filter option rows while the list is open (search box at top of dropdown). ]]
+			Searchable: boolean?,
+			--[[ Max option rows visible before scrolling (default 5; clamped 3–24). ]]
+			MaxVisibleItems: number?,
+		})
+			local allowNull = o.AllowNull == true
+			local searchable = o.Searchable == true
+			local maxVisibleItems = math.clamp(
+				if typeof(o.MaxVisibleItems) == "number" then math.floor(o.MaxVisibleItems :: number) else 5,
+				3,
+				24
+			)
+			local multi = if o.Multi ~= nil then (o.Multi == true) else dropdownMultiDefault
+			local options = o.Options or {}
+			local selected: { [string]: boolean } = {}
+			if multi then
+				if type(o.Default) == "table" then
+					for _, s in o.Default :: { string } do
+						selected[s] = true
+					end
+				end
+			elseif type(o.Default) == "string" then
+				selected[o.Default :: string] = true
+			elseif typeof(o.Default) == "number" and not multi and #options > 0 then
+				local i = math.clamp(math.floor(o.Default :: number), 1, #options)
+				selected[options[i]] = true
+			elseif not allowNull and #options > 0 then
+				selected[options[1]] = true
+			end
+
+			local function computeValue(): any
+				if multi then
+					local out = {}
+					for _, opt in options do
+						if selected[opt] then
+							table.insert(out, opt)
+						end
+					end
+					return out
+				end
+				for k in pairs(selected) do
+					return k
+				end
+				return nil
+			end
+
+			local function summary(): string
+				if multi then
+					local parts = {}
+					for _, opt in options do
+						if selected[opt] then
+							table.insert(parts, opt)
+						end
+					end
+					if #parts == 0 then
+						return "Select…"
+					end
+					return table.concat(parts, ", ")
+				end
+				for k in pairs(selected) do
+					return k
+				end
+				return if allowNull then "None" else "Select…"
+			end
+
+			local dropdownCbs: { (any) -> () } = {}
+			local reg: any = {
+				Type = "Dropdown",
+				Multi = multi,
+				Value = computeValue(),
+			}
+
+			local function syncReg()
+				reg.Value = computeValue()
+			end
+
+			local function fire()
+				syncReg()
+				local v = reg.Value
+				for _, cb in dropdownCbs do
+					task.spawn(cb, v)
+				end
+				if o.Callback then
+					o.Callback(v)
+				end
+			end
+
+			local row = Instance.new("Frame")
+			row.BackgroundTransparency = 1
+			row.Size = UDim2.new(1, 0, 0, 0)
+			row.AutomaticSize = Enum.AutomaticSize.Y
+			row.ZIndex = 2
+			row.Parent = bodyF
+
+			local lbl = Instance.new("TextLabel")
+			lbl.Size = UDim2.new(1, 0, 0, UID.DropLblH)
+			lbl.BackgroundTransparency = 1
+			lbl.Font = Enum.Font.GothamMedium
+			lbl.TextSize = UID.InputLblText
+			lbl.TextColor3 = Theme.TextDim
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.Text = o.Text
+			lbl:SetAttribute("UiText", "TextDim")
+			lbl.Parent = row
+
+			local btn = Instance.new("TextButton")
+			btn.Size = UDim2.new(1, 0, 0, UID.DropBtnH)
+			btn.Position = UDim2.new(0, 0, 0, UID.DropBtnY)
+			btn.BackgroundColor3 = Theme.Elevated
+			btn.BackgroundTransparency = 0.1
+			btn.AutoButtonColor = false
+			btn.Font = Enum.Font.GothamMedium
+			btn.TextSize = UID.DropBtnText
+			btn.TextColor3 = Theme.Text
+			btn.TextXAlignment = Enum.TextXAlignment.Left
+			btn.Text = "  " .. summary()
+			btn:SetAttribute("UiBg", "Elevated")
+			btn:SetAttribute("UiText", "Text")
+			btn.Parent = row
+			corner(Theme.CornerSm).Parent = btn
+			pad(UID.DropBtnPad).Parent = btn
+
+			local chev = Instance.new("TextLabel")
+			chev.Size = UDim2.fromOffset(UID.DropChev, UID.DropChev)
+			chev.Position = UDim2.new(1, -(UID.DropChev + 4), 0.5, -UID.DropChev / 2)
+			chev.BackgroundTransparency = 1
+			chev.Text = "▼"
+			chev.TextSize = 10
+			chev.TextColor3 = Theme.TextDim
+			chev:SetAttribute("UiText", "TextDim")
+			chev.Parent = btn
+
+			local listF = Instance.new("Frame")
+			listF.Size = UDim2.new(1, 0, 0, 0)
+			listF.AutomaticSize = Enum.AutomaticSize.Y
+			listF.Position = UDim2.new(0, 0, 0, UID.DropListY)
+			listF.BackgroundColor3 = Theme.Background
+			listF.BackgroundTransparency = 0.05
+			listF.Visible = false
+			listF.ZIndex = 5
+			listF:SetAttribute("UiBg", "Background")
+			listF.Parent = row
+			corner(Theme.CornerSm).Parent = listF
+			local listStroke = stroke(Theme.Stroke, 1, 0.7)
+			listStroke:SetAttribute("UiStroke", "Stroke")
+			listStroke.Parent = listF
+
+			pad(6).Parent = listF
+			local stackLay = Instance.new("UIListLayout")
+			stackLay.FillDirection = Enum.FillDirection.Vertical
+			stackLay.SortOrder = Enum.SortOrder.LayoutOrder
+			stackLay.Padding = UDim.new(0, 6)
+			stackLay.Parent = listF
+
+			local scrollList = Instance.new("ScrollingFrame")
+			scrollList.Name = "DropdownScroll"
+			scrollList.BackgroundTransparency = 1
+			scrollList.BorderSizePixel = 0
+			scrollList.Size = UDim2.new(1, -12, 0, 120)
+			scrollList.ScrollBarThickness = 4
+			scrollList.ScrollBarImageColor3 = Theme.AccentBlue
+			scrollList.ScrollingDirection = Enum.ScrollingDirection.Y
+			scrollList.AutomaticCanvasSize = Enum.AutomaticSize.Y
+			scrollList.CanvasSize = UDim2.new(0, 0, 0, 0)
+			scrollList.ZIndex = 6
+			scrollList.LayoutOrder = 2
+			scrollList.ClipsDescendants = true
+			scrollList.Parent = listF
+
+			local innerList = Instance.new("UIListLayout")
+			innerList.SortOrder = Enum.SortOrder.LayoutOrder
+			innerList.Padding = UDim.new(0, 2)
+			innerList.Parent = scrollList
+
+			local OPT_ROW_H = UID.DropOptRow
+			local LIST_GAP = 2
+			local function optionsBlockHeight(n: number): number
+				if n <= 0 then
+					return OPT_ROW_H
+				end
+				return n * OPT_ROW_H + (n - 1) * LIST_GAP
+			end
+			local function syncScrollViewport()
+				local n = 0
+				for _, ch in scrollList:GetChildren() do
+					if ch:IsA("TextButton") then
+						n = n + 1
+					end
+				end
+				local contentH = optionsBlockHeight(n)
+				local capH = optionsBlockHeight(maxVisibleItems)
+				local viewH = math.clamp(math.min(contentH, capH), OPT_ROW_H, capH)
+				scrollList.Size = UDim2.new(1, -12, 0, viewH)
+			end
+
+			local searchBox: TextBox? = nil
+			if searchable then
+				local searchRow = Instance.new("Frame")
+				searchRow.Name = "DropdownSearch"
+				searchRow.BackgroundTransparency = 1
+				searchRow.Size = UDim2.new(1, -12, 0, UID.DropSearchH)
+				searchRow.LayoutOrder = 1
+				searchRow.Parent = listF
+				local sb = Instance.new("TextBox")
+				sb.Name = "Search"
+				sb.Size = UDim2.new(1, 0, 1, 0)
+				sb.BackgroundColor3 = Theme.Elevated
+				sb.BackgroundTransparency = 0.12
+				sb.ClearTextOnFocus = false
+				sb.Font = Enum.Font.GothamMedium
+				sb.TextSize = 12
+				sb.TextColor3 = Theme.Text
+				sb.PlaceholderText = "Search…"
+				sb.PlaceholderColor3 = Theme.TextDim
+				sb.Text = ""
+				sb:SetAttribute("UiBg", "Elevated")
+				sb:SetAttribute("UiText", "Text")
+				sb:SetAttribute("UiPlaceholder", "TextDim")
+				sb.Parent = searchRow
+				corner(Theme.CornerSm).Parent = sb
+				pad(8).Parent = sb
+				searchBox = sb
+			end
+
+			local open = false
+			local optionButtonMap: { [string]: TextButton } = {}
+
+			local function filteredOptions(): { string }
+				if not searchable or not searchBox or searchBox.Text == "" then
+					return options
+				end
+				local q = string.lower(searchBox.Text)
+				local out: { string } = {}
+				for _, opt in options do
+					if string.find(string.lower(opt), q, 1, true) then
+						table.insert(out, opt)
+					end
+				end
+				return out
+			end
+
+			local function styleOptionRow(optBtn: TextButton, optName: string)
+				local sel = selected[optName] == true
+				optBtn.Text = optName
+				optBtn.BackgroundColor3 = Theme.Elevated
+				optBtn.TextColor3 = Theme.Text
+				if sel then
+					optBtn.BackgroundTransparency = 0.08
+					optBtn.TextTransparency = 0
+				else
+					optBtn.BackgroundTransparency = 1
+					optBtn.TextTransparency = 0.45
+				end
+			end
+
+			local function refreshOptionVisuals()
+				for optName, ob in optionButtonMap do
+					if ob.Parent then
+						styleOptionRow(ob, optName)
+					end
+				end
+				btn.Text = "  " .. summary()
+			end
+
+			local function clearOptionButtons()
+				table.clear(optionButtonMap)
+				for _, ch in scrollList:GetChildren() do
+					if ch:IsA("TextButton") then
+						ch:Destroy()
+					end
+				end
+			end
+
+			local function buildOptionButtons()
+				clearOptionButtons()
+				for _, opt in filteredOptions() do
+					local optBtn = Instance.new("TextButton")
+					optBtn.Size = UDim2.new(1, -12, 0, OPT_ROW_H)
+					optBtn.AutoButtonColor = false
+					optBtn.Font = Enum.Font.GothamMedium
+					optBtn.TextSize = UID.DropBtnText
+					optBtn.TextXAlignment = Enum.TextXAlignment.Left
+					optBtn.ZIndex = 7
+					optBtn:SetAttribute("UiBg", "Elevated")
+					optBtn:SetAttribute("UiText", "Text")
+					optBtn.Parent = scrollList
+					corner(UDim.new(0, 4)).Parent = optBtn
+					pad(UID.DropBtnPad).Parent = optBtn
+					optionButtonMap[opt] = optBtn
+					styleOptionRow(optBtn, opt)
+					optBtn.MouseButton1Click:Connect(function()
+						if multi then
+							selected[opt] = not selected[opt]
+							for optName, ob in optionButtonMap do
+								styleOptionRow(ob, optName)
 							end
 						else
-							bd.line.Visible = false
+							for k in pairs(selected) do
+								selected[k] = nil
+							end
+							selected[opt] = true
+							for optName, ob in optionButtonMap do
+								styleOptionRow(ob, optName)
+							end
+							listF.Visible = false
+							open = false
 						end
-					elseif bd and bd.line then
-						bd.line.Visible = false
+						btn.Text = "  " .. summary()
+						fire()
+					end)
+				end
+				syncScrollViewport()
+				scrollList.CanvasPosition = Vector2.zero
+			end
+
+			buildOptionButtons()
+
+			if searchBox then
+				searchBox:GetPropertyChangedSignal("Text"):Connect(function()
+					if open then
+						buildOptionButtons()
+						refreshOptionVisuals()
+					end
+				end)
+			end
+
+			btn.MouseButton1Click:Connect(function()
+				open = not open
+				if open and searchBox then
+					searchBox.Text = ""
+					buildOptionButtons()
+					refreshOptionVisuals()
+				end
+				listF.Visible = open
+			end)
+
+			if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+				bindTooltipToInstances({ lbl, btn }, o.Tooltip)
+			end
+
+			btn.Text = "  " .. summary()
+			syncReg()
+
+			reg.Set = function(_: any, v: any)
+				for k in pairs(selected) do
+					selected[k] = nil
+				end
+				if multi and type(v) == "table" then
+					for _, s in v do
+						if typeof(s) == "string" then
+							selected[s] = true
+						end
+					end
+				elseif not multi and v == nil and allowNull then
+					-- cleared
+				elseif not multi and type(v) == "string" then
+					selected[v] = true
+				end
+				refreshOptionVisuals()
+				syncReg()
+			end
+			reg.SetValue = reg.Set
+			reg.Get = function()
+				return computeValue()
+			end
+			reg.OnChanged = function(_: any, cb: (any) -> ())
+				table.insert(dropdownCbs, cb)
+			end
+			reg.SetValues = function(_: any, newOpts: { string })
+				options = newOpts or {}
+				for k in pairs(selected) do
+					selected[k] = nil
+				end
+				if not multi then
+					if allowNull then
+						-- none
+					elseif #options > 0 then
+						selected[options[1]] = true
+					end
+				else
+					-- keep empty until user picks
+				end
+				buildOptionButtons()
+				refreshOptionVisuals()
+				syncReg()
+			end
+
+			if typeof(o.Idx) == "string" and o.Idx ~= "" then
+				Library.Options[o.Idx] = reg
+			end
+
+			return reg
+		end
+
+		function section:AddInput(o: {
+			Text: string,
+			Placeholder: string?,
+			Default: string?,
+			Callback: ((string) -> ())?,
+			Tooltip: string?,
+			Idx: string?,
+		})
+			local row = Instance.new("Frame")
+			row.BackgroundTransparency = 1
+			row.Size = UDim2.new(1, 0, 0, UID.InputRowH)
+			row.Parent = bodyF
+
+			local lbl = Instance.new("TextLabel")
+			lbl.Size = UDim2.new(1, 0, 0, UID.InputLblH)
+			lbl.BackgroundTransparency = 1
+			lbl.Font = Enum.Font.GothamMedium
+			lbl.TextSize = UID.InputLblText
+			lbl.TextColor3 = Theme.TextDim
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.Text = o.Text
+			lbl:SetAttribute("UiText", "TextDim")
+			lbl.Parent = row
+
+			local box = Instance.new("TextBox")
+			box.Size = UDim2.new(1, 0, 0, UID.InputBoxH)
+			box.Position = UDim2.new(0, 0, 0, UID.InputBoxY)
+			box.BackgroundColor3 = Theme.Elevated
+			box.BackgroundTransparency = 0.1
+			box.ClearTextOnFocus = false
+			box.Font = Enum.Font.GothamMedium
+			box.TextSize = UID.InputBoxText
+			box.TextColor3 = Theme.Text
+			box.PlaceholderText = o.Placeholder or ""
+			box.PlaceholderColor3 = Theme.TextDim
+			box.Text = o.Default or ""
+			box:SetAttribute("UiBg", "Elevated")
+			box:SetAttribute("UiText", "Text")
+			box:SetAttribute("UiPlaceholder", "TextDim")
+			box.Parent = row
+			corner(Theme.CornerSm).Parent = box
+			pad(UID.InputBoxPad).Parent = box
+
+			local inputCbs: { (string) -> () } = {}
+			local reg: any = { Type = "Input", Value = box.Text }
+
+			local function sync()
+				reg.Value = box.Text
+			end
+
+			box:GetPropertyChangedSignal("Text"):Connect(function()
+				sync()
+			end)
+
+			box.FocusLost:Connect(function()
+				sync()
+				for _, cb in inputCbs do
+					task.spawn(cb, box.Text)
+				end
+				if o.Callback then
+					o.Callback(box.Text)
+				end
+			end)
+
+			if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+				bindTooltipToInstances({ lbl, box }, o.Tooltip)
+			end
+
+			reg.Set = function(_: any, t: string)
+				box.Text = t
+				sync()
+			end
+			reg.SetValue = reg.Set
+			reg.Get = function()
+				return box.Text
+			end
+			reg.OnChanged = function(_: any, cb: (string) -> ())
+				table.insert(inputCbs, cb)
+			end
+
+			if typeof(o.Idx) == "string" and o.Idx ~= "" then
+				Library.Options[o.Idx] = reg
+			end
+
+			return reg
+		end
+
+		function section:AddDivider()
+			local d = Instance.new("Frame")
+			d.BackgroundColor3 = Theme.Stroke
+			d.BackgroundTransparency = 0.5
+			d.BorderSizePixel = 0
+			d.Size = UDim2.new(1, 0, 0, 1)
+			d:SetAttribute("UiBg", "Stroke")
+			d.Parent = bodyF
+		end
+
+		function section:AddLabel(textOrOpts: any, wrap: boolean?, idx: string?)
+			local text = ""
+			local doesWrap = wrap == true
+			local idxStr: string? = nil
+			if type(textOrOpts) == "table" then
+				text = tostring(textOrOpts.Text or "")
+				doesWrap = textOrOpts.DoesWrap == true
+				idxStr = textOrOpts.Idx
+			else
+				text = tostring(textOrOpts)
+				idxStr = if typeof(idx) == "string" then idx else nil
+			end
+			local lab = Instance.new("TextLabel")
+			lab.BackgroundTransparency = 1
+			lab.Font = Enum.Font.GothamMedium
+			lab.TextSize = UID.AddLabelText
+			lab.TextColor3 = Theme.TextDim
+			lab.TextXAlignment = Enum.TextXAlignment.Left
+			lab.TextWrapped = doesWrap
+			lab.AutomaticSize = if doesWrap then Enum.AutomaticSize.Y else Enum.AutomaticSize.None
+			lab.Size = UDim2.new(1, 0, 0, if doesWrap then 0 else UID.AddLabelH)
+			lab.Text = text
+			lab:SetAttribute("UiText", "TextDim")
+			lab.Parent = bodyF
+			local reg = {
+				SetText = function(_: any, t: string)
+					lab.Text = t
+				end,
+			}
+			reg.Set = reg.SetText
+			if typeof(idxStr) == "string" and idxStr ~= "" then
+				Library.Options[idxStr] = reg
+			end
+			return reg
+		end
+
+		function section:AddButton(opts: any, func: (() -> ())?)
+			local text: string
+			local fn: (() -> ())?
+			local disabled = false
+			local tip: string? = nil
+			if type(opts) == "table" then
+				text = tostring(opts.Text or "Button")
+				fn = opts.Func
+				disabled = opts.Disabled == true
+				tip = opts.Tooltip
+			else
+				text = tostring(opts)
+				fn = func
+			end
+			local b = Instance.new("TextButton")
+			b.Size = UDim2.new(1, 0, 0, UID.ButtonH)
+			b.BackgroundColor3 = Theme.Elevated
+			b.BackgroundTransparency = 0.1
+			b.AutoButtonColor = not disabled
+			b.Text = text
+			b.Font = Enum.Font.GothamMedium
+			b.TextSize = UID.DropBtnText
+			b.TextColor3 = if disabled then Theme.TextDim else Theme.Text
+			b:SetAttribute("UiBg", "Elevated")
+			b:SetAttribute("UiText", if disabled then "TextDim" else "Text")
+			b.Parent = bodyF
+			corner(Theme.CornerSm).Parent = b
+			do
+				local bp = Instance.new("UIPadding")
+				bp.PaddingLeft = UDim.new(0, UID.DropBtnPad)
+				bp.PaddingRight = UDim.new(0, UID.DropBtnPad)
+				bp.Parent = b
+			end
+			if typeof(tip) == "string" and tip ~= "" then
+				bindTooltipToInstances({ b }, tip)
+			end
+			b.MouseButton1Click:Connect(function()
+				if disabled then
+					return
+				end
+				if fn then
+					fn()
+				end
+			end)
+			return b
+		end
+
+		function section:AddKeybind(o: {
+			Text: string,
+			Default: string?,
+			Idx: string?,
+			NoUI: boolean?,
+			Mode: string?,
+			Callback: ((boolean) -> ())?,
+		})
+			o = o or {}
+			local kc, keyName = resolveKeybindDefault(o.Default)
+			local bindMode: string = o.Mode == "Hold" and "Hold" or "Toggle"
+			local row = Instance.new("Frame")
+			row.BackgroundTransparency = 1
+			row.Size = UDim2.new(1, 0, 0, UID.KeyRowH)
+			row.Parent = bodyF
+			local lbl = Instance.new("TextLabel")
+			lbl.Size = UDim2.new(1, -(UID.KeyCapW + 12), 1, 0)
+			lbl.BackgroundTransparency = 1
+			lbl.Font = Enum.Font.GothamMedium
+			lbl.TextSize = UID.FontWidget
+			lbl.TextColor3 = Theme.Text
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.Text = o.Text or "Keybind"
+			lbl:SetAttribute("UiText", "Text")
+			lbl.Parent = row
+			local capBtn = Instance.new("TextButton")
+			capBtn.Size = UDim2.fromOffset(UID.KeyCapW, UID.KeyCapH)
+			capBtn.Position = UDim2.new(1, -UID.KeyCapW, 0.5, -UID.KeyCapH / 2)
+			capBtn.BackgroundColor3 = Theme.Background
+			capBtn.BackgroundTransparency = 0.15
+			capBtn.Text = keyCapLabel(kc, keyName)
+			capBtn.Font = Enum.Font.GothamBold
+			capBtn.TextSize = UID.SliderValText
+			capBtn.TextColor3 = Theme.Text
+			capBtn.AutoButtonColor = false
+			capBtn:SetAttribute("UiBg", "Background")
+			capBtn:SetAttribute("UiText", "Text")
+			capBtn.Parent = row
+			corner(Theme.CornerSm).Parent = capBtn
+
+			local listening = false
+			local keyCbs: { () -> () } = {}
+			local reg: any = {
+				Type = "KeyPicker",
+				Value = kc,
+				Mode = bindMode,
+				Modifiers = {},
+				Toggled = false,
+			}
+
+			local function applyKey(newK: Enum.KeyCode, name: string)
+				kc = newK
+				keyName = name
+				reg.Value = kc
+				capBtn.Text = keyCapLabel(kc, keyName)
+				for _, cb in keyCbs do
+					task.spawn(cb)
+				end
+			end
+
+			local function setBindMode(m: string)
+				if m ~= "Toggle" and m ~= "Hold" then
+					return
+				end
+				bindMode = m
+				reg.Mode = bindMode
+				for _, cb in keyCbs do
+					task.spawn(cb)
+				end
+			end
+
+			reg.SetValue = function(_: any, v: any)
+				if type(v) ~= "table" then
+					return
+				end
+				if typeof(v[1]) == "string" then
+					local kc2, nm2 = enumKeyCodeFromString(v[1])
+					applyKey(kc2, nm2)
+				end
+				if typeof(v[2]) == "string" then
+					setBindMode(v[2])
+				end
+			end
+			reg.OnChanged = function(_: any, cb: () -> ())
+				table.insert(keyCbs, cb)
+			end
+
+			local function keyMatches(input: InputObject): boolean
+				if kc == Enum.KeyCode.Unknown then
+					return false
+				end
+				if input.UserInputType ~= Enum.UserInputType.Keyboard then
+					return false
+				end
+				return input.KeyCode == kc
+			end
+
+			reg.GetState = function(): boolean
+				if Library.Unloaded then
+					return false
+				end
+				if bindMode == "Hold" then
+					if kc == Enum.KeyCode.Unknown then
+						return false
+					end
+					if UserInputService:GetFocusedTextBox() then
+						return false
+					end
+					return UserInputService:IsKeyDown(kc)
+				end
+				return reg.Toggled == true
+			end
+
+			local capConn: RBXScriptConnection? = nil
+			capBtn.MouseButton1Click:Connect(function()
+				if listening then
+					return
+				end
+				listening = true
+				capBtn.Text = "…"
+				if capConn then
+					capConn:Disconnect()
+				end
+				capConn = UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
+					if gp then
+						return
+					end
+					if input.UserInputType == Enum.UserInputType.Keyboard then
+						if input.KeyCode == Enum.KeyCode.Escape then
+							if capConn then
+								capConn:Disconnect()
+								capConn = nil
+							end
+							listening = false
+							capBtn.Text = keyCapLabel(kc, keyName)
+							return
+						end
+						if input.KeyCode ~= Enum.KeyCode.Unknown then
+							if capConn then
+								capConn:Disconnect()
+								capConn = nil
+							end
+							listening = false
+							applyKey(input.KeyCode, input.KeyCode.Name)
+							if o.Idx == "MenuKeybind" or o.NoUI then
+								Library.ToggleKeybind = reg
+							end
+						end
+					end
+				end)
+			end)
+
+			capBtn.MouseButton2Click:Connect(function()
+				showKeybindModeMenu(capBtn, bindMode, setBindMode)
+			end)
+
+			UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
+				if Library.Unloaded or listening or gp then
+					return
+				end
+				if not Library.IsRobloxFocused then
+					return
+				end
+				if UserInputService:GetFocusedTextBox() then
+					return
+				end
+				if not keyMatches(input) then
+					return
+				end
+				if typeof(o.Callback) == "function" then
+					if bindMode == "Toggle" then
+						reg.Toggled = not reg.Toggled
+						o.Callback(reg.Toggled)
+					else
+						o.Callback(true)
+					end
+					return
+				end
+				if bindMode == "Toggle" then
+					reg.Toggled = not reg.Toggled
+				end
+			end)
+
+			UserInputService.InputEnded:Connect(function(input: InputObject, gp: boolean)
+				if Library.Unloaded or listening then
+					return
+				end
+				if bindMode ~= "Hold" then
+					return
+				end
+				if not keyMatches(input) then
+					return
+				end
+				if typeof(o.Callback) == "function" then
+					o.Callback(false)
+				end
+			end)
+
+			if o.Idx == "MenuKeybind" or o.NoUI then
+				Library.ToggleKeybind = reg
+			end
+			if typeof(o.Idx) == "string" and o.Idx ~= "" then
+				Library.Options[o.Idx] = reg
+			end
+
+			return reg
+		end
+
+		mountColorPicker = function(
+			o: {
+				Text: string?,
+				Default: Color3?,
+				Transparency: number?,
+				Idx: string?,
+				Callback: ((Color3) -> ())?,
+				Tooltip: string?,
+			},
+			mount: { Mode: "section", bodyParent: Instance }
+				| { Mode: "toggle", row: Frame, label: TextLabel, track: TextButton }
+		)
+			o = o or {}
+			local col = o.Default or Color3.fromRGB(255, 255, 255)
+			local alpha = 1 - (o.Transparency or 0)
+			local sectionMode = mount.Mode == "section"
+
+			local row: Frame
+			local lbl: TextLabel?
+			local bar: Frame?
+			local hexBox: TextBox?
+			local swBtn: TextButton
+
+			if sectionMode then
+				row = Instance.new("Frame")
+				row.BackgroundTransparency = 1
+				row.Size = UDim2.new(1, 0, 0, UID.ColorRowH)
+				row.Parent = (mount :: any).bodyParent
+
+				lbl = Instance.new("TextLabel")
+				lbl.Size = UDim2.new(1, 0, 0, UID.ColorLblH)
+				lbl.BackgroundTransparency = 1
+				lbl.Font = Enum.Font.GothamMedium
+				lbl.TextSize = UID.InputLblText
+				lbl.TextColor3 = Theme.TextDim
+				lbl.TextXAlignment = Enum.TextXAlignment.Left
+				lbl.Text = o.Text or "Color"
+				lbl:SetAttribute("UiText", "TextDim")
+				lbl.Parent = row
+
+				bar = Instance.new("Frame")
+				bar.Name = "ColorBar"
+				bar.BackgroundTransparency = 1
+				bar.Size = UDim2.new(1, 0, 0, UID.ColorBarH)
+				bar.Position = UDim2.new(0, 0, 0, UID.ColorBarY)
+				bar.Parent = row
+
+				hexBox = Instance.new("TextBox")
+				hexBox.Size = UDim2.new(1, -(UID.ColorSwatch + 6), 1, 0)
+				hexBox.Position = UDim2.fromScale(0, 0)
+				hexBox.BackgroundColor3 = Theme.Elevated
+				hexBox.BackgroundTransparency = 0.1
+				hexBox.Text = string.upper(col:ToHex())
+				hexBox.PlaceholderText = "RRGGBB"
+				hexBox.PlaceholderColor3 = Theme.TextDim
+				hexBox.Font = Enum.Font.GothamMedium
+				hexBox.TextSize = 12
+				hexBox.TextColor3 = Theme.Text
+				hexBox.ClearTextOnFocus = false
+				hexBox:SetAttribute("UiBg", "Elevated")
+				hexBox:SetAttribute("UiText", "Text")
+				hexBox:SetAttribute("UiPlaceholder", "TextDim")
+				hexBox.Parent = bar
+				corner(Theme.CornerSm).Parent = hexBox
+				pad(6).Parent = hexBox
+
+				swBtn = Instance.new("TextButton")
+				swBtn.Name = "Swatch"
+				swBtn.AnchorPoint = Vector2.new(1, 0)
+				swBtn.Size = UDim2.fromOffset(UID.ColorSwatch, UID.ColorBarH)
+				swBtn.Position = UDim2.new(1, 0, 0, 0)
+				swBtn.BackgroundColor3 = col
+				swBtn.BackgroundTransparency = 1 - alpha
+				swBtn.Text = ""
+				swBtn.AutoButtonColor = false
+				swBtn.ZIndex = 2
+				--[[ No UiBg on swatch: theme paint would force Elevated and hide the picked color ]]
+				swBtn.Parent = bar
+				corner(Theme.CornerSm).Parent = swBtn
+				local swStroke = stroke(Theme.Stroke, 1, 0.5)
+				swStroke:SetAttribute("UiStroke", "Stroke")
+				swStroke.Parent = swBtn
+			else
+				local tm = mount :: any
+				row = tm.row
+				lbl = nil
+				bar = nil
+				hexBox = nil
+				swBtn = Instance.new("TextButton")
+				swBtn.Name = "ToggleColorSwatch"
+				swBtn.AutoButtonColor = false
+				local cw, ch = UID.ToggleInlineColorW, UID.ToggleInlineColorH
+				swBtn.Size = UDim2.fromOffset(cw, ch)
+				swBtn.BackgroundColor3 = col
+				swBtn.BackgroundTransparency = 1 - alpha
+				swBtn.Text = ""
+				swBtn.ZIndex = 2
+				swBtn.Parent = row
+				corner(Theme.CornerSm).Parent = swBtn
+				local swStrokeT = stroke(Theme.Stroke, 1, 0.5)
+				swStrokeT:SetAttribute("UiStroke", "Stroke")
+				swStrokeT.Parent = swBtn
+				layoutToggleInlineExtras(row, tm.label, tm.track)
+			end
+
+			local colorCbs: { (Color3) -> () } = {}
+			local reg: any = {
+				Type = "ColorPicker",
+				Value = col,
+				Transparency = o.Transparency or 0,
+			}
+
+			local hueN, satN, valN = col:ToHSV()
+			local fillRgbBoxesRef: (() -> ())? = nil
+			local syncHsVisualRef: (() -> ())? = nil
+
+			local function syncSwatch()
+				swBtn.BackgroundColor3 = col
+				swBtn.BackgroundTransparency = 1 - alpha
+			end
+
+			local popOpen = false
+
+			local function applyColor(c: Color3)
+				local newHex = string.upper(c:ToHex())
+				local prevHex = string.upper(col:ToHex())
+				if newHex == prevHex then
+					return
+				end
+				col = c
+				reg.Value = col
+				syncSwatch()
+				if hexBox then
+					hexBox.Text = newHex
+				end
+				if popOpen then
+					hueN, satN, valN = col:ToHSV()
+					if syncHsVisualRef then
+						syncHsVisualRef()
+					end
+					if fillRgbBoxesRef then
+						fillRgbBoxesRef()
 					end
 				end
-			else
-				for _, bd in ipairs(espData.SkeletonLines) do
-					if bd and bd.line then bd.line.Visible = false end
+				--[[ Obsidian: synchronous Changed/Callback — avoids task backlog + matches ThemeManager:UpdateColorsUsingRegistry cadence. ]]
+				for _, cb in colorCbs do
+					pcall(cb, col)
+				end
+				if o.Callback then
+					pcall(o.Callback, col)
 				end
 			end
-		end
-		if espData.Highlight then
-			if ESPSettings.Chams.Enabled and character and hrp and hum and alive and not isTeammate then
-				espData.Highlight.Enabled = true
-				espData.Highlight.Adornee = character
-				local sameTeam = plr.Team and player.Team and plr.Team == player.Team
-				if sameTeam then
-					espData.Highlight.FillColor = ESPSettings.Chams.TeamFillColor
-					espData.Highlight.OutlineColor = ESPSettings.Chams.TeamOutlineColor
+
+			local function tryParseHexInput()
+				if not hexBox then
+					return
+				end
+				local parsed = parseHexColor(hexBox.Text)
+				if parsed then
+					applyColor(parsed)
 				else
-					espData.Highlight.FillColor = ESPSettings.Chams.FillColor
-					espData.Highlight.OutlineColor = ESPSettings.Chams.OutlineColor
+					hexBox.Text = string.upper(col:ToHex())
 				end
-				espData.Highlight.DepthMode = Enum.HighlightDepthMode.AlwaysOnTop
-				espData.Highlight.OutlineTransparency = 0
-				espData.Highlight.FillTransparency = 0.5
-			else
-				espData.Highlight.Enabled = false
 			end
-		end
-	end
-end
 
-local function refreshESPAll() end
-
-local ESPGroup = Tabs.Visuals:AddLeftGroupbox("ESP", { Icon = "scan-eye", DefaultExpanded = true })
-ESPGroup:AddToggle({ Text = "Tracers", Default = false, Idx = "esp_tracers" })
-Toggles.esp_tracers:OnChanged(function(v) ESPSettings.Tracers.Enabled = v end)
-ESPGroup:AddToggle({ Text = "Skeleton ESP", Default = false, Idx = "esp_skeleton" })
-Toggles.esp_skeleton:OnChanged(function(v) ESPSettings.Skeleton.Enabled = v end)
-ESPGroup:AddToggle({ Text = "Box ESP", Default = false, Idx = "esp_box" })
-Toggles.esp_box:OnChanged(function(v) ESPSettings.Box.Enabled = v end)
-ESPGroup:AddToggle({ Text = "Chams", Default = false, Idx = "esp_chams" })
-Toggles.esp_chams:OnChanged(function(v) ESPSettings.Chams.Enabled = v end)
-ESPGroup:AddToggle({ Text = "Show Names", Default = false, Idx = "esp_names" })
-Toggles.esp_names:OnChanged(function(v) ESPSettings.Names.Enabled = v end)
-ESPGroup:AddToggle({ Text = "Show Distance", Default = false, Idx = "esp_distance" })
-Toggles.esp_distance:OnChanged(function(v) ESPSettings.Distance.Enabled = v end)
-ESPGroup:AddToggle({ Text = "Show Health", Default = false, Idx = "esp_health" })
-Toggles.esp_health:OnChanged(function(v) ESPSettings.Health.Enabled = v end)
-ESPGroup:AddToggle({ Text = "Team Check", Default = false, Idx = "esp_teamcheck" })
-Toggles.esp_teamcheck:OnChanged(function(v) ESPSettings.TeamCheck = v; refreshESPAll() end)
-ESPGroup:AddDropdown({ Text = "Tracer origin", Options = { "Top", "Bottom", "Mouse" }, Default = 1, Idx = "esp_tracer_origin" })
-Options.esp_tracer_origin:OnChanged(function() ESPSettings.Tracers.Origin = Options.esp_tracer_origin.Value end)
-ESPGroup:AddDropdown({ Text = "Tracer visibility", Options = { "Everywhere", "On Screen Only" }, Default = 2, Idx = "esp_tracer_vis" })
-Options.esp_tracer_vis:OnChanged(function() ESPSettings.Tracers.Visibility = Options.esp_tracer_vis.Value end)
-ESPGroup:AddDropdown({ Text = "Health type", Options = { "Bar", "Text", "Both" }, Default = 3, Idx = "esp_health_type" })
-Options.esp_health_type:OnChanged(function() ESPSettings.Health.Type = Options.esp_health_type.Value end)
-ESPGroup:AddSlider({ Text = "Skeleton thickness", Min = 1, Max = 5, Default = 2, Rounding = 0, Idx = "esp_skel_thick" })
-Options.esp_skel_thick:OnChanged(function() ESPSettings.Skeleton.Thickness = Options.esp_skel_thick.Value end)
-ESPGroup:AddSlider({ Text = "Tracer thickness", Min = 1, Max = 5, Default = 1, Rounding = 0, Idx = "esp_trace_thick" })
-Options.esp_trace_thick:OnChanged(function() ESPSettings.Tracers.Thickness = Options.esp_trace_thick.Value end)
-
-local ESPColors = Tabs.Visuals:AddRightGroupbox("ESP Colors", { Icon = "palette", DefaultExpanded = true })
-ESPColors:AddColorPicker({ Text = "Box color", Default = ESPSettings.Box.BoxColor, Idx = "esp_col_box" })
-Options.esp_col_box:OnChanged(function() ESPSettings.Box.BoxColor = Options.esp_col_box.Value end)
-ESPColors:AddColorPicker({ Text = "Box team color", Default = ESPSettings.Box.TeamColor, Idx = "esp_col_boxteam" })
-Options.esp_col_boxteam:OnChanged(function() ESPSettings.Box.TeamColor = Options.esp_col_boxteam.Value end)
-ESPColors:AddColorPicker({ Text = "Skeleton color", Default = ESPSettings.Skeleton.Color, Idx = "esp_col_skel" })
-Options.esp_col_skel:OnChanged(function() ESPSettings.Skeleton.Color = Options.esp_col_skel.Value end)
-ESPColors:AddColorPicker({ Text = "Skeleton team color", Default = ESPSettings.Skeleton.TeamColor, Idx = "esp_col_skelteam" })
-Options.esp_col_skelteam:OnChanged(function() ESPSettings.Skeleton.TeamColor = Options.esp_col_skelteam.Value end)
-ESPColors:AddColorPicker({ Text = "Tracer color", Default = ESPSettings.Tracers.Color, Idx = "esp_col_trace" })
-Options.esp_col_trace:OnChanged(function() ESPSettings.Tracers.Color = Options.esp_col_trace.Value end)
-ESPColors:AddColorPicker({ Text = "Tracer team color", Default = ESPSettings.Tracers.TeamColor, Idx = "esp_col_traceteam" })
-Options.esp_col_traceteam:OnChanged(function() ESPSettings.Tracers.TeamColor = Options.esp_col_traceteam.Value end)
-ESPColors:AddColorPicker({ Text = "Name color", Default = ESPSettings.Names.Color, Idx = "esp_col_name" })
-Options.esp_col_name:OnChanged(function() ESPSettings.Names.Color = Options.esp_col_name.Value end)
-ESPColors:AddColorPicker({ Text = "Name team color", Default = ESPSettings.Names.TeamColor, Idx = "esp_col_nameteam" })
-Options.esp_col_nameteam:OnChanged(function() ESPSettings.Names.TeamColor = Options.esp_col_nameteam.Value end)
-ESPColors:AddColorPicker({ Text = "Distance color", Default = ESPSettings.Distance.Color, Idx = "esp_col_dist" })
-Options.esp_col_dist:OnChanged(function() ESPSettings.Distance.Color = Options.esp_col_dist.Value end)
-ESPColors:AddColorPicker({ Text = "Distance team color", Default = ESPSettings.Distance.TeamColor, Idx = "esp_col_distteam" })
-Options.esp_col_distteam:OnChanged(function() ESPSettings.Distance.TeamColor = Options.esp_col_distteam.Value end)
-ESPColors:AddColorPicker({ Text = "Health color", Default = ESPSettings.Health.Color, Idx = "esp_col_hp" })
-Options.esp_col_hp:OnChanged(function() ESPSettings.Health.Color = Options.esp_col_hp.Value end)
-ESPColors:AddColorPicker({ Text = "Health team color", Default = ESPSettings.Health.TeamColor, Idx = "esp_col_hpteam" })
-Options.esp_col_hpteam:OnChanged(function() ESPSettings.Health.TeamColor = Options.esp_col_hpteam.Value end)
-ESPColors:AddColorPicker({ Text = "Chams fill", Default = ESPSettings.Chams.FillColor, Idx = "esp_col_chams_fill" })
-Options.esp_col_chams_fill:OnChanged(function() ESPSettings.Chams.FillColor = Options.esp_col_chams_fill.Value end)
-ESPColors:AddColorPicker({ Text = "Chams outline", Default = ESPSettings.Chams.OutlineColor, Idx = "esp_col_chams_out" })
-Options.esp_col_chams_out:OnChanged(function() ESPSettings.Chams.OutlineColor = Options.esp_col_chams_out.Value end)
-ESPColors:AddColorPicker({ Text = "Chams team fill", Default = ESPSettings.Chams.TeamFillColor, Idx = "esp_col_chams_tfill" })
-Options.esp_col_chams_tfill:OnChanged(function() ESPSettings.Chams.TeamFillColor = Options.esp_col_chams_tfill.Value end)
-ESPColors:AddColorPicker({ Text = "Chams team outline", Default = ESPSettings.Chams.TeamOutlineColor, Idx = "esp_col_chams_tout" })
-Options.esp_col_chams_tout:OnChanged(function() ESPSettings.Chams.TeamOutlineColor = Options.esp_col_chams_tout.Value end)
-
-for _, plr in pairs(Players:GetPlayers()) do
-	if plr ~= player then
-		spawnESPForCharacterData({ name = plr.Name, character = plr.Character, player = plr, team = plr.Team })
-	end
-end
-Players.PlayerAdded:Connect(function(plr)
-	plr.CharacterAdded:Connect(function(char)
-		spawnESPForCharacterData({ name = plr.Name, character = char, player = plr, team = plr.Team })
-	end)
-	if plr.Character then
-		spawnESPForCharacterData({ name = plr.Name, character = plr.Character, player = plr, team = plr.Team })
-	end
-end)
-Players.PlayerRemoving:Connect(function(plr)
-	local espData = ESPObjects[plr]
-	if espData then
-		if espData.Billboard then espData.Billboard:Destroy() end
-		if espData.NameText then pcall(function() espData.NameText:Remove() end) end
-		if espData.DistanceText then pcall(function() espData.DistanceText:Remove() end) end
-		if espData.HealthBarGui then espData.HealthBarGui:Destroy() end
-		if espData.HealthText then pcall(function() espData.HealthText:Remove() end) end
-		if espData.TracerLine then pcall(function() espData.TracerLine:Remove() end) end
-		if espData.SkeletonLines then
-			for _, bd in ipairs(espData.SkeletonLines) do
-				if bd and bd.line then pcall(function() bd.line:Remove() end) end
+			if hexBox then
+				hexBox.FocusLost:Connect(function()
+					tryParseHexInput()
+				end)
 			end
-		end
-		if espData.Highlight then
-			espData.Highlight:Destroy()
-		end
-		if espData.ChamsCharAddedConnection then
-			espData.ChamsCharAddedConnection:Disconnect()
-		end
-		ESPObjects[plr] = nil
-	end
-end)
 
-espHeartbeatConn = RunService.Heartbeat:Connect(UpdateESP)
+			--[[ Obsidian-style HSV surface (rbxassetid://4155801252 saturation map) + RGB fields ]]
+			local SATURATION_MAP_ASSET = "rbxassetid://4155801252"
+			local popCloseConn: RBXScriptConnection? = nil
 
-Rivals_UnloadESP = function()
-	if espHeartbeatConn then
-		espHeartbeatConn:Disconnect()
-		espHeartbeatConn = nil
-	end
-	for _, espData in pairs(ESPObjects) do
-		if espData.ChamsCharAddedConnection then
-			espData.ChamsCharAddedConnection:Disconnect()
-			espData.ChamsCharAddedConnection = nil
-		end
-	end
-	if BoxESPGui then
-		BoxESPGui:Destroy()
-		BoxESPGui = nil
-	end
-	if HighlightGui then
-		HighlightGui:Destroy()
-		HighlightGui = nil
-	end
-	for _, espData in pairs(ESPObjects) do
-		if espData.Billboard then espData.Billboard:Destroy() end
-		if espData.NameText then pcall(function() espData.NameText:Remove() end) end
-		if espData.DistanceText then pcall(function() espData.DistanceText:Remove() end) end
-		if espData.HealthBarGui then espData.HealthBarGui:Destroy() end
-		if espData.HealthText then pcall(function() espData.HealthText:Remove() end) end
-		if espData.TracerLine then pcall(function() espData.TracerLine:Remove() end) end
-		if espData.SkeletonLines then
-			for _, bd in ipairs(espData.SkeletonLines) do
-				if bd and bd.line then pcall(function() bd.line:Remove() end) end
+			local function isColorPickerDragInput(input: InputObject): boolean
+				if not Library.IsRobloxFocused then
+					return false
+				end
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return false
+				end
+				return input.UserInputState == Enum.UserInputState.Begin
+					or input.UserInputState == Enum.UserInputState.Change
 			end
+
+			local pop = Instance.new("Frame")
+			pop.Name = "ColorPickerPop"
+			pop.AutomaticSize = Enum.AutomaticSize.Y
+			pop.Size = UDim2.fromOffset(260, 0)
+			pop.BackgroundColor3 = Theme.Elevated
+			pop.BackgroundTransparency = 0.04
+			pop.Visible = false
+			pop.ZIndex = 2500
+			pop.Parent = screenGui
+			corner(Theme.CornerSm).Parent = pop
+			stroke(Theme.Stroke, 1, 0.45).Parent = pop
+			local popPad = Instance.new("UIPadding")
+			popPad.PaddingLeft = UDim.new(0, 8)
+			popPad.PaddingRight = UDim.new(0, 8)
+			popPad.PaddingTop = UDim.new(0, 8)
+			popPad.PaddingBottom = UDim.new(0, 8)
+			popPad.Parent = pop
+			local popList = Instance.new("UIListLayout")
+			popList.SortOrder = Enum.SortOrder.LayoutOrder
+			popList.Padding = UDim.new(0, 8)
+			popList.Parent = pop
+
+			local svRow = Instance.new("Frame")
+			svRow.BackgroundTransparency = 1
+			svRow.Size = UDim2.new(1, 0, 0, 168)
+			svRow.LayoutOrder = 1
+			svRow.ZIndex = 2501
+			svRow.Parent = pop
+			local svList = Instance.new("UIListLayout")
+			svList.FillDirection = Enum.FillDirection.Horizontal
+			svList.SortOrder = Enum.SortOrder.LayoutOrder
+			svList.Padding = UDim.new(0, 8)
+			svList.VerticalAlignment = Enum.VerticalAlignment.Center
+			svList.Parent = svRow
+
+			local satMap = Instance.new("ImageButton")
+			satMap.Name = "SaturationValue"
+			satMap.AutoButtonColor = false
+			satMap.Size = UDim2.fromOffset(168, 168)
+			satMap.BackgroundColor3 = Color3.fromHSV(hueN, 1, 1)
+			satMap.Image = SATURATION_MAP_ASSET
+			satMap.ScaleType = Enum.ScaleType.Stretch
+			satMap.ZIndex = 2502
+			satMap.LayoutOrder = 1
+			satMap.Parent = svRow
+			corner(Theme.CornerSm).Parent = satMap
+
+			local satCursor = Instance.new("Frame")
+			satCursor.AnchorPoint = Vector2.new(0.5, 0.5)
+			satCursor.BackgroundColor3 = Color3.new(1, 1, 1)
+			satCursor.BorderSizePixel = 0
+			satCursor.Size = UDim2.fromOffset(6, 6)
+			satCursor.ZIndex = 2503
+			satCursor.Parent = satMap
+			corner(UDim.new(1, 0)).Parent = satCursor
+			stroke(Theme.Stroke, 1, 0.3).Parent = satCursor
+
+			local hueSel = Instance.new("TextButton")
+			hueSel.Name = "Hue"
+			hueSel.AutoButtonColor = false
+			hueSel.Size = UDim2.fromOffset(22, 168)
+			hueSel.Text = ""
+			hueSel.ZIndex = 2502
+			hueSel.LayoutOrder = 2
+			hueSel.Parent = svRow
+			corner(Theme.CornerSm).Parent = hueSel
+			local hueGrad = Instance.new("UIGradient")
+			hueGrad.Color = ColorPickerHueSequence
+			hueGrad.Rotation = 90
+			hueGrad.Parent = hueSel
+
+			local hueCursor = Instance.new("Frame")
+			hueCursor.AnchorPoint = Vector2.new(0.5, 0.5)
+			hueCursor.BackgroundColor3 = Color3.new(1, 1, 1)
+			hueCursor.BorderSizePixel = 0
+			hueCursor.Position = UDim2.new(0.5, 0, hueN, 0)
+			hueCursor.Size = UDim2.new(1, 4, 0, 3)
+			hueCursor.ZIndex = 2503
+			hueCursor.Parent = hueSel
+			corner(UDim.new(0, 2)).Parent = hueCursor
+			stroke(Color3.new(0, 0, 0), 1, 0.2).Parent = hueCursor
+
+			local function syncHsVisual()
+				satMap.BackgroundColor3 = Color3.fromHSV(hueN, 1, 1)
+				satCursor.Position = UDim2.fromScale(satN, 1 - valN)
+				hueCursor.Position = UDim2.new(0.5, 0, hueN, 0)
+			end
+			syncHsVisualRef = syncHsVisual
+
+			local function pointerXY(): (number, number)
+				--[[ Match Obsidian / AbsolutePosition: PlayerMouse aligns with AbsolutePosition; GetMouseLocation can be offset (e.g. GuiInset). ]]
+				if UserInputService.MouseEnabled then
+					return PlayerMouse.X, PlayerMouse.Y
+				end
+				local v = UserInputService:GetMouseLocation()
+				return v.X, v.Y
+			end
+
+			local function sampleSatVal()
+				local ax, ay = satMap.AbsolutePosition.X, satMap.AbsolutePosition.Y
+				local sx, sy = satMap.AbsoluteSize.X, satMap.AbsoluteSize.Y
+				local px, py = pointerXY()
+				local oldSat, oldVal = satN, valN
+				satN = math.clamp((px - ax) / math.max(sx, 1e-4), 0, 1)
+				valN = 1 - math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
+				if satN ~= oldSat or valN ~= oldVal then
+					applyColor(Color3.fromHSV(hueN, satN, valN))
+				end
+				syncHsVisual()
+			end
+
+			local function sampleHue()
+				local ay = hueSel.AbsolutePosition.Y
+				local sy = hueSel.AbsoluteSize.Y
+				local _, py = pointerXY()
+				local oldHue = hueN
+				hueN = math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
+				if hueN ~= oldHue then
+					applyColor(Color3.fromHSV(hueN, satN, valN))
+				end
+				syncHsVisual()
+			end
+
+			satMap.InputBegan:Connect(function(input: InputObject)
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				while isColorPickerDragInput(input) and popOpen do
+					sampleSatVal()
+					RunService.RenderStepped:Wait()
+				end
+			end)
+
+			hueSel.InputBegan:Connect(function(input: InputObject)
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				while isColorPickerDragInput(input) and popOpen do
+					sampleHue()
+					RunService.RenderStepped:Wait()
+				end
+			end)
+
+			local function rgbRow(labelText: string, layoutOrder: number): TextBox
+				local wrap = Instance.new("Frame")
+				wrap.BackgroundTransparency = 1
+				wrap.Size = UDim2.new(1, 0, 0, 26)
+				wrap.LayoutOrder = layoutOrder
+				wrap.ZIndex = 2501
+				wrap.Parent = pop
+				local lab = Instance.new("TextLabel")
+				lab.Size = UDim2.fromOffset(22, 26)
+				lab.BackgroundTransparency = 1
+				lab.Font = Enum.Font.GothamBold
+				lab.TextSize = 12
+				lab.TextColor3 = Theme.TextDim
+				lab.Text = labelText
+				lab.TextXAlignment = Enum.TextXAlignment.Left
+				lab.ZIndex = 2501
+				lab.Parent = wrap
+				local box = Instance.new("TextBox")
+				box.Size = UDim2.new(1, -28, 1, 0)
+				box.Position = UDim2.new(0, 28, 0, 0)
+				box.BackgroundColor3 = Theme.Elevated
+				box.BackgroundTransparency = 0.1
+				box.Font = Enum.Font.GothamMedium
+				box.TextSize = 12
+				box.TextColor3 = Theme.Text
+				box.ClearTextOnFocus = false
+				box.ZIndex = 2501
+				box.Parent = wrap
+				corner(Theme.CornerSm).Parent = box
+				pad(6).Parent = box
+				return box
+			end
+
+			local rBox = rgbRow("R", 2)
+			local gBox = rgbRow("G", 3)
+			local bBox = rgbRow("B", 4)
+
+			local function fillRgbBoxes()
+				rBox.Text = tostring(math.floor(col.R * 255 + 0.5))
+				gBox.Text = tostring(math.floor(col.G * 255 + 0.5))
+				bBox.Text = tostring(math.floor(col.B * 255 + 0.5))
+			end
+			fillRgbBoxesRef = fillRgbBoxes
+
+			local function tryApplyRgb()
+				local r = tonumber(rBox.Text)
+				local g = tonumber(gBox.Text)
+				local b = tonumber(bBox.Text)
+				if r and g and b then
+					applyColor(
+						Color3.fromRGB(math.clamp(math.floor(r), 0, 255), math.clamp(math.floor(g), 0, 255), math.clamp(math.floor(b), 0, 255))
+					)
+				else
+					fillRgbBoxes()
+				end
+			end
+
+			rBox.FocusLost:Connect(tryApplyRgb)
+			gBox.FocusLost:Connect(tryApplyRgb)
+			bBox.FocusLost:Connect(tryApplyRgb)
+
+			local doneBtn = Instance.new("TextButton")
+			doneBtn.Size = UDim2.new(1, 0, 0, 26)
+			doneBtn.LayoutOrder = 5
+			doneBtn.BackgroundColor3 = Theme.AccentBlue
+			doneBtn.BackgroundTransparency = 0.15
+			doneBtn.Text = "Done"
+			doneBtn.TextColor3 = Theme.Text
+			doneBtn.TextSize = 12
+			doneBtn.Font = Enum.Font.GothamBold
+			doneBtn.AutoButtonColor = false
+			doneBtn.ZIndex = 2501
+			doneBtn.Parent = pop
+			corner(Theme.CornerSm).Parent = doneBtn
+
+			local function closePop()
+				popOpen = false
+				pop.Visible = false
+				if popCloseConn then
+					popCloseConn:Disconnect()
+					popCloseConn = nil
+				end
+			end
+
+			local function openPop()
+				hueN, satN, valN = col:ToHSV()
+				syncHsVisual()
+				fillRgbBoxes()
+				local ap = swBtn.AbsolutePosition
+				local sz = swBtn.AbsoluteSize
+				pop.AnchorPoint = Vector2.new(0, 0)
+				pop.Position = UDim2.fromOffset(math.floor(ap.X), math.floor(ap.Y + sz.Y + 4))
+				pop.Visible = true
+				popOpen = true
+				if popCloseConn then
+					popCloseConn:Disconnect()
+				end
+				popCloseConn = UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
+					if gp or not popOpen or not pop.Visible then
+						return
+					end
+					if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
+						return
+					end
+					local p = Vector2.new(input.Position.X, input.Position.Y)
+					local function inside(g: GuiObject): boolean
+						local a, s = g.AbsolutePosition, g.AbsoluteSize
+						return p.X >= a.X and p.X <= a.X + s.X and p.Y >= a.Y and p.Y <= a.Y + s.Y
+					end
+					if inside(pop) or inside(swBtn) or (hexBox and inside(hexBox)) then
+						return
+					end
+					closePop()
+				end)
+			end
+
+			swBtn.MouseButton1Click:Connect(function()
+				if popOpen then
+					closePop()
+				else
+					openPop()
+				end
+			end)
+
+			if hexBox then
+				do
+					local lastHexTap = 0.0
+					hexBox.InputBegan:Connect(function(input: InputObject)
+						if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
+							return
+						end
+						if input.UserInputState ~= Enum.UserInputState.Begin then
+							return
+						end
+						local t = os.clock()
+						if t - lastHexTap < 0.35 then
+							lastHexTap = 0
+							if popOpen then
+								closePop()
+							else
+								openPop()
+							end
+						else
+							lastHexTap = t
+						end
+					end)
+				end
+			end
+
+			doneBtn.MouseButton1Click:Connect(function()
+				tryApplyRgb()
+				closePop()
+			end)
+
+			reg.SetValueRGB = function(_: any, c: Color3, trans: number?)
+				col = c
+				reg.Value = col
+				if typeof(trans) == "number" then
+					reg.Transparency = trans
+					alpha = 1 - trans
+				end
+				syncSwatch()
+				if hexBox then
+					hexBox.Text = string.upper(col:ToHex())
+				end
+				fillRgbBoxes()
+				if popOpen then
+					hueN, satN, valN = col:ToHSV()
+					syncHsVisual()
+				end
+			end
+			reg.SetValue = reg.SetValueRGB
+			reg.OnChanged = function(_: any, cb: (Color3) -> ())
+				table.insert(colorCbs, cb)
+			end
+
+			if typeof(o.Idx) == "string" and o.Idx ~= "" then
+				Library.Options[o.Idx] = reg
+			end
+
+			return reg
 		end
-	end
-	for k in pairs(ESPObjects) do
-		ESPObjects[k] = nil
-	end
-end
-end
 
--- §11 COSMETICS TABS — Skins / Wraps / Charms (partitioned weapon lists) -----
-do
-local guns, melees, throwables, otherWeapons = GetWeaponsPartitioned()
-local SkinsGunsGroup = Tabs.Skins:AddLeftGroupbox("Guns", { Icon = "palette", DefaultExpanded = true })
-local SkinsMeleeGroup = Tabs.Skins:AddRightGroupbox("Melee", { Icon = "palette", DefaultExpanded = true })
-local SkinsThrowGroup = Tabs.Skins:AddRightGroupbox("Throwables", { Icon = "palette", DefaultExpanded = true })
-local SkinsOtherGroup = (#otherWeapons > 0) and Tabs.Skins:AddRightGroupbox("Other", { Icon = "palette", DefaultExpanded = true }) or nil
-
-local anySkinRows = false
-local nGunSkins, nMeleeSkins, nThrowSkins, nOtherSkins = 0, 0, 0, 0
-for _, w in ipairs(guns) do
-	if addSkinDropdownForWeapon(w, SkinsGunsGroup) then
-		anySkinRows = true
-		nGunSkins = nGunSkins + 1
-	end
-end
-if #guns == 0 then
-	SkinsGunsGroup:AddLabel("No guns in item list.")
-elseif nGunSkins == 0 then
-	SkinsGunsGroup:AddLabel("No skins defined for guns in CosmeticLibrary.")
-end
-
-for _, w in ipairs(melees) do
-	if addSkinDropdownForWeapon(w, SkinsMeleeGroup) then
-		anySkinRows = true
-		nMeleeSkins = nMeleeSkins + 1
-	end
-end
-if #melees == 0 then
-	SkinsMeleeGroup:AddLabel("No melee in item list.")
-elseif nMeleeSkins == 0 then
-	SkinsMeleeGroup:AddLabel("No skins defined for melee in CosmeticLibrary.")
-end
-
-for _, w in ipairs(throwables) do
-	if addSkinDropdownForWeapon(w, SkinsThrowGroup) then
-		anySkinRows = true
-		nThrowSkins = nThrowSkins + 1
-	end
-end
-if #throwables == 0 then
-	SkinsThrowGroup:AddLabel("No throwables in item list.")
-elseif nThrowSkins == 0 then
-	SkinsThrowGroup:AddLabel("No skins defined for throwables.")
-end
-
-if SkinsOtherGroup then
-	for _, w in ipairs(otherWeapons) do
-		if addSkinDropdownForWeapon(w, SkinsOtherGroup) then
-			anySkinRows = true
-			nOtherSkins = nOtherSkins + 1
+		function section:AddColorPicker(o: {
+			Text: string,
+			Default: Color3?,
+			Transparency: number?,
+			Idx: string?,
+			Callback: ((Color3) -> ())?,
+			Tooltip: string?,
+		})
+			return mountColorPicker(o, { Mode = "section", bodyParent = bodyF })
 		end
-	end
-	if nOtherSkins == 0 then
-		SkinsOtherGroup:AddLabel("No skins defined for other weapons.")
-	end
-end
 
-if not anySkinRows then
-	Tabs.Skins:AddLeftGroupbox("Skins", { Icon = "palette" }):AddLabel("No weapon/skin pairs found in CosmeticLibrary.")
-end
+		return section
+	end
 
-if #GetAllWraps() == 0 and (#guns + #melees + #throwables + #otherWeapons) > 0 then
-	Tabs.Wraps:AddLeftGroupbox("Wraps", { Icon = "palette", DefaultExpanded = true }):AddLabel(
-		"CosmeticLibrary has no wraps — each weapon only has None."
+	function Tab:AddLeftTabbox(boxTitle: string?)
+		local parentScroll: Instance
+		local layoutOrder: number
+		if self._split and self._scrollLeft then
+			parentScroll = self._scrollLeft
+			self._sectionOrderLeft += 1
+			layoutOrder = self._sectionOrderLeft
+		else
+			parentScroll = self._scroll
+			self._sectionOrder += 1
+			layoutOrder = self._sectionOrder
+		end
+		return makeTabbox(parentScroll, layoutOrder, boxTitle)
+	end
+
+	function Tab:AddRightTabbox(boxTitle: string?)
+		local parentScroll: Instance
+		local layoutOrder: number
+		if self._split and self._scrollRight then
+			parentScroll = self._scrollRight
+			self._sectionOrderRight += 1
+			layoutOrder = self._sectionOrderRight
+		else
+			parentScroll = self._scroll
+			self._sectionOrder += 1
+			layoutOrder = self._sectionOrder
+		end
+		return makeTabbox(parentScroll, layoutOrder, boxTitle)
+	end
+
+	function Tab:AddLeftGroupbox(
+		header: string,
+		sectionOpts: { Collapsible: boolean?, DefaultExpanded: boolean?, Tooltip: string?, Icon: (number | string)? }?
 	)
-end
-
-local WrapSettingsGroup = Tabs.Wraps:AddLeftGroupbox("Wrap settings", { Icon = "palette", DefaultExpanded = true })
-WrapSettingsGroup:AddToggle({
-	Text = "Invert wrap",
-	Default = false,
-	Idx = "WrapInvert",
-})
-Toggles.WrapInvert:OnChanged(function(v)
-	for _, data in pairs(WrapConfig.per_weapon) do
-		if type(data) == "table" and data.name then
-			data.inverted = v
+		local o: any = if sectionOpts then table.clone(sectionOpts) else {}
+		if self._split then
+			o.Column = "Left"
 		end
+		return Tab.AddSection(self, header, o)
 	end
-	if WrapConfig.enabled then
-		UpdateWraps()
-	end
-end)
 
-local WrapGunsGroup = Tabs.Wraps:AddLeftGroupbox("Guns", { Icon = "palette", DefaultExpanded = true })
-local WrapMeleeGroup = Tabs.Wraps:AddRightGroupbox("Melee", { Icon = "palette", DefaultExpanded = true })
-local WrapThrowGroup = Tabs.Wraps:AddRightGroupbox("Throwables", { Icon = "palette", DefaultExpanded = true })
-local WrapOtherGroup = (#otherWeapons > 0) and Tabs.Wraps:AddRightGroupbox("Other", { Icon = "palette", DefaultExpanded = true }) or nil
-
-for _, w in ipairs(guns) do
-	addWrapDropdownForWeapon(w, WrapGunsGroup)
-end
-if #guns == 0 then
-	WrapGunsGroup:AddLabel("No guns in item list.")
-end
-
-for _, w in ipairs(melees) do
-	addWrapDropdownForWeapon(w, WrapMeleeGroup)
-end
-if #melees == 0 then
-	WrapMeleeGroup:AddLabel("No melee in item list.")
-end
-
-for _, w in ipairs(throwables) do
-	addWrapDropdownForWeapon(w, WrapThrowGroup)
-end
-if #throwables == 0 then
-	WrapThrowGroup:AddLabel("No throwables in item list.")
-end
-
-if WrapOtherGroup then
-	for _, w in ipairs(otherWeapons) do
-		addWrapDropdownForWeapon(w, WrapOtherGroup)
-	end
-end
-
-if #GetAllCharms() == 0 and (#guns + #melees + #throwables + #otherWeapons) > 0 then
-	Tabs.Charms:AddLeftGroupbox("Charms", { Icon = "palette", DefaultExpanded = true }):AddLabel(
-		"CosmeticLibrary has no charms — each weapon only has None."
+	function Tab:AddRightGroupbox(
+		header: string,
+		sectionOpts: { Collapsible: boolean?, DefaultExpanded: boolean?, Tooltip: string?, Icon: (number | string)? }?
 	)
-end
-
-local CharmGunsGroup = Tabs.Charms:AddLeftGroupbox("Guns", { Icon = "palette", DefaultExpanded = true })
-local CharmMeleeGroup = Tabs.Charms:AddRightGroupbox("Melee", { Icon = "palette", DefaultExpanded = true })
-local CharmThrowGroup = Tabs.Charms:AddRightGroupbox("Throwables", { Icon = "palette", DefaultExpanded = true })
-local CharmOtherGroup = (#otherWeapons > 0) and Tabs.Charms:AddRightGroupbox("Other", { Icon = "palette", DefaultExpanded = true }) or nil
-
-for _, w in ipairs(guns) do
-	addCharmDropdownForWeapon(w, CharmGunsGroup)
-end
-if #guns == 0 then
-	CharmGunsGroup:AddLabel("No guns in item list.")
-end
-
-for _, w in ipairs(melees) do
-	addCharmDropdownForWeapon(w, CharmMeleeGroup)
-end
-if #melees == 0 then
-	CharmMeleeGroup:AddLabel("No melee in item list.")
-end
-
-for _, w in ipairs(throwables) do
-	addCharmDropdownForWeapon(w, CharmThrowGroup)
-end
-if #throwables == 0 then
-	CharmThrowGroup:AddLabel("No throwables in item list.")
-end
-
-if CharmOtherGroup then
-	for _, w in ipairs(otherWeapons) do
-		addCharmDropdownForWeapon(w, CharmOtherGroup)
-	end
-end
-end
-
--- §12 INVENTORY SYNC — re-apply Config when inventory updates -----------------
-if CurrentData then
-	CurrentData:GetDataChangedSignal("WeaponInventory"):Connect(function()
-		for weaponName in pairs(Config) do
-			WeaponData(weaponName)
+		local o: any = if sectionOpts then table.clone(sectionOpts) else {}
+		if self._split then
+			o.Column = "Right"
 		end
-	end)
-	for weaponName in pairs(Config) do
-		WeaponData(weaponName)
+		return Tab.AddSection(self, header, o)
 	end
+
+	return window
 end
 
--- §13 UI SETTINGS, SAVE/THEME, UNLOAD ----------------------------------------
-local MenuGroup = Tabs["UI Settings"]:AddLeftGroupbox("Menu", { Icon = "wrench" })
-MenuGroup:AddDropdown({
-	Text = "Notification side",
-	Options = { "Left", "Right" },
-	Default = "Right",
-	Idx = "NotificationSide",
-	Callback = function(Value)
-		Library:SetNotifySide(Value)
-	end,
-})
-MenuGroup:AddDropdown({
-	Text = "DPI Scale",
-	Options = { "50%", "75%", "100%", "125%", "150%", "175%", "200%" },
-	Default = "100%",
-	Idx = "DPIDropdown",
-	Callback = function(Value)
-		local n = tonumber((tostring(Value)):gsub("%%", ""))
-		if n then
-			Library:SetDPIScale(n)
-		end
-	end,
-})
-MenuGroup:AddSlider({
-	Text = "Corner radius",
-	Min = 0,
-	Max = 20,
-	Rounding = 0,
-	Default = Library.CornerRadius,
-	Idx = "UICornerSlider",
-	Callback = function(value)
-		Window:SetCornerRadius(value)
-	end,
-})
-MenuGroup:AddDivider()
-MenuGroup:AddKeybind({
-	Text = "Menu keybind",
-	Default = "RightShift",
-	Idx = "MenuKeybind",
-	NoUI = true,
-})
-MenuGroup:AddButton("Unload", function()
-	Library:Unload()
-end)
-
-Library.ToggleKeybind = Options.MenuKeybind
-
-Library:OnUnload(function()
-	Rivals_UnloadSilentAim()
-	Rivals_UnloadESP()
-	Rivals_UnloadMovement()
-end)
-
-ThemeManager:SetLibrary(Library)
-SaveManager:SetLibrary(Library)
-SaveManager:IgnoreThemeSettings()
-SaveManager:SetIgnoreIndexes({
-	"MenuKeybind",
-	"NotificationSide",
-	"DPIDropdown",
-	"UICornerSlider",
-	"aim_Enabled_Key",
-	"aimbot_Enabled_Key",
-	"aimbot_Prediction_Key",
-	"aimbot_WallCheck_Key",
-	"teleport_target",
-})
-ThemeManager:SetFolder("AcidHub")
-SaveManager:SetFolder("AcidHub/Rivals")
-SaveManager:BuildConfigSection(Tabs["UI Settings"])
-ThemeManager:ApplyToTab(Tabs["UI Settings"])
-SaveManager:LoadAutoloadConfig()
+return Library
