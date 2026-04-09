@@ -745,6 +745,10 @@ function Library:Unload()
 	table.clear(self.Options)
 	self.ToggleKeybind = nil
 	self.CantDragForced = false
+	self._windowResizing = false
+	if self._resizeEndWrappedRefits then
+		table.clear(self._resizeEndWrappedRefits)
+	end
 end
 
 --[[ Works when Color3.fromHex is missing or picky; accepts #RGB, #RRGGBB ]]
@@ -1158,6 +1162,8 @@ function Library.new(config: WindowConfig)
 	Library.Unloaded = false
 	table.clear(Library.Toggles)
 	table.clear(Library.Options)
+	Library._windowResizing = false
+	Library._resizeEndWrappedRefits = {}
 
 	local toggleThemeRows: { { track: Frame, getOn: () -> boolean } } = {}
 	local sliderGradients: { UIGradient } = {}
@@ -1756,6 +1762,57 @@ function Library.new(config: WindowConfig)
 		local resizeStart: Vector2
 		local resizeStartSize: Vector2
 		local resizeEndConn: RBXScriptConnection? = nil
+		--[[ Coalesce root.Size updates to one per Heartbeat while resizing so AutomaticCanvasSize trees do not relayout on every InputChanged. ]]
+		local pendingResize: Vector2? = nil
+		local resizeHeartbeatConn: RBXScriptConnection? = nil
+
+		local function flushPendingResize()
+			if resizeHeartbeatConn then
+				resizeHeartbeatConn:Disconnect()
+				resizeHeartbeatConn = nil
+			end
+			if pendingResize then
+				root.Size = UDim2.fromOffset(pendingResize.X, pendingResize.Y)
+				pendingResize = nil
+			end
+		end
+
+		local function scheduleResize(newW: number, newH: number)
+			pendingResize = Vector2.new(newW, newH)
+			if resizeHeartbeatConn then
+				return
+			end
+			resizeHeartbeatConn = RunService.Heartbeat:Connect(function()
+				local s = pendingResize
+				if not s then
+					if resizeHeartbeatConn then
+						resizeHeartbeatConn:Disconnect()
+						resizeHeartbeatConn = nil
+					end
+					return
+				end
+				pendingResize = nil
+				root.Size = UDim2.fromOffset(s.X, s.Y)
+				if resizeHeartbeatConn then
+					resizeHeartbeatConn:Disconnect()
+					resizeHeartbeatConn = nil
+				end
+			end)
+		end
+
+		local function endWindowResize()
+			if not Library._windowResizing then
+				return
+			end
+			flushPendingResize()
+			Library._windowResizing = false
+			local refs = Library._resizeEndWrappedRefits
+			if refs then
+				for _, fn in refs do
+					task.defer(fn)
+				end
+			end
+		end
 
 		if resizeHandle then
 			resizeHandle.InputBegan:Connect(function(input: InputObject)
@@ -1769,6 +1826,7 @@ function Library.new(config: WindowConfig)
 					return
 				end
 				resizing = true
+				Library._windowResizing = true
 				resizeStart = Vector2.new(input.Position.X, input.Position.Y)
 				resizeStartSize = Vector2.new(root.AbsoluteSize.X, root.AbsoluteSize.Y)
 				if resizeEndConn then
@@ -1778,6 +1836,7 @@ function Library.new(config: WindowConfig)
 				resizeEndConn = input.Changed:Connect(function()
 					if input.UserInputState == Enum.UserInputState.End then
 						resizing = false
+						endWindowResize()
 						if resizeEndConn then
 							resizeEndConn:Disconnect()
 							resizeEndConn = nil
@@ -1838,6 +1897,7 @@ function Library.new(config: WindowConfig)
 			if Library.CantDragForced then
 				dragging = false
 				resizing = false
+				endWindowResize()
 				return
 			end
 			-- Clicks on our GUI set gameProcessed; still need move events while dragging/resizing.
@@ -1854,7 +1914,7 @@ function Library.new(config: WindowConfig)
 				local delta = Vector2.new(input.Position.X, input.Position.Y) - resizeStart
 				local newW = math.max(minRootW, resizeStartSize.X + delta.X)
 				local newH = math.max(minRootH, resizeStartSize.Y + delta.Y)
-				root.Size = UDim2.fromOffset(newW, newH)
+				scheduleResize(newW, newH)
 				return
 			end
 			if not dragging then
@@ -1879,6 +1939,7 @@ function Library.new(config: WindowConfig)
 				input.UserInputType == Enum.UserInputType.MouseButton1
 				or input.UserInputType == Enum.UserInputType.Touch
 			then
+				endWindowResize()
 				dragging = false
 				resizing = false
 			end
@@ -2013,6 +2074,10 @@ function Library.new(config: WindowConfig)
 
 	local function destroyWindowGui()
 		destroyKeybindModeMenu()
+		Library._windowResizing = false
+		if Library._resizeEndWrappedRefits then
+			table.clear(Library._resizeEndWrappedRefits)
+		end
 		for _, c in dragConn do
 			c:Disconnect()
 		end
