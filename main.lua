@@ -1778,15 +1778,14 @@ function Library.new(config: WindowConfig)
 		topSpacer.Size = UDim2.fromOffset(1, 6)
 		topSpacer.Parent = chipOuter
 
+		makeMobileChip("Menu").MouseButton1Click:Connect(function()
+			setRootVisible(not root.Visible)
+		end)
+
 		local lockChip = makeMobileChip("Lock")
 		lockChip.MouseButton1Click:Connect(function()
 			Library.CantDragForced = not Library.CantDragForced
 			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
-		end)
-
-		--[[ Menu (hub toggle) in the lower chip — same slot Lock used to occupy. ]]
-		makeMobileChip("Menu").MouseButton1Click:Connect(function()
-			setRootVisible(not root.Visible)
 		end)
 	end
 
