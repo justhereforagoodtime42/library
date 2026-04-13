@@ -1749,17 +1749,15 @@ function Library.new(config: WindowConfig)
 	-- Created before mobile block so Menu/Lock float can register drag cleanup on the same list as the window.
 	local dragConn: { RBXScriptConnection } = {}
 
-	--[[ Floating Menu / Lock (Obsidian-style) — keyboard toggle is unreliable on pure touch clients; each chip drags on its own. ]]
+	--[[ Floating Menu / Lock (Obsidian-style) — separate buttons, each draggable on its own ]]
 	if Library.IsMobile then
-		local chipW, chipH = 86, 34
-		local chipGap = 6
+		local MOBILE_CHIP_H = 34
+		local MOBILE_CHIP_GAP = 6
 
-		local function makeMobileChip(name: string, label: string, anchor: Vector2, position: UDim2): TextButton
+		local function makeMobileChip(label: string): TextButton
 			local b = Instance.new("TextButton")
-			b.Name = name
-			b.AnchorPoint = anchor
-			b.Position = position
-			b.Size = UDim2.fromOffset(chipW, chipH)
+			b.Name = if label == "Menu" then "MobileMenu" else "MobileLock"
+			b.Size = UDim2.fromOffset(86, MOBILE_CHIP_H)
 			b.BackgroundColor3 = Theme.Elevated
 			b.BackgroundTransparency = 0.08
 			b.Text = label
@@ -1769,59 +1767,43 @@ function Library.new(config: WindowConfig)
 			b.AutoButtonColor = false
 			b.BorderSizePixel = 0
 			b.ZIndex = 950
-			b.Parent = screenGui
 			corner(Theme.CornerSm).Parent = b
 			stroke(Theme.Stroke, 1, 0.5).Parent = b
 			return b
 		end
 
-		local menuInitY = 10
-		local lockInitY = menuInitY + chipH + chipGap
-		local menuChip: TextButton
-		local lockChip: TextButton
-		if mobileSide == "right" then
-			local a = Vector2.new(1, 0)
-			menuChip = makeMobileChip("MobileMenuChip", "Menu", a, UDim2.new(1, -10, 0, menuInitY))
-			lockChip = makeMobileChip("MobileLockChip", "Lock", a, UDim2.new(1, -10, 0, lockInitY))
-		else
-			local a = Vector2.zero
-			menuChip = makeMobileChip("MobileMenuChip", "Menu", a, UDim2.fromOffset(10, menuInitY))
-			lockChip = makeMobileChip("MobileLockChip", "Lock", a, UDim2.fromOffset(10, lockInitY))
-		end
-
-		type MobileFloatDrag = {
-			down: boolean,
-			committed: boolean,
-			skipClick: boolean,
-			startPtr: Vector2,
-			startPos: UDim2,
-		}
-
-		local function mobileFloatPointer(input: InputObject): Vector2
+		local function mobileToolsPointer(input: InputObject): Vector2
 			if input.UserInputType == Enum.UserInputType.Touch then
 				return Vector2.new(input.Position.X, input.Position.Y)
 			end
 			return Vector2.new(PlayerMouse.X, PlayerMouse.Y)
 		end
 
-		local function bindSeparateMobileDrag(btn: TextButton, st: MobileFloatDrag)
-			btn.InputBegan:Connect(function(input: InputObject)
+		--[[ Per-button drag + tap suppression (returns function: true = skip this click after a drag). ]]
+		local function bindIndependentMobileDrag(button: TextButton): () -> boolean
+			local down = false
+			local committed = false
+			local startPtr = Vector2.zero
+			local startPos = UDim2.new()
+			local skipNextClick = false
+
+			button.InputBegan:Connect(function(input: InputObject)
 				if
 					input.UserInputType ~= Enum.UserInputType.MouseButton1
 					and input.UserInputType ~= Enum.UserInputType.Touch
 				then
 					return
 				end
-				st.down = true
-				st.committed = false
-				st.startPtr = mobileFloatPointer(input)
-				st.startPos = btn.Position
+				down = true
+				committed = false
+				startPtr = mobileToolsPointer(input)
+				startPos = button.Position
 			end)
 
 			table.insert(
 				dragConn,
 				UserInputService.InputChanged:Connect(function(input: InputObject)
-					if not st.down then
+					if not down then
 						return
 					end
 					if
@@ -1836,21 +1818,20 @@ function Library.new(config: WindowConfig)
 					else
 						p = Vector2.new(PlayerMouse.X, PlayerMouse.Y)
 					end
-					local delta = p - st.startPtr
-					if not st.committed and delta.Magnitude >= 14 then
-						st.committed = true
+					local delta = p - startPtr
+					if not committed and delta.Magnitude >= 14 then
+						committed = true
 					end
-					if st.committed then
-						btn.Position = UDim2.new(
-							st.startPos.X.Scale,
-							st.startPos.X.Offset + delta.X,
-							st.startPos.Y.Scale,
-							st.startPos.Y.Offset + delta.Y
+					if committed then
+						button.Position = UDim2.new(
+							startPos.X.Scale,
+							startPos.X.Offset + delta.X,
+							startPos.Y.Scale,
+							startPos.Y.Offset + delta.Y
 						)
 					end
 				end)
 			)
-
 			table.insert(
 				dragConn,
 				UserInputService.InputEnded:Connect(function(input: InputObject)
@@ -1860,38 +1841,47 @@ function Library.new(config: WindowConfig)
 					then
 						return
 					end
-					if not st.down then
+					if not down then
 						return
 					end
-					st.down = false
-					if st.committed then
-						st.skipClick = true
+					down = false
+					if committed then
+						skipNextClick = true
 					end
-					st.committed = false
+					committed = false
 				end)
 			)
+
+			return function(): boolean
+				if skipNextClick then
+					skipNextClick = false
+					return true
+				end
+				return false
+			end
 		end
 
-		local menuDrag: MobileFloatDrag = {
-			down = false,
-			committed = false,
-			skipClick = false,
-			startPtr = Vector2.zero,
-			startPos = UDim2.new(),
-		}
-		local lockDrag: MobileFloatDrag = {
-			down = false,
-			committed = false,
-			skipClick = false,
-			startPtr = Vector2.zero,
-			startPos = UDim2.new(),
-		}
-		bindSeparateMobileDrag(menuChip, menuDrag)
-		bindSeparateMobileDrag(lockChip, lockDrag)
+		local menuChip = makeMobileChip("Menu")
+		local lockChip = makeMobileChip("Lock")
+		if mobileSide == "right" then
+			menuChip.AnchorPoint = Vector2.new(1, 0)
+			menuChip.Position = UDim2.new(1, -10, 0, 10)
+			lockChip.AnchorPoint = Vector2.new(1, 0)
+			lockChip.Position = UDim2.new(1, -10, 0, 10 + MOBILE_CHIP_H + MOBILE_CHIP_GAP)
+		else
+			menuChip.AnchorPoint = Vector2.zero
+			menuChip.Position = UDim2.fromOffset(10, 10)
+			lockChip.AnchorPoint = Vector2.zero
+			lockChip.Position = UDim2.fromOffset(10, 10 + MOBILE_CHIP_H + MOBILE_CHIP_GAP)
+		end
+		menuChip.Parent = screenGui
+		lockChip.Parent = screenGui
+
+		local consumeSkipMenu = bindIndependentMobileDrag(menuChip)
+		local consumeSkipLock = bindIndependentMobileDrag(lockChip)
 
 		menuChip.MouseButton1Click:Connect(function()
-			if menuDrag.skipClick then
-				menuDrag.skipClick = false
+			if consumeSkipMenu() then
 				return
 			end
 			setRootVisible(not root.Visible)
@@ -1899,8 +1889,7 @@ function Library.new(config: WindowConfig)
 		table.insert(Library._draggableThemeButtons, menuChip)
 
 		lockChip.MouseButton1Click:Connect(function()
-			if lockDrag.skipClick then
-				lockDrag.skipClick = false
+			if consumeSkipLock() then
 				return
 			end
 			Library.CantDragForced = not Library.CantDragForced
