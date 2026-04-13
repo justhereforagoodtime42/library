@@ -1752,11 +1752,16 @@ function Library.new(config: WindowConfig)
 		chipPad.PaddingTop = UDim.new(0, 4)
 		chipPad.Parent = chipOuter
 		local _chipList = Instance.new("UIListLayout")
+		_chipList.FillDirection = Enum.FillDirection.Vertical
+		_chipList.SortOrder = Enum.SortOrder.LayoutOrder
+		_chipList.VerticalAlignment = Enum.VerticalAlignment.Top
+		_chipList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 		_chipList.Padding = UDim.new(0, 10)
 		_chipList.Parent = chipOuter
 
-		local function makeMobileChip(label: string): TextButton
+		local function makeMobileChip(label: string, layoutOrder: number): TextButton
 			local b = Instance.new("TextButton")
+			b.LayoutOrder = layoutOrder
 			b.Size = UDim2.fromOffset(86, 34)
 			b.BackgroundColor3 = Theme.Elevated
 			b.BackgroundTransparency = 0.08
@@ -1775,14 +1780,16 @@ function Library.new(config: WindowConfig)
 		local topSpacer = Instance.new("Frame")
 		topSpacer.Name = "MobileToolsTopSpacer"
 		topSpacer.BackgroundTransparency = 1
+		topSpacer.LayoutOrder = 0
 		topSpacer.Size = UDim2.fromOffset(1, 6)
 		topSpacer.Parent = chipOuter
 
-		makeMobileChip("Menu").MouseButton1Click:Connect(function()
+		local menuChip = makeMobileChip("Menu", 1)
+		menuChip.MouseButton1Click:Connect(function()
 			setRootVisible(not root.Visible)
 		end)
 
-		local lockChip = makeMobileChip("Lock")
+		local lockChip = makeMobileChip("Lock", 2)
 		lockChip.MouseButton1Click:Connect(function()
 			Library.CantDragForced = not Library.CantDragForced
 			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
