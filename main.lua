@@ -1987,6 +1987,7 @@ function Library.new(config: WindowConfig)
 			pcall(chevRefresh)
 		end
 		selectTab(activeTab)
+		Library._draggableThemeButtons = Library._draggableThemeButtons or {}
 		for _, db in Library._draggableThemeButtons do
 			if db.Parent then
 				db.BackgroundColor3 = Theme.Elevated
@@ -2050,6 +2051,8 @@ function Library.new(config: WindowConfig)
 
 	local function destroyWindowGui()
 		destroyKeybindModeMenu()
+		Library._draggableBtnConns = Library._draggableBtnConns or {}
+		Library._draggableThemeButtons = Library._draggableThemeButtons or {}
 		for _, c in Library._draggableBtnConns do
 			pcall(function()
 				c:Disconnect()
