@@ -1218,7 +1218,7 @@ function Library.new(config: WindowConfig)
 	local titleText = config.Title or "UI"
 	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
 	local titleIcon = config.TitleIcon
-	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Left"))
+	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Right"))
 	if mobileSide ~= "right" then
 		mobileSide = "left"
 	end
