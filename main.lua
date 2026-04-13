@@ -1781,14 +1781,93 @@ function Library.new(config: WindowConfig)
 			return b
 		end
 
+		local mobileChipDragging = false
+		local mobileChipDragMoved = false
+		local mobileChipDragStart = Vector2.zero
+		local mobileChipStartPos: UDim2 = UDim2.new()
+		local MOBILE_CHIP_DRAG_PX = 8
+
+		local function mobileChipPointer(input: InputObject): Vector2
+			if input.UserInputType == Enum.UserInputType.Touch then
+				return Vector2.new(input.Position.X, input.Position.Y)
+			end
+			return Vector2.new(PlayerMouse.X, PlayerMouse.Y)
+		end
+
+		local function applyMobileChipDelta(delta: Vector2)
+			chipOuter.Position = UDim2.new(
+				mobileChipStartPos.X.Scale,
+				mobileChipStartPos.X.Offset + delta.X,
+				mobileChipStartPos.Y.Scale,
+				mobileChipStartPos.Y.Offset + delta.Y
+			)
+		end
+
+		local function bindMobileChip(chip: TextButton, onTap: () -> ())
+			chip.InputBegan:Connect(function(input: InputObject)
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				mobileChipDragging = true
+				mobileChipDragMoved = false
+				mobileChipDragStart = mobileChipPointer(input)
+				mobileChipStartPos = chipOuter.Position
+				local endConn: RBXScriptConnection? = nil
+				endConn = input.Changed:Connect(function()
+					if input.UserInputState == Enum.UserInputState.End then
+						mobileChipDragging = false
+						if endConn then
+							endConn:Disconnect()
+							endConn = nil
+						end
+					end
+				end)
+			end)
+			chip.MouseButton1Click:Connect(function()
+				task.defer(function()
+					if mobileChipDragMoved then
+						mobileChipDragMoved = false
+						return
+					end
+					onTap()
+				end)
+			end)
+		end
+
+		table.insert(
+			Library._draggableBtnConns,
+			UserInputService.InputChanged:Connect(function(input: InputObject)
+				if not mobileChipDragging then
+					return
+				end
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseMovement
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				local delta = mobileChipPointer(input) - mobileChipDragStart
+				if not mobileChipDragMoved then
+					if delta.X * delta.X + delta.Y * delta.Y < MOBILE_CHIP_DRAG_PX * MOBILE_CHIP_DRAG_PX then
+						return
+					end
+					mobileChipDragMoved = true
+				end
+				applyMobileChipDelta(delta)
+			end)
+		)
+
 		local menuChip = makeMobileChip("Menu")
-		menuChip.MouseButton1Click:Connect(function()
+		bindMobileChip(menuChip, function()
 			setRootVisible(not root.Visible)
 		end)
 		table.insert(Library._draggableThemeButtons, menuChip)
 
 		local lockChip = makeMobileChip("Lock")
-		lockChip.MouseButton1Click:Connect(function()
+		bindMobileChip(lockChip, function()
 			Library.CantDragForced = not Library.CantDragForced
 			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
 		end)
