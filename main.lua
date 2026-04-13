@@ -8,6 +8,7 @@ local UserInputService = cloneref(game:GetService("UserInputService"))
 local TweenService = cloneref(game:GetService("TweenService"))
 local RunService = cloneref(game:GetService("RunService"))
 local TextService = cloneref(game:GetService("TextService"))
+local GuiService = cloneref(game:GetService("GuiService"))
 
 local protectgui = protectgui or (syn and syn.protect_gui) or function() end
 local gethui = gethui or function()
@@ -1257,6 +1258,11 @@ function Library.new(config: WindowConfig)
 		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
 	end
 
+	Library.ScreenGui = screenGui
+	table.clear(Library._draggableBtnConns)
+	table.clear(Library._draggableThemeButtons)
+	Library._windowToggleFn = nil
+
 	--[[ Obsidian-style 0×0 modal sink: improves camera / world input while GUI is open on mobile ]]
 	local modalSink = Instance.new("TextButton")
 	modalSink.Name = "ModalSink"
@@ -1487,6 +1493,14 @@ function Library.new(config: WindowConfig)
 		root.Visible = v
 		if unlockMouseWhileOpen and Library.IsMobile then
 			modalSink.Modal = v
+		end
+	end
+
+	Library._windowToggleFn = function(value: boolean?)
+		if typeof(value) == "boolean" then
+			setRootVisible(value)
+		else
+			setRootVisible(not root.Visible)
 		end
 	end
 
@@ -1849,50 +1863,29 @@ function Library.new(config: WindowConfig)
 		resizeHandle = rh
 	end
 
-	--[[ Floating Menu / Lock (Obsidian-style) — keyboard toggle is unreliable on pure touch clients ]]
+	--[[ Floating Toggle / Lock (Obsidian-style draggable buttons) — keyboard toggle is unreliable on pure touch clients ]]
 	if Library.IsMobile then
-		local chipOuter = Instance.new("Frame")
-		chipOuter.Name = "MobileTools"
-		chipOuter.BackgroundTransparency = 1
-		chipOuter.Size = UDim2.fromOffset(92, 78)
-		chipOuter.ZIndex = 950
-		chipOuter.Parent = screenGui
-		if mobileSide == "right" then
-			chipOuter.AnchorPoint = Vector2.new(1, 0)
-			chipOuter.Position = UDim2.new(1, -10, 0, 10)
-		else
-			chipOuter.Position = UDim2.fromOffset(10, 10)
-		end
-		local _chipList = Instance.new("UIListLayout")
-		_chipList.Padding = UDim.new(0, 6)
-		_chipList.Parent = chipOuter
+		local topY = GuiService:GetGuiInset().Y + 10
+		local rowGap = 40
+		local ToggleButton = Library:AddDraggableButton("Toggle", function()
+			Library:Toggle()
+		end, true)
 
-		local function makeMobileChip(label: string): TextButton
-			local b = Instance.new("TextButton")
-			b.Size = UDim2.fromOffset(86, 34)
-			b.BackgroundColor3 = Theme.Elevated
-			b.BackgroundTransparency = 0.08
-			b.Text = label
-			b.TextColor3 = Theme.Text
-			b.TextSize = 13
-			b.Font = Enum.Font.GothamMedium
-			b.AutoButtonColor = false
-			b.BorderSizePixel = 0
-			b.Parent = chipOuter
-			corner(Theme.CornerSm).Parent = b
-			stroke(Theme.Stroke, 1, 0.5).Parent = b
-			return b
-		end
-
-		makeMobileChip("Menu").MouseButton1Click:Connect(function()
-			setRootVisible(not root.Visible)
-		end)
-
-		local lockChip = makeMobileChip("Lock")
-		lockChip.MouseButton1Click:Connect(function()
+		local LockButton = Library:AddDraggableButton("Lock", function(self)
 			Library.CantDragForced = not Library.CantDragForced
-			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
-		end)
+			self:SetText(if Library.CantDragForced then "Unlock" else "Lock")
+		end, true)
+
+		if mobileSide == "right" then
+			ToggleButton.Button.Position = UDim2.new(1, -6, 0, topY)
+			ToggleButton.Button.AnchorPoint = Vector2.new(1, 0)
+
+			LockButton.Button.Position = UDim2.new(1, -6, 0, topY + rowGap)
+			LockButton.Button.AnchorPoint = Vector2.new(1, 0)
+		else
+			ToggleButton.Button.Position = UDim2.fromOffset(6, topY)
+			LockButton.Button.Position = UDim2.fromOffset(6, topY + rowGap)
+		end
 	end
 
 	setRootVisible(true)
