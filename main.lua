@@ -1743,7 +1743,7 @@ function Library.new(config: WindowConfig)
 		chipOuter.ZIndex = 950
 		chipOuter.Parent = screenGui
 		--[[ Push whole strip down from top edge (safe area / thumb reach). ]]
-		local mobileToolsTop = 52
+		local mobileToolsTop = 152
 		if mobileSide == "right" then
 			chipOuter.AnchorPoint = Vector2.new(1, 0)
 			chipOuter.Position = UDim2.new(1, -10, 0, mobileToolsTop)
