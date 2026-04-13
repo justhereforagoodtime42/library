@@ -1748,18 +1748,14 @@ function Library.new(config: WindowConfig)
 		else
 			chipOuter.Position = UDim2.fromOffset(10, 10)
 		end
-		local _chipList = Instance.new("UIListLayout")
-		_chipList.FillDirection = Enum.FillDirection.Vertical
-		_chipList.SortOrder = Enum.SortOrder.LayoutOrder
-		_chipList.VerticalAlignment = Enum.VerticalAlignment.Top
-		_chipList.HorizontalAlignment = Enum.HorizontalAlignment.Center
-		_chipList.Padding = UDim.new(0, 6)
-		_chipList.Parent = chipOuter
 
-		local function makeMobileChip(label: string, layoutOrder: number): TextButton
+		local CHIP_W, CHIP_H, CHIP_GAP = 86, 34, 6
+
+		local function makeMobileChip(label: string): TextButton
 			local b = Instance.new("TextButton")
-			b.LayoutOrder = layoutOrder
-			b.Size = UDim2.fromOffset(86, 34)
+			b.Size = UDim2.fromOffset(CHIP_W, CHIP_H)
+			b.AnchorPoint = Vector2.new(0.5, 0)
+			b.Position = UDim2.new(0.5, 0, 0, 0)
 			b.BackgroundColor3 = Theme.Elevated
 			b.BackgroundTransparency = 0.08
 			b.Text = label
@@ -1774,11 +1770,13 @@ function Library.new(config: WindowConfig)
 			return b
 		end
 
-		makeMobileChip("Menu", 1).MouseButton1Click:Connect(function()
+		local menuChip = makeMobileChip("Menu")
+		menuChip.MouseButton1Click:Connect(function()
 			setRootVisible(not root.Visible)
 		end)
 
-		local lockChip = makeMobileChip("Lock", 2)
+		local lockChip = makeMobileChip("Lock")
+		lockChip.Position = UDim2.new(0.5, 0, 0, CHIP_H + CHIP_GAP)
 		lockChip.MouseButton1Click:Connect(function()
 			Library.CantDragForced = not Library.CantDragForced
 			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
