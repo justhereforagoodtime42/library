@@ -1092,7 +1092,7 @@ export type WindowConfig = {
 	TabGlowEnabled: boolean?,
 	--[[ Dropdowns default to Multi when Multi is omitted (Obsidian-style) ]]
 	MultiDropdownByDefault: boolean?,
-	--[[ Mobile: "Left" | "Right" — draggable Toggle / Lock (Obsidian-style) ]]
+	--[[ Mobile: "Left" | "Right" — floating Menu / Lock chips ]]
 	MobileButtonsSide: string?,
 	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
 	UnlockMouseWhileOpen: boolean?,
@@ -1997,17 +1997,6 @@ function Library.new(config: WindowConfig)
 			pcall(chevRefresh)
 		end
 		selectTab(activeTab)
-		for _, db in Library._draggableThemeButtons do
-			if db.Parent then
-				db.BackgroundColor3 = Theme.Elevated
-				db.TextColor3 = Theme.Text
-				for _, ch in db:GetChildren() do
-					if ch:IsA("UIStroke") then
-						ch.Color = Theme.Stroke
-					end
-				end
-			end
-		end
 		if resizeHandle then
 			local grip = resizeHandle:FindFirstChild("ResizeIcon")
 			if grip and grip:IsA("ImageLabel") then
@@ -2060,15 +2049,6 @@ function Library.new(config: WindowConfig)
 
 	local function destroyWindowGui()
 		destroyKeybindModeMenu()
-		for _, c in Library._draggableBtnConns do
-			pcall(function()
-				c:Disconnect()
-			end)
-		end
-		table.clear(Library._draggableBtnConns)
-		table.clear(Library._draggableThemeButtons)
-		Library.ScreenGui = nil
-		Library._windowToggleFn = nil
 		for _, c in dragConn do
 			c:Disconnect()
 		end
