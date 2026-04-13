@@ -1098,7 +1098,7 @@ export type WindowConfig = {
 	TabGlowEnabled: boolean?,
 	--[[ Dropdowns default to Multi when Multi is omitted (Obsidian-style) ]]
 	MultiDropdownByDefault: boolean?,
-	--[[ Mobile: "Left" | "Right" — floating Menu / Lock chips ]]
+	--[[ Mobile: "Left" | "Right" — floating Menu / Lock chips (default Right) ]]
 	MobileButtonsSide: string?,
 	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
 	UnlockMouseWhileOpen: boolean?,
@@ -1109,7 +1109,7 @@ function Library.new(config: WindowConfig)
 	local titleText = config.Title or "UI"
 	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
 	local titleIcon = config.TitleIcon
-	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Left"))
+	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Right"))
 	if mobileSide ~= "right" then
 		mobileSide = "left"
 	end
