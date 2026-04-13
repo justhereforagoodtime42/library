@@ -177,6 +177,8 @@ Library._themePaintSubConns = {} :: { RBXScriptConnection }
 Library.IsMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 Library.IsRobloxFocused = true
 Library.CantDragForced = false
+Library._draggableBtnConns = {} :: { RBXScriptConnection }
+Library._draggableThemeButtons = {} :: { TextButton }
 
 if Library._libFocusConn == nil then
 	Library._libFocusConn = UserInputService.WindowFocused:Connect(function()
