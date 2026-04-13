@@ -284,6 +284,16 @@ do
 			objects = {},
 		}
 
+		local win = self.Library.Window
+		if win and typeof(win.GetRootSize) == "function" then
+			local okSz, sz = pcall(function()
+				return win:GetRootSize()
+			end)
+			if okSz and typeof(sz) == "Vector2" then
+				data.windowSize = { x = sz.X, y = sz.Y }
+			end
+		end
+
 		for idx, toggle in pairs(self.Library.Toggles) do
 			if not toggle.Type then
 				continue
@@ -344,18 +354,33 @@ do
 			return false, "decode error"
 		end
 
-		for _, option in pairs(decoded.objects) do
-			if not option.type then
-				continue
+		local ws = decoded.windowSize
+		if typeof(ws) == "table" then
+			local wx = tonumber(ws.x or ws.X)
+			local wy = tonumber(ws.y or ws.Y)
+			local win = self.Library.Window
+			if wx and wy and win and typeof(win.SetRootSize) == "function" then
+				pcall(function()
+					win:SetRootSize(wx, wy)
+				end)
 			end
-			if not self.Parser[option.type] then
-				continue
-			end
-			if self.Ignore[option.idx] then
-				continue
-			end
+		end
 
-			task.spawn(self.Parser[option.type].Load, option.idx, option)
+		local objs = decoded.objects
+		if typeof(objs) == "table" then
+			for _, option in pairs(objs) do
+				if not option.type then
+					continue
+				end
+				if not self.Parser[option.type] then
+					continue
+				end
+				if self.Ignore[option.idx] then
+					continue
+				end
+
+				task.spawn(self.Parser[option.type].Load, option.idx, option)
+			end
 		end
 
 		return true
