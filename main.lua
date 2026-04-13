@@ -1097,17 +1097,22 @@ function Library:AddDraggableButton(
 	local btn = Instance.new("TextButton")
 	btn.Name = "DraggableBtn"
 	btn.BackgroundColor3 = Theme.Elevated
-	btn.BackgroundTransparency = 0.08
+	btn.BackgroundTransparency = 0.1
 	btn.Text = text
 	btn.TextColor3 = Theme.Text
-	btn.TextSize = 16
+	btn.TextSize = UID.DropBtnText
 	btn.Font = Enum.Font.GothamMedium
 	btn.AutoButtonColor = false
 	btn.BorderSizePixel = 0
 	btn.Position = UDim2.fromOffset(6, 6)
 	btn.ZIndex = 950
+	btn:SetAttribute("UiBg", "Elevated")
+	btn:SetAttribute("UiText", "Text")
 	corner(Theme.CornerSm).Parent = btn
-	stroke(Theme.Stroke, 1, 0.5).Parent = btn
+	pad(UID.DropBtnPad).Parent = btn
+	local dbStroke = stroke(Theme.Stroke, 1, 0.7)
+	dbStroke:SetAttribute("UiStroke", "Stroke")
+	dbStroke.Parent = btn
 	btn.Parent = self.ScreenGui
 	table.insert(self._draggableThemeButtons, btn)
 
@@ -1120,7 +1125,7 @@ function Library:AddDraggableButton(
 		p.Text = s
 		p.RichText = false
 		p.Font = Font.fromEnum(Enum.Font.GothamMedium)
-		p.Size = 16
+		p.Size = UID.DropBtnText
 		p.Width = 4096
 		local sz = TextService:GetTextBoundsAsync(p)
 		btn.Size = UDim2.fromOffset(math.ceil(sz.X * 2), math.ceil(sz.Y * 2))
@@ -1389,12 +1394,14 @@ function Library.new(config: WindowConfig)
 	--[[ Right-click key cap → Toggle / Hold (Obsidian-style). One menu per window. ]]
 	local keybindModeMenu: Frame? = nil
 	local keybindModeMenuConn: RBXScriptConnection? = nil
+	local keybindModeMenuPick: string? = nil
 
 	local function destroyKeybindModeMenu()
 		if keybindModeMenuConn then
 			keybindModeMenuConn:Disconnect()
 			keybindModeMenuConn = nil
 		end
+		keybindModeMenuPick = nil
 		if keybindModeMenu then
 			keybindModeMenu:Destroy()
 			keybindModeMenu = nil
@@ -1405,24 +1412,22 @@ function Library.new(config: WindowConfig)
 		destroyKeybindModeMenu()
 		local menu = Instance.new("Frame")
 		menu.Name = "KeybindModeMenu"
-		menu.BackgroundColor3 = Theme.Elevated
+		menu.BackgroundColor3 = Theme.Background
 		menu.BackgroundTransparency = 0.05
 		menu.BorderSizePixel = 0
 		menu.ZIndex = 2000
 		menu.AutomaticSize = Enum.AutomaticSize.Y
 		menu.Size = UDim2.fromOffset(92, 0)
+		menu:SetAttribute("UiBg", "Background")
 		local ap = anchor.AbsolutePosition
 		local asz = anchor.AbsoluteSize
 		menu.Position = UDim2.fromOffset(ap.X + asz.X + 3, ap.Y)
 		menu.Parent = screenGui
 		corner(Theme.CornerSm).Parent = menu
-		stroke(Theme.Stroke, 1, 0.45).Parent = menu
-		local mpad = Instance.new("UIPadding")
-		mpad.PaddingTop = UDim.new(0, 4)
-		mpad.PaddingBottom = UDim.new(0, 4)
-		mpad.PaddingLeft = UDim.new(0, 4)
-		mpad.PaddingRight = UDim.new(0, 4)
-		mpad.Parent = menu
+		local menuStroke = stroke(Theme.Stroke, 1, 0.7)
+		menuStroke:SetAttribute("UiStroke", "Stroke")
+		menuStroke.Parent = menu
+		pad(6).Parent = menu
 		local list = Instance.new("UIListLayout")
 		list.Padding = UDim.new(0, 2)
 		list.Parent = menu
@@ -1432,23 +1437,32 @@ function Library.new(config: WindowConfig)
 			local sel = mName == currentMode
 			local btn = Instance.new("TextButton")
 			btn.AutoButtonColor = false
-			btn.Size = UDim2.new(1, 0, 0, 22)
+			btn.Size = UDim2.new(1, 0, 0, UID.DropOptRow)
 			btn.Text = mName
 			btn.Font = Enum.Font.GothamMedium
-			btn.TextSize = 13
+			btn.TextSize = UID.DropBtnText
+			btn.TextXAlignment = Enum.TextXAlignment.Left
 			btn.TextColor3 = Theme.Text
-			btn.BackgroundColor3 = if sel then Theme.AccentBlue else Theme.Background
-			btn.BackgroundTransparency = if sel then 0.2 else 0.35
-			btn:SetAttribute("UiBg", if sel then "AccentBlue" else "Background")
+			btn.BackgroundColor3 = Theme.Elevated
+			btn:SetAttribute("UiBg", "Elevated")
 			btn:SetAttribute("UiText", "Text")
+			if sel then
+				btn.BackgroundTransparency = 0.08
+				btn.TextTransparency = 0
+			else
+				btn.BackgroundTransparency = 1
+				btn.TextTransparency = 0.45
+			end
 			btn.Parent = menu
-			corner(Theme.CornerSm).Parent = btn
+			corner(UDim.new(0, 4)).Parent = btn
+			pad(UID.DropBtnPad).Parent = btn
 			btn.MouseButton1Click:Connect(function()
 				onPick(mName)
 				destroyKeybindModeMenu()
 			end)
 		end
 
+		keybindModeMenuPick = currentMode
 		keybindModeMenu = menu
 		task.defer(function()
 			if keybindModeMenu ~= menu then
@@ -2104,10 +2118,37 @@ function Library.new(config: WindowConfig)
 		for _, db in Library._draggableThemeButtons do
 			if db.Parent then
 				db.BackgroundColor3 = Theme.Elevated
+				db.BackgroundTransparency = 0.1
 				db.TextColor3 = Theme.Text
 				for _, ch in db:GetChildren() do
 					if ch:IsA("UIStroke") then
 						ch.Color = Theme.Stroke
+						ch.Transparency = 0.7
+					end
+				end
+			end
+		end
+		if keybindModeMenu and keybindModeMenu.Parent and keybindModeMenuPick then
+			keybindModeMenu.BackgroundColor3 = Theme.Background
+			keybindModeMenu.BackgroundTransparency = 0.05
+			for _, ch in keybindModeMenu:GetChildren() do
+				if ch:IsA("UIStroke") then
+					ch.Color = Theme.Stroke
+					ch.Transparency = 0.7
+				end
+			end
+			for _, ch in keybindModeMenu:GetChildren() do
+				if ch:IsA("TextButton") then
+					local mName = ch.Text
+					local sel = mName == keybindModeMenuPick
+					ch.BackgroundColor3 = Theme.Elevated
+					ch.TextColor3 = Theme.Text
+					if sel then
+						ch.BackgroundTransparency = 0.08
+						ch.TextTransparency = 0
+					else
+						ch.BackgroundTransparency = 1
+						ch.TextTransparency = 0.45
 					end
 				end
 			end
