@@ -1107,7 +1107,11 @@ function Library:AddDraggableButton(
 	btn.Position = UDim2.fromOffset(6, 6)
 	btn.ZIndex = 950
 	corner(Theme.CornerSm).Parent = btn
-	stroke(Theme.Stroke, 1, 0.5).Parent = btn
+	local btnStroke = stroke(Theme.Stroke, 1, 0.5)
+	pcall(function()
+		btnStroke.LineJoinMode = Enum.LineJoinMode.Round
+	end)
+	btnStroke.Parent = btn
 	btn.Parent = self.ScreenGui
 	table.insert(self._draggableThemeButtons, btn)
 
@@ -1874,10 +1878,11 @@ function Library.new(config: WindowConfig)
 		end, true)
 
 		if mobileSide == "right" then
-			ToggleButton.Button.Position = UDim2.new(1, -6, 0, 6)
+			--[[ Inset from screen edge so UIStroke (even Border mode) is not clipped by the viewport ]]
+			ToggleButton.Button.Position = UDim2.new(1, -12, 0, 8)
 			ToggleButton.Button.AnchorPoint = Vector2.new(1, 0)
 
-			LockButton.Button.Position = UDim2.new(1, -6, 0, 46)
+			LockButton.Button.Position = UDim2.new(1, -12, 0, 48)
 			LockButton.Button.AnchorPoint = Vector2.new(1, 0)
 		else
 			LockButton.Button.Position = UDim2.fromOffset(6, 46)
