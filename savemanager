@@ -6,7 +6,6 @@ local clonefunction = clonefunction or copyfunction or function(func)
 end
 
 local HttpService: HttpService = cloneref(game:GetService("HttpService"))
-local RunService: RunService = cloneref(game:GetService("RunService"))
 local isfolder, isfile, listfiles = isfolder, isfile, listfiles
 
 if typeof(clonefunction) == "function" then
@@ -383,19 +382,6 @@ do
 				task.spawn(self.Parser[option.type].Load, option.idx, option)
 			end
 		end
-
-		--[[ AutoHideUI toggle loads async; hide hub after values settle (Library.ApplyAutoHideUIIfEnabled). ]]
-		task.defer(function()
-			for _ = 1, 12 do
-				RunService.Heartbeat:Wait()
-			end
-			local lib = SaveManager.Library
-			if lib and typeof(lib.ApplyAutoHideUIIfEnabled) == "function" then
-				pcall(function()
-					lib:ApplyAutoHideUIIfEnabled()
-				end)
-			end
-		end)
 
 		return true
 	end
