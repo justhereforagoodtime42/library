@@ -1746,6 +1746,9 @@ function Library.new(config: WindowConfig)
 		resizeHandle = rh
 	end
 
+	-- Created before mobile block so Menu/Lock float can register drag cleanup on the same list as the window.
+	local dragConn: { RBXScriptConnection } = {}
+
 	--[[ Floating Menu / Lock (Obsidian-style) — keyboard toggle is unreliable on pure touch clients ]]
 	if Library.IsMobile then
 		local chipOuter = Instance.new("Frame")
@@ -1781,66 +1784,42 @@ function Library.new(config: WindowConfig)
 			return b
 		end
 
-		local mobileChipDragging = false
-		local mobileChipDragMoved = false
-		local mobileChipDragStart = Vector2.zero
-		local mobileChipStartPos: UDim2 = UDim2.new()
-		local MOBILE_CHIP_DRAG_PX = 8
+		local menuChip = makeMobileChip("Menu")
+		local lockChip = makeMobileChip("Lock")
+		local mobileToolsSkipClick = false
+		local mobileToolsDown = false
+		local mobileToolsCommitted = false
+		local mobileToolsStartPtr: Vector2
+		local mobileToolsStartPos: UDim2
 
-		local function mobileChipPointer(input: InputObject): Vector2
+		local function mobileToolsPointer(input: InputObject): Vector2
 			if input.UserInputType == Enum.UserInputType.Touch then
 				return Vector2.new(input.Position.X, input.Position.Y)
 			end
 			return Vector2.new(PlayerMouse.X, PlayerMouse.Y)
 		end
 
-		local function applyMobileChipDelta(delta: Vector2)
-			chipOuter.Position = UDim2.new(
-				mobileChipStartPos.X.Scale,
-				mobileChipStartPos.X.Offset + delta.X,
-				mobileChipStartPos.Y.Scale,
-				mobileChipStartPos.Y.Offset + delta.Y
-			)
-		end
-
-		local function bindMobileChip(chip: TextButton, onTap: () -> ())
-			chip.InputBegan:Connect(function(input: InputObject)
+		local function bindMobileToolsDrag(btn: TextButton)
+			btn.InputBegan:Connect(function(input: InputObject)
 				if
 					input.UserInputType ~= Enum.UserInputType.MouseButton1
 					and input.UserInputType ~= Enum.UserInputType.Touch
 				then
 					return
 				end
-				mobileChipDragging = true
-				mobileChipDragMoved = false
-				mobileChipDragStart = mobileChipPointer(input)
-				mobileChipStartPos = chipOuter.Position
-				local endConn: RBXScriptConnection? = nil
-				endConn = input.Changed:Connect(function()
-					if input.UserInputState == Enum.UserInputState.End then
-						mobileChipDragging = false
-						if endConn then
-							endConn:Disconnect()
-							endConn = nil
-						end
-					end
-				end)
-			end)
-			chip.MouseButton1Click:Connect(function()
-				task.defer(function()
-					if mobileChipDragMoved then
-						mobileChipDragMoved = false
-						return
-					end
-					onTap()
-				end)
+				mobileToolsDown = true
+				mobileToolsCommitted = false
+				mobileToolsStartPtr = mobileToolsPointer(input)
+				mobileToolsStartPos = chipOuter.Position
 			end)
 		end
+		bindMobileToolsDrag(menuChip)
+		bindMobileToolsDrag(lockChip)
 
 		table.insert(
-			Library._draggableBtnConns,
+			dragConn,
 			UserInputService.InputChanged:Connect(function(input: InputObject)
-				if not mobileChipDragging then
+				if not mobileToolsDown then
 					return
 				end
 				if
@@ -1849,25 +1828,60 @@ function Library.new(config: WindowConfig)
 				then
 					return
 				end
-				local delta = mobileChipPointer(input) - mobileChipDragStart
-				if not mobileChipDragMoved then
-					if delta.X * delta.X + delta.Y * delta.Y < MOBILE_CHIP_DRAG_PX * MOBILE_CHIP_DRAG_PX then
-						return
-					end
-					mobileChipDragMoved = true
+				local p: Vector2
+				if input.UserInputType == Enum.UserInputType.Touch then
+					p = Vector2.new(input.Position.X, input.Position.Y)
+				else
+					p = Vector2.new(PlayerMouse.X, PlayerMouse.Y)
 				end
-				applyMobileChipDelta(delta)
+				local delta = p - mobileToolsStartPtr
+				if not mobileToolsCommitted and delta.Magnitude >= 14 then
+					mobileToolsCommitted = true
+				end
+				if mobileToolsCommitted then
+					chipOuter.Position = UDim2.new(
+						mobileToolsStartPos.X.Scale,
+						mobileToolsStartPos.X.Offset + delta.X,
+						mobileToolsStartPos.Y.Scale,
+						mobileToolsStartPos.Y.Offset + delta.Y
+					)
+				end
+			end)
+		)
+		table.insert(
+			dragConn,
+			UserInputService.InputEnded:Connect(function(input: InputObject)
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				if not mobileToolsDown then
+					return
+				end
+				mobileToolsDown = false
+				if mobileToolsCommitted then
+					mobileToolsSkipClick = true
+				end
+				mobileToolsCommitted = false
 			end)
 		)
 
-		local menuChip = makeMobileChip("Menu")
-		bindMobileChip(menuChip, function()
+		menuChip.MouseButton1Click:Connect(function()
+			if mobileToolsSkipClick then
+				mobileToolsSkipClick = false
+				return
+			end
 			setRootVisible(not root.Visible)
 		end)
 		table.insert(Library._draggableThemeButtons, menuChip)
 
-		local lockChip = makeMobileChip("Lock")
-		bindMobileChip(lockChip, function()
+		lockChip.MouseButton1Click:Connect(function()
+			if mobileToolsSkipClick then
+				mobileToolsSkipClick = false
+				return
+			end
 			Library.CantDragForced = not Library.CantDragForced
 			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
 		end)
@@ -1877,7 +1891,6 @@ function Library.new(config: WindowConfig)
 	setRootVisible(true)
 
 	-- dragging + resize (grip uses local InputBegan — global InputBegan often has gameProcessed=true on Gui clicks)
-	local dragConn: { RBXScriptConnection } = {}
 	local function beginDrag()
 		local dragging = false
 		local resizing = false
