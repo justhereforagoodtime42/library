@@ -1363,7 +1363,7 @@ function Library.new(config: WindowConfig)
 	local root = Instance.new("Frame")
 	root.Name = "Root"
 	root.AnchorPoint = Vector2.new(0.5, 0.5)
-	root.Position = UDim2.new(0.5, 0, 0.5, 0)
+	root.Position = UDim2.new(0.5, 0, 0.5, 56)
 	root.Size = UDim2.fromOffset(size.X + mascotOffset, size.Y + 48)
 	root.BackgroundTransparency = 1
 	root.Parent = screenGui
@@ -1739,28 +1739,21 @@ function Library.new(config: WindowConfig)
 		local chipOuter = Instance.new("Frame")
 		chipOuter.Name = "MobileTools"
 		chipOuter.BackgroundTransparency = 1
-		chipOuter.Size = UDim2.fromOffset(92, 74)
+		chipOuter.Size = UDim2.fromOffset(92, 78)
 		chipOuter.ZIndex = 950
 		chipOuter.Parent = screenGui
-		--[[ Offset from top edge — keep below status / camera UI on phones ]]
-		local mobileToolsTop = -500
 		if mobileSide == "right" then
 			chipOuter.AnchorPoint = Vector2.new(1, 0)
-			chipOuter.Position = UDim2.new(1, -10, 0, mobileToolsTop)
+			chipOuter.Position = UDim2.new(1, -10, 0, 10)
 		else
-			chipOuter.Position = UDim2.fromOffset(10, mobileToolsTop)
+			chipOuter.Position = UDim2.fromOffset(10, 10)
 		end
 		local _chipList = Instance.new("UIListLayout")
-		_chipList.FillDirection = Enum.FillDirection.Vertical
-		_chipList.SortOrder = Enum.SortOrder.LayoutOrder
-		_chipList.VerticalAlignment = Enum.VerticalAlignment.Top
-		_chipList.HorizontalAlignment = Enum.HorizontalAlignment.Center
 		_chipList.Padding = UDim.new(0, 6)
 		_chipList.Parent = chipOuter
 
-		local function makeMobileChip(label: string, layoutOrder: number): TextButton
+		local function makeMobileChip(label: string): TextButton
 			local b = Instance.new("TextButton")
-			b.LayoutOrder = layoutOrder
 			b.Size = UDim2.fromOffset(86, 34)
 			b.BackgroundColor3 = Theme.Elevated
 			b.BackgroundTransparency = 0.08
@@ -1776,11 +1769,11 @@ function Library.new(config: WindowConfig)
 			return b
 		end
 
-		makeMobileChip("Menu", 1).MouseButton1Click:Connect(function()
+		makeMobileChip("Menu").MouseButton1Click:Connect(function()
 			setRootVisible(not root.Visible)
 		end)
 
-		local lockChip = makeMobileChip("Lock", 2)
+		local lockChip = makeMobileChip("Lock")
 		lockChip.MouseButton1Click:Connect(function()
 			Library.CantDragForced = not Library.CantDragForced
 			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
