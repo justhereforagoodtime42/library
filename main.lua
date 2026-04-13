@@ -1791,6 +1791,7 @@ function Library.new(config: WindowConfig)
 		local startPos: UDim2
 		local resizeStart: Vector2
 		local resizeStartSize: Vector2
+		local resizeStartTL: Vector2
 		local resizeEndConn: RBXScriptConnection? = nil
 
 		if resizeHandle then
@@ -1807,6 +1808,7 @@ function Library.new(config: WindowConfig)
 				resizing = true
 				resizeStart = Vector2.new(input.Position.X, input.Position.Y)
 				resizeStartSize = Vector2.new(root.AbsoluteSize.X, root.AbsoluteSize.Y)
+				resizeStartTL = Vector2.new(root.AbsolutePosition.X, root.AbsolutePosition.Y)
 				if resizeEndConn then
 					resizeEndConn:Disconnect()
 					resizeEndConn = nil
@@ -1891,6 +1893,20 @@ function Library.new(config: WindowConfig)
 				local newW = math.max(minRootW, resizeStartSize.X + delta.X)
 				local newH = math.max(minRootH, resizeStartSize.Y + delta.Y)
 				root.Size = UDim2.fromOffset(newW, newH)
+				--[[ Root uses AnchorPoint (0.5, 0.5): changing only Size keeps the center fixed, so the
+				    bottom-right moves half as much as the cursor. Keep top-left fixed so the grip tracks. ]]
+				local par = root.Parent
+				local pap = Vector2.zero
+				if par then
+					local ok, ap = pcall(function()
+						return (par :: any).AbsolutePosition
+					end)
+					if ok and typeof(ap) == "Vector2" then
+						pap = ap
+					end
+				end
+				local center = resizeStartTL + Vector2.new(newW / 2, newH / 2)
+				root.Position = UDim2.fromOffset(center.X - pap.X, center.Y - pap.Y)
 				return
 			end
 			if not dragging then
