@@ -160,11 +160,6 @@ Library._notifyList = nil :: Frame?
 Library._notifyOrder = 0
 Library._updateNotifyLayout = nil :: (() -> ())?
 Library._windowDestroy = nil :: (() -> ())?
---[[ Obsidian-style draggable HUD (mobile Toggle / Lock) ]]
-Library.ScreenGui = nil :: ScreenGui?
-Library._windowToggleFn = nil :: ((boolean?) -> ())?
-Library._draggableBtnConns = {} :: { RBXScriptConnection }
-Library._draggableThemeButtons = {} :: { TextButton }
 --[[ Per-toast refresh callbacks so notifications follow Library.Theme after ThemeManager:ApplyTheme ]]
 Library._notifyThemeRefreshes = {} :: { () -> () }
 Library._libFocusConn = nil :: RBXScriptConnection?
@@ -179,21 +174,9 @@ Library._themePaintDropdownScroll = {} :: { ScrollingFrame }
 Library._themePaintSubConns = {} :: { RBXScriptConnection }
 
 --[[ Mobile / focus (Obsidian-style): touch clients, floating controls, drag lock ]]
-Library.IsMobile = false
-Library.DevicePlatform = nil :: Enum.Platform?
+Library.IsMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 Library.IsRobloxFocused = true
 Library.CantDragForced = false
-
-do
-	if RunService:IsStudio() then
-		Library.IsMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
-	else
-		pcall(function()
-			Library.DevicePlatform = UserInputService:GetPlatform()
-		end)
-		Library.IsMobile = (Library.DevicePlatform == Enum.Platform.Android or Library.DevicePlatform == Enum.Platform.IOS)
-	end
-end
 
 if Library._libFocusConn == nil then
 	Library._libFocusConn = UserInputService.WindowFocused:Connect(function()
@@ -751,10 +734,6 @@ function Library:Unload()
 	table.clear(self.Options)
 	self.ToggleKeybind = nil
 	self.CantDragForced = false
-	self.ScreenGui = nil
-	self._windowToggleFn = nil
-	table.clear(self._draggableBtnConns)
-	table.clear(self._draggableThemeButtons)
 end
 
 --[[ Works when Color3.fromHex is missing or picky; accepts #RGB, #RRGGBB ]]
@@ -1085,117 +1064,6 @@ function Library:SetIconModule(module: any)
 	end
 end
 
---[[ Obsidian-style: floating draggable TextButton on ScreenGui (mobile Toggle / Lock). ]]
-function Library:AddDraggableButton(
-	text: string,
-	callback: (tbl: { SetText: (string) -> (), Button: TextButton }) -> (),
-	_excludeScaling: boolean?
-): { Button: TextButton, SetText: (string) -> () }
-	if not self.ScreenGui or not self.ScreenGui.Parent then
-		error("AddDraggableButton: ScreenGui not ready")
-	end
-	local btn = Instance.new("TextButton")
-	btn.Name = "DraggableBtn"
-	btn.BackgroundColor3 = Theme.Elevated
-	btn.BackgroundTransparency = 0.1
-	btn.Text = text
-	btn.TextColor3 = Theme.Text
-	btn.TextSize = UID.DropBtnText
-	btn.Font = Enum.Font.GothamMedium
-	btn.AutoButtonColor = false
-	btn.BorderSizePixel = 0
-	btn.Position = UDim2.fromOffset(6, 6)
-	btn.ZIndex = 950
-	btn:SetAttribute("UiBg", "Elevated")
-	btn:SetAttribute("UiText", "Text")
-	corner(Theme.CornerSm).Parent = btn
-	pad(UID.DropBtnPad).Parent = btn
-	local dbStroke = stroke(Theme.Stroke, 1, 0.7)
-	dbStroke:SetAttribute("UiStroke", "Stroke")
-	dbStroke.Parent = btn
-	btn.Parent = self.ScreenGui
-	table.insert(self._draggableThemeButtons, btn)
-
-	local tbl = {
-		Button = btn,
-	}
-	function tbl:SetText(s: string)
-		btn.Text = s
-		local p = Instance.new("GetTextBoundsParams")
-		p.Text = s
-		p.RichText = false
-		p.Font = Font.fromEnum(Enum.Font.GothamMedium)
-		p.Size = UID.DropBtnText
-		p.Width = 4096
-		local sz = TextService:GetTextBoundsAsync(p)
-		btn.Size = UDim2.fromOffset(math.ceil(sz.X * 2), math.ceil(sz.Y * 2))
-	end
-	tbl:SetText(text)
-
-	btn.MouseButton1Click:Connect(function()
-		callback(tbl)
-	end)
-
-	local dragging = false
-	local dragStart: Vector2
-	local startPos: UDim2
-	local endConn: RBXScriptConnection? = nil
-	btn.InputBegan:Connect(function(input: InputObject)
-		if
-			input.UserInputType ~= Enum.UserInputType.MouseButton1
-			and input.UserInputType ~= Enum.UserInputType.Touch
-		then
-			return
-		end
-		if not self.IsRobloxFocused then
-			return
-		end
-		dragging = true
-		dragStart = Vector2.new(input.Position.X, input.Position.Y)
-		startPos = btn.Position
-		if endConn then
-			endConn:Disconnect()
-			endConn = nil
-		end
-		endConn = input.Changed:Connect(function()
-			if input.UserInputState == Enum.UserInputState.End then
-				dragging = false
-				if endConn then
-					endConn:Disconnect()
-					endConn = nil
-				end
-			end
-		end)
-	end)
-	local moveConn = UserInputService.InputChanged:Connect(function(input: InputObject)
-		if not dragging then
-			return
-		end
-		if
-			input.UserInputType ~= Enum.UserInputType.MouseMovement
-			and input.UserInputType ~= Enum.UserInputType.Touch
-		then
-			return
-		end
-		local d = Vector2.new(input.Position.X, input.Position.Y) - dragStart
-		btn.Position = UDim2.new(
-			startPos.X.Scale,
-			startPos.X.Offset + d.X,
-			startPos.Y.Scale,
-			startPos.Y.Offset + d.Y
-		)
-	end)
-	table.insert(self._draggableBtnConns, moveConn)
-	return tbl
-end
-
-function Library:Toggle(value: boolean?)
-	if self.Unloaded or not self._windowToggleFn then
-		return
-	end
-	self._windowToggleFn(value)
-end
-
 export type WindowConfig = {
 	Title: string?,
 	Subtitle: string?,
@@ -1223,7 +1091,7 @@ function Library.new(config: WindowConfig)
 	local titleText = config.Title or "UI"
 	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
 	local titleIcon = config.TitleIcon
-	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Right"))
+	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Left"))
 	if mobileSide ~= "right" then
 		mobileSide = "left"
 	end
@@ -1261,11 +1129,6 @@ function Library.new(config: WindowConfig)
 	if not parentOk or not screenGui.Parent then
 		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
 	end
-
-	Library.ScreenGui = screenGui
-	table.clear(Library._draggableBtnConns)
-	table.clear(Library._draggableThemeButtons)
-	Library._windowToggleFn = nil
 
 	--[[ Obsidian-style 0×0 modal sink: improves camera / world input while GUI is open on mobile ]]
 	local modalSink = Instance.new("TextButton")
@@ -1394,14 +1257,12 @@ function Library.new(config: WindowConfig)
 	--[[ Right-click key cap → Toggle / Hold (Obsidian-style). One menu per window. ]]
 	local keybindModeMenu: Frame? = nil
 	local keybindModeMenuConn: RBXScriptConnection? = nil
-	local keybindModeMenuPick: string? = nil
 
 	local function destroyKeybindModeMenu()
 		if keybindModeMenuConn then
 			keybindModeMenuConn:Disconnect()
 			keybindModeMenuConn = nil
 		end
-		keybindModeMenuPick = nil
 		if keybindModeMenu then
 			keybindModeMenu:Destroy()
 			keybindModeMenu = nil
@@ -1412,22 +1273,24 @@ function Library.new(config: WindowConfig)
 		destroyKeybindModeMenu()
 		local menu = Instance.new("Frame")
 		menu.Name = "KeybindModeMenu"
-		menu.BackgroundColor3 = Theme.Background
+		menu.BackgroundColor3 = Theme.Elevated
 		menu.BackgroundTransparency = 0.05
 		menu.BorderSizePixel = 0
 		menu.ZIndex = 2000
 		menu.AutomaticSize = Enum.AutomaticSize.Y
 		menu.Size = UDim2.fromOffset(92, 0)
-		menu:SetAttribute("UiBg", "Background")
 		local ap = anchor.AbsolutePosition
 		local asz = anchor.AbsoluteSize
 		menu.Position = UDim2.fromOffset(ap.X + asz.X + 3, ap.Y)
 		menu.Parent = screenGui
 		corner(Theme.CornerSm).Parent = menu
-		local menuStroke = stroke(Theme.Stroke, 1, 0.7)
-		menuStroke:SetAttribute("UiStroke", "Stroke")
-		menuStroke.Parent = menu
-		pad(6).Parent = menu
+		stroke(Theme.Stroke, 1, 0.45).Parent = menu
+		local mpad = Instance.new("UIPadding")
+		mpad.PaddingTop = UDim.new(0, 4)
+		mpad.PaddingBottom = UDim.new(0, 4)
+		mpad.PaddingLeft = UDim.new(0, 4)
+		mpad.PaddingRight = UDim.new(0, 4)
+		mpad.Parent = menu
 		local list = Instance.new("UIListLayout")
 		list.Padding = UDim.new(0, 2)
 		list.Parent = menu
@@ -1437,32 +1300,23 @@ function Library.new(config: WindowConfig)
 			local sel = mName == currentMode
 			local btn = Instance.new("TextButton")
 			btn.AutoButtonColor = false
-			btn.Size = UDim2.new(1, 0, 0, UID.DropOptRow)
+			btn.Size = UDim2.new(1, 0, 0, 22)
 			btn.Text = mName
 			btn.Font = Enum.Font.GothamMedium
-			btn.TextSize = UID.DropBtnText
-			btn.TextXAlignment = Enum.TextXAlignment.Left
+			btn.TextSize = 13
 			btn.TextColor3 = Theme.Text
-			btn.BackgroundColor3 = Theme.Elevated
-			btn:SetAttribute("UiBg", "Elevated")
+			btn.BackgroundColor3 = if sel then Theme.AccentBlue else Theme.Background
+			btn.BackgroundTransparency = if sel then 0.2 else 0.35
+			btn:SetAttribute("UiBg", if sel then "AccentBlue" else "Background")
 			btn:SetAttribute("UiText", "Text")
-			if sel then
-				btn.BackgroundTransparency = 0.08
-				btn.TextTransparency = 0
-			else
-				btn.BackgroundTransparency = 1
-				btn.TextTransparency = 0.45
-			end
 			btn.Parent = menu
-			corner(UDim.new(0, 4)).Parent = btn
-			pad(UID.DropBtnPad).Parent = btn
+			corner(Theme.CornerSm).Parent = btn
 			btn.MouseButton1Click:Connect(function()
 				onPick(mName)
 				destroyKeybindModeMenu()
 			end)
 		end
 
-		keybindModeMenuPick = currentMode
 		keybindModeMenu = menu
 		task.defer(function()
 			if keybindModeMenu ~= menu then
@@ -1506,14 +1360,6 @@ function Library.new(config: WindowConfig)
 		root.Visible = v
 		if unlockMouseWhileOpen and Library.IsMobile then
 			modalSink.Modal = v
-		end
-	end
-
-	Library._windowToggleFn = function(value: boolean?)
-		if typeof(value) == "boolean" then
-			setRootVisible(value)
-		else
-			setRootVisible(not root.Visible)
 		end
 	end
 
@@ -1876,27 +1722,50 @@ function Library.new(config: WindowConfig)
 		resizeHandle = rh
 	end
 
-	--[[ Floating Toggle / Lock (Obsidian-style draggable buttons) — keyboard toggle is unreliable on pure touch clients ]]
+	--[[ Floating Menu / Lock (Obsidian-style) — keyboard toggle is unreliable on pure touch clients ]]
 	if Library.IsMobile then
-		local ToggleButton = Library:AddDraggableButton("Toggle", function()
-			Library:Toggle()
-		end, true)
-
-		local LockButton = Library:AddDraggableButton("Lock", function(self)
-			Library.CantDragForced = not Library.CantDragForced
-			self:SetText(if Library.CantDragForced then "Unlock" else "Lock")
-		end, true)
-
+		local chipOuter = Instance.new("Frame")
+		chipOuter.Name = "MobileTools"
+		chipOuter.BackgroundTransparency = 1
+		chipOuter.Size = UDim2.fromOffset(92, 78)
+		chipOuter.ZIndex = 950
+		chipOuter.Parent = screenGui
 		if mobileSide == "right" then
-			--[[ AnchorPoint must be set before Position: (1,-6) is the anchor point (right edge), not top-left. ]]
-			ToggleButton.Button.AnchorPoint = Vector2.new(1, 0)
-			ToggleButton.Button.Position = UDim2.new(1, -6, 0, 6)
-
-			LockButton.Button.AnchorPoint = Vector2.new(1, 0)
-			LockButton.Button.Position = UDim2.new(1, -6, 0, 46)
+			chipOuter.AnchorPoint = Vector2.new(1, 0)
+			chipOuter.Position = UDim2.new(1, -10, 0, 10)
 		else
-			LockButton.Button.Position = UDim2.fromOffset(6, 46)
+			chipOuter.Position = UDim2.fromOffset(10, 10)
 		end
+		local _chipList = Instance.new("UIListLayout")
+		_chipList.Padding = UDim.new(0, 6)
+		_chipList.Parent = chipOuter
+
+		local function makeMobileChip(label: string): TextButton
+			local b = Instance.new("TextButton")
+			b.Size = UDim2.fromOffset(86, 34)
+			b.BackgroundColor3 = Theme.Elevated
+			b.BackgroundTransparency = 0.08
+			b.Text = label
+			b.TextColor3 = Theme.Text
+			b.TextSize = 13
+			b.Font = Enum.Font.GothamMedium
+			b.AutoButtonColor = false
+			b.BorderSizePixel = 0
+			b.Parent = chipOuter
+			corner(Theme.CornerSm).Parent = b
+			stroke(Theme.Stroke, 1, 0.5).Parent = b
+			return b
+		end
+
+		makeMobileChip("Menu").MouseButton1Click:Connect(function()
+			setRootVisible(not root.Visible)
+		end)
+
+		local lockChip = makeMobileChip("Lock")
+		lockChip.MouseButton1Click:Connect(function()
+			Library.CantDragForced = not Library.CantDragForced
+			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
+		end)
 	end
 
 	setRootVisible(true)
@@ -2119,37 +1988,10 @@ function Library.new(config: WindowConfig)
 		for _, db in Library._draggableThemeButtons do
 			if db.Parent then
 				db.BackgroundColor3 = Theme.Elevated
-				db.BackgroundTransparency = 0.1
 				db.TextColor3 = Theme.Text
 				for _, ch in db:GetChildren() do
 					if ch:IsA("UIStroke") then
 						ch.Color = Theme.Stroke
-						ch.Transparency = 0.7
-					end
-				end
-			end
-		end
-		if keybindModeMenu and keybindModeMenu.Parent and keybindModeMenuPick then
-			keybindModeMenu.BackgroundColor3 = Theme.Background
-			keybindModeMenu.BackgroundTransparency = 0.05
-			for _, ch in keybindModeMenu:GetChildren() do
-				if ch:IsA("UIStroke") then
-					ch.Color = Theme.Stroke
-					ch.Transparency = 0.7
-				end
-			end
-			for _, ch in keybindModeMenu:GetChildren() do
-				if ch:IsA("TextButton") then
-					local mName = ch.Text
-					local sel = mName == keybindModeMenuPick
-					ch.BackgroundColor3 = Theme.Elevated
-					ch.TextColor3 = Theme.Text
-					if sel then
-						ch.BackgroundTransparency = 0.08
-						ch.TextTransparency = 0
-					else
-						ch.BackgroundTransparency = 1
-						ch.TextTransparency = 0.45
 					end
 				end
 			end
