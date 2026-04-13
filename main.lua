@@ -165,6 +165,7 @@ Library.ScreenGui = nil :: ScreenGui?
 Library._windowToggleFn = nil :: ((boolean?) -> ())?
 Library._draggableBtnConns = {} :: { RBXScriptConnection }
 Library._draggableThemeButtons = {} :: { TextButton }
+Library._draggableGlowHosts = {} :: { Frame }
 --[[ Per-toast refresh callbacks so notifications follow Library.Theme after ThemeManager:ApplyTheme ]]
 Library._notifyThemeRefreshes = {} :: { () -> () }
 Library._libFocusConn = nil :: RBXScriptConnection?
@@ -755,6 +756,7 @@ function Library:Unload()
 	self._windowToggleFn = nil
 	table.clear(self._draggableBtnConns)
 	table.clear(self._draggableThemeButtons)
+	table.clear(self._draggableGlowHosts)
 end
 
 --[[ Works when Color3.fromHex is missing or picky; accepts #RGB, #RRGGBB ]]
@@ -919,7 +921,7 @@ local function paintPillGlowHost(pillGlowHost: Frame?)
 	end
 end
 
-local function paintMainGlowHost(mainGlowHost: Frame?)
+local function paintMainGlowHost(mainGlowHost: Frame?, baseCornerPx: number?)
 	if not mainGlowHost then
 		return
 	end
@@ -937,7 +939,7 @@ local function paintMainGlowHost(mainGlowHost: Frame?)
 		end
 		return a.Size.X.Offset < b.Size.X.Offset
 	end)
-	local basePx = Theme.Corner.Offset
+	local basePx = if typeof(baseCornerPx) == "number" then baseCornerPx :: number else Theme.Corner.Offset
 	local steps = #layers - 1
 	for i, layer in layers do
 		local t = if steps > 0 then (i - 1) / steps else 0
@@ -1088,12 +1090,35 @@ end
 --[[ Obsidian-style: floating draggable TextButton on ScreenGui (mobile Toggle / Lock). ]]
 function Library:AddDraggableButton(
 	text: string,
-	callback: (tbl: { SetText: (string) -> (), Button: TextButton }) -> (),
+	callback: (tbl: { SetText: (string) -> (), Button: TextButton, Wrap: Frame }) -> (),
 	_excludeScaling: boolean?
-): { Button: TextButton, SetText: (string) -> () }
+): { Button: TextButton, SetText: (string) -> (), Wrap: Frame }
 	if not self.ScreenGui or not self.ScreenGui.Parent then
 		error("AddDraggableButton: ScreenGui not ready")
 	end
+	local wrap = Instance.new("Frame")
+	wrap.Name = "DraggableWrap"
+	wrap.BackgroundTransparency = 1
+	wrap.BorderSizePixel = 0
+	wrap.ClipsDescendants = false
+	wrap.Position = UDim2.fromOffset(6, 6)
+	wrap.ZIndex = 950
+
+	local glowHost = Instance.new("Frame")
+	glowHost.Name = "DraggableGlowHost"
+	glowHost.BackgroundTransparency = 1
+	glowHost.BorderSizePixel = 0
+	glowHost.Size = UDim2.fromScale(1, 1)
+	glowHost.ZIndex = 0
+	glowHost.Parent = wrap
+	local cornerSmPx = math.max(0, math.floor(Theme.CornerSm.Offset))
+	addStackedGlow(glowHost, {
+		{ size = 3, transparency = 0.84 },
+		{ size = 7, transparency = 0.91 },
+		{ size = 12, transparency = 0.95 },
+	}, cornerSmPx)
+	table.insert(self._draggableGlowHosts, glowHost)
+
 	local btn = Instance.new("TextButton")
 	btn.Name = "DraggableBtn"
 	btn.BackgroundColor3 = Theme.Elevated
@@ -1104,8 +1129,9 @@ function Library:AddDraggableButton(
 	btn.Font = Enum.Font.GothamMedium
 	btn.AutoButtonColor = false
 	btn.BorderSizePixel = 0
-	btn.Position = UDim2.fromOffset(6, 6)
-	btn.ZIndex = 950
+	btn.Position = UDim2.fromScale(0, 0)
+	btn.Size = UDim2.fromScale(1, 1)
+	btn.ZIndex = 2
 	btn:SetAttribute("UiBg", "Elevated")
 	btn:SetAttribute("UiText", "Text")
 	corner(Theme.CornerSm).Parent = btn
@@ -1113,11 +1139,12 @@ function Library:AddDraggableButton(
 	local dbStroke = stroke(Theme.Stroke, 1, 0.7)
 	dbStroke:SetAttribute("UiStroke", "Stroke")
 	dbStroke.Parent = btn
-	btn.Parent = self.ScreenGui
+	btn.Parent = wrap
 	table.insert(self._draggableThemeButtons, btn)
 
 	local tbl = {
 		Button = btn,
+		Wrap = wrap,
 	}
 	function tbl:SetText(s: string)
 		btn.Text = s
@@ -1128,9 +1155,14 @@ function Library:AddDraggableButton(
 		p.Size = UID.DropBtnText
 		p.Width = 4096
 		local sz = TextService:GetTextBoundsAsync(p)
-		btn.Size = UDim2.fromOffset(math.ceil(sz.X * 2), math.ceil(sz.Y * 2))
+		local w = math.ceil(sz.X * 2)
+		local h = math.ceil(sz.Y * 2)
+		btn.Size = UDim2.fromOffset(w, h)
+		wrap.Size = UDim2.fromOffset(w, h)
 	end
 	tbl:SetText(text)
+
+	wrap.Parent = self.ScreenGui
 
 	btn.MouseButton1Click:Connect(function()
 		callback(tbl)
@@ -1152,7 +1184,7 @@ function Library:AddDraggableButton(
 		end
 		dragging = true
 		dragStart = Vector2.new(input.Position.X, input.Position.Y)
-		startPos = btn.Position
+		startPos = wrap.Position
 		if endConn then
 			endConn:Disconnect()
 			endConn = nil
@@ -1178,7 +1210,7 @@ function Library:AddDraggableButton(
 			return
 		end
 		local d = Vector2.new(input.Position.X, input.Position.Y) - dragStart
-		btn.Position = UDim2.new(
+		wrap.Position = UDim2.new(
 			startPos.X.Scale,
 			startPos.X.Offset + d.X,
 			startPos.Y.Scale,
@@ -1265,6 +1297,7 @@ function Library.new(config: WindowConfig)
 	Library.ScreenGui = screenGui
 	table.clear(Library._draggableBtnConns)
 	table.clear(Library._draggableThemeButtons)
+	table.clear(Library._draggableGlowHosts)
 	Library._windowToggleFn = nil
 
 	--[[ Obsidian-style 0×0 modal sink: improves camera / world input while GUI is open on mobile ]]
@@ -1889,13 +1922,13 @@ function Library.new(config: WindowConfig)
 
 		if mobileSide == "right" then
 			--[[ AnchorPoint must be set before Position: (1,-6) is the anchor point (right edge), not top-left. ]]
-			ToggleButton.Button.AnchorPoint = Vector2.new(1, 0)
-			ToggleButton.Button.Position = UDim2.new(1, -6, 0, 6)
+			ToggleButton.Wrap.AnchorPoint = Vector2.new(1, 0)
+			ToggleButton.Wrap.Position = UDim2.new(1, -6, 0, 6)
 
-			LockButton.Button.AnchorPoint = Vector2.new(1, 0)
-			LockButton.Button.Position = UDim2.new(1, -6, 0, 46)
+			LockButton.Wrap.AnchorPoint = Vector2.new(1, 0)
+			LockButton.Wrap.Position = UDim2.new(1, -6, 0, 46)
 		else
-			LockButton.Button.Position = UDim2.fromOffset(6, 46)
+			LockButton.Wrap.Position = UDim2.fromOffset(6, 46)
 		end
 	end
 
@@ -2129,6 +2162,12 @@ function Library.new(config: WindowConfig)
 				end
 			end
 		end
+		local smPx = math.max(0, math.floor(Theme.CornerSm.Offset))
+		for _, gh in Library._draggableGlowHosts do
+			if gh.Parent then
+				paintMainGlowHost(gh, smPx)
+			end
+		end
 		if keybindModeMenu and keybindModeMenu.Parent and keybindModeMenuPick then
 			keybindModeMenu.BackgroundColor3 = Theme.Background
 			keybindModeMenu.BackgroundTransparency = 0.05
@@ -2213,6 +2252,7 @@ function Library.new(config: WindowConfig)
 		end
 		table.clear(Library._draggableBtnConns)
 		table.clear(Library._draggableThemeButtons)
+		table.clear(Library._draggableGlowHosts)
 		Library.ScreenGui = nil
 		Library._windowToggleFn = nil
 		for _, c in dragConn do
