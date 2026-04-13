@@ -1107,11 +1107,7 @@ function Library:AddDraggableButton(
 	btn.Position = UDim2.fromOffset(6, 6)
 	btn.ZIndex = 950
 	corner(Theme.CornerSm).Parent = btn
-	local btnStroke = stroke(Theme.Stroke, 1, 0.5)
-	pcall(function()
-		btnStroke.LineJoinMode = Enum.LineJoinMode.Round
-	end)
-	btnStroke.Parent = btn
+	stroke(Theme.Stroke, 1, 0.5).Parent = btn
 	btn.Parent = self.ScreenGui
 	table.insert(self._draggableThemeButtons, btn)
 
@@ -1507,20 +1503,13 @@ function Library.new(config: WindowConfig)
 		end
 	end
 
-	-- Toasts: created after root so with Sibling ZIndex they stack above the window; high ZIndex vs root (0)
-	local notifyHost = Instance.new("Frame")
-	notifyHost.Name = "NotifyHost"
-	notifyHost.Size = UDim2.fromScale(1, 1)
-	notifyHost.BackgroundTransparency = 1
-	notifyHost.ZIndex = 800
-	notifyHost.Active = false
-	notifyHost.Parent = screenGui
+	--[[ No full-screen notify wrapper: it sat above the hub and hid panel glow on the toast side (default right). ]]
 	local notifyList = Instance.new("Frame")
 	notifyList.Name = "NotifyList"
 	notifyList.Size = UDim2.new(0, 300, 1, -24)
 	notifyList.BackgroundTransparency = 1
-	notifyList.ZIndex = 801
-	notifyList.Parent = notifyHost
+	notifyList.ZIndex = 800
+	notifyList.Parent = screenGui
 	local nlayout = Instance.new("UIListLayout")
 	nlayout.SortOrder = Enum.SortOrder.LayoutOrder
 	nlayout.VerticalAlignment = Enum.VerticalAlignment.Top
@@ -1684,7 +1673,7 @@ function Library.new(config: WindowConfig)
 	sidebar.AutomaticSize = Enum.AutomaticSize.Y
 	sidebar.BackgroundTransparency = 1
 	sidebar.LayoutOrder = 0
-	sidebar.Parent = body
+	-- Sidebar parented after mainPanel (see below) so tab glow draws above the panel edge.
 
 	local sideList = Instance.new("UIListLayout")
 	sideList.Padding = UDim.new(0, 6)
@@ -1701,6 +1690,7 @@ function Library.new(config: WindowConfig)
 	mainPanel.BorderSizePixel = 0
 	mainPanel.ClipsDescendants = false
 	mainPanel.Parent = body
+	sidebar.Parent = body
 
 	local panelGlowHost: Frame? = nil
 	if config.GlowEnabled ~= false then
@@ -1878,11 +1868,10 @@ function Library.new(config: WindowConfig)
 		end, true)
 
 		if mobileSide == "right" then
-			--[[ Inset from screen edge so UIStroke (even Border mode) is not clipped by the viewport ]]
-			ToggleButton.Button.Position = UDim2.new(1, -12, 0, 8)
+			ToggleButton.Button.Position = UDim2.new(1, -6, 0, 6)
 			ToggleButton.Button.AnchorPoint = Vector2.new(1, 0)
 
-			LockButton.Button.Position = UDim2.new(1, -12, 0, 48)
+			LockButton.Button.Position = UDim2.new(1, -6, 0, 46)
 			LockButton.Button.AnchorPoint = Vector2.new(1, 0)
 		else
 			LockButton.Button.Position = UDim2.fromOffset(6, 46)
