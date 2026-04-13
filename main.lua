@@ -1363,7 +1363,7 @@ function Library.new(config: WindowConfig)
 	local root = Instance.new("Frame")
 	root.Name = "Root"
 	root.AnchorPoint = Vector2.new(0.5, 0.5)
-	root.Position = UDim2.new(0.5, 0, 0.5, 56)
+	root.Position = UDim2.new(0.5, 0, 0.5, 0)
 	root.Size = UDim2.fromOffset(size.X + mascotOffset, size.Y + 48)
 	root.BackgroundTransparency = 1
 	root.Parent = screenGui
