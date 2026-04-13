@@ -1742,22 +1742,19 @@ function Library.new(config: WindowConfig)
 		chipOuter.Size = UDim2.fromOffset(92, 74)
 		chipOuter.ZIndex = 950
 		chipOuter.Parent = screenGui
+		--[[ Push whole strip down from top edge (safe area / thumb reach). ]]
+		local mobileToolsTop = 52
 		if mobileSide == "right" then
 			chipOuter.AnchorPoint = Vector2.new(1, 0)
-			chipOuter.Position = UDim2.new(1, -10, 0, 10)
+			chipOuter.Position = UDim2.new(1, -10, 0, mobileToolsTop)
 		else
-			chipOuter.Position = UDim2.fromOffset(10, 10)
+			chipOuter.Position = UDim2.fromOffset(10, mobileToolsTop)
 		end
 
-		local chipW, chipH = 86, 34
-		local chipGap = 6
-		local chipX = math.floor((92 - chipW) / 2)
-
-		local function makeMobileChip(label: string, y: number): TextButton
+		local function makeMobileChip(label: string): TextButton
 			local b = Instance.new("TextButton")
-			b.AnchorPoint = Vector2.new(0, 0)
-			b.Position = UDim2.fromOffset(chipX, y)
-			b.Size = UDim2.fromOffset(chipW, chipH)
+			b.Size = UDim2.fromOffset(86, 34)
+			b.AnchorPoint = Vector2.new(0.5, 0)
 			b.BackgroundColor3 = Theme.Elevated
 			b.BackgroundTransparency = 0.08
 			b.Text = label
@@ -1772,12 +1769,14 @@ function Library.new(config: WindowConfig)
 			return b
 		end
 
-		--[[ Explicit Y: Menu stays at top of MobileTools; Lock is directly underneath (no UIListLayout). ]]
-		makeMobileChip("Menu", 0).MouseButton1Click:Connect(function()
+		local menuChip = makeMobileChip("Menu")
+		menuChip.Position = UDim2.new(0.5, 0, 0, 0)
+		menuChip.MouseButton1Click:Connect(function()
 			setRootVisible(not root.Visible)
 		end)
 
-		local lockChip = makeMobileChip("Lock", chipH + chipGap)
+		local lockChip = makeMobileChip("Lock")
+		lockChip.Position = UDim2.new(0.5, 0, 0, 34 + 6)
 		lockChip.MouseButton1Click:Connect(function()
 			Library.CantDragForced = not Library.CantDragForced
 			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
