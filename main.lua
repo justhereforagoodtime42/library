@@ -1743,7 +1743,7 @@ function Library.new(config: WindowConfig)
 		chipOuter.ZIndex = 950
 		chipOuter.Parent = screenGui
 		--[[ Offset from top edge — keep below status / camera UI on phones ]]
-		local mobileToolsTop = 5252
+		local mobileToolsTop = -500
 		if mobileSide == "right" then
 			chipOuter.AnchorPoint = Vector2.new(1, 0)
 			chipOuter.Position = UDim2.new(1, -10, 0, mobileToolsTop)
