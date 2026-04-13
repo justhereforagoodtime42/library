@@ -1739,7 +1739,7 @@ function Library.new(config: WindowConfig)
 		local chipOuter = Instance.new("Frame")
 		chipOuter.Name = "MobileTools"
 		chipOuter.BackgroundTransparency = 1
-		chipOuter.Size = UDim2.fromOffset(92, 98)
+		chipOuter.Size = UDim2.fromOffset(92, 74)
 		chipOuter.ZIndex = 950
 		chipOuter.Parent = screenGui
 		if mobileSide == "right" then
@@ -1748,15 +1748,12 @@ function Library.new(config: WindowConfig)
 		else
 			chipOuter.Position = UDim2.fromOffset(10, 10)
 		end
-		local chipPad = Instance.new("UIPadding")
-		chipPad.PaddingTop = UDim.new(0, 4)
-		chipPad.Parent = chipOuter
 		local _chipList = Instance.new("UIListLayout")
 		_chipList.FillDirection = Enum.FillDirection.Vertical
 		_chipList.SortOrder = Enum.SortOrder.LayoutOrder
 		_chipList.VerticalAlignment = Enum.VerticalAlignment.Top
 		_chipList.HorizontalAlignment = Enum.HorizontalAlignment.Center
-		_chipList.Padding = UDim.new(0, 10)
+		_chipList.Padding = UDim.new(0, 6)
 		_chipList.Parent = chipOuter
 
 		local function makeMobileChip(label: string, layoutOrder: number): TextButton
@@ -1777,15 +1774,7 @@ function Library.new(config: WindowConfig)
 			return b
 		end
 
-		local topSpacer = Instance.new("Frame")
-		topSpacer.Name = "MobileToolsTopSpacer"
-		topSpacer.BackgroundTransparency = 1
-		topSpacer.LayoutOrder = 0
-		topSpacer.Size = UDim2.fromOffset(1, 6)
-		topSpacer.Parent = chipOuter
-
-		local menuChip = makeMobileChip("Menu", 1)
-		menuChip.MouseButton1Click:Connect(function()
+		makeMobileChip("Menu", 1).MouseButton1Click:Connect(function()
 			setRootVisible(not root.Visible)
 		end)
 
