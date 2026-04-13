@@ -174,11 +174,21 @@ Library._themePaintDropdownScroll = {} :: { ScrollingFrame }
 Library._themePaintSubConns = {} :: { RBXScriptConnection }
 
 --[[ Mobile / focus (Obsidian-style): touch clients, floating controls, drag lock ]]
-Library.IsMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+Library.IsMobile = false
+Library.DevicePlatform = nil :: Enum.Platform?
 Library.IsRobloxFocused = true
 Library.CantDragForced = false
-Library._draggableBtnConns = {} :: { RBXScriptConnection }
-Library._draggableThemeButtons = {} :: { TextButton }
+
+do
+	if RunService:IsStudio() then
+		Library.IsMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
+	else
+		pcall(function()
+			Library.DevicePlatform = UserInputService:GetPlatform()
+		end)
+		Library.IsMobile = (Library.DevicePlatform == Enum.Platform.Android or Library.DevicePlatform == Enum.Platform.IOS)
+	end
+end
 
 if Library._libFocusConn == nil then
 	Library._libFocusConn = UserInputService.WindowFocused:Connect(function()
@@ -1082,7 +1092,7 @@ export type WindowConfig = {
 	TabGlowEnabled: boolean?,
 	--[[ Dropdowns default to Multi when Multi is omitted (Obsidian-style) ]]
 	MultiDropdownByDefault: boolean?,
-	--[[ Mobile: "Left" | "Right" — draggable Toggle / Lock (Obsidian-style) ]]
+	--[[ Mobile: "Left" | "Right" — floating Menu / Lock chips ]]
 	MobileButtonsSide: string?,
 	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
 	UnlockMouseWhileOpen: boolean?,
@@ -1987,17 +1997,6 @@ function Library.new(config: WindowConfig)
 			pcall(chevRefresh)
 		end
 		selectTab(activeTab)
-		for _, db in Library._draggableThemeButtons do
-			if db.Parent then
-				db.BackgroundColor3 = Theme.Elevated
-				db.TextColor3 = Theme.Text
-				for _, ch in db:GetChildren() do
-					if ch:IsA("UIStroke") then
-						ch.Color = Theme.Stroke
-					end
-				end
-			end
-		end
 		if resizeHandle then
 			local grip = resizeHandle:FindFirstChild("ResizeIcon")
 			if grip and grip:IsA("ImageLabel") then
@@ -2050,15 +2049,6 @@ function Library.new(config: WindowConfig)
 
 	local function destroyWindowGui()
 		destroyKeybindModeMenu()
-		for _, c in Library._draggableBtnConns do
-			pcall(function()
-				c:Disconnect()
-			end)
-		end
-		table.clear(Library._draggableBtnConns)
-		table.clear(Library._draggableThemeButtons)
-		Library.ScreenGui = nil
-		Library._windowToggleFn = nil
 		for _, c in dragConn do
 			c:Disconnect()
 		end
