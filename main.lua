@@ -183,14 +183,11 @@ Library._draggableBtnConns = {} :: { RBXScriptConnection }
 Library._draggableThemeButtons = {} :: { TextButton }
 
 do
-	if RunService:IsStudio() then
-		Library.IsMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
-	else
-		pcall(function()
-			Library.DevicePlatform = UserInputService:GetPlatform()
-		end)
-		Library.IsMobile = (Library.DevicePlatform == Enum.Platform.Android or Library.DevicePlatform == Enum.Platform.IOS)
-	end
+	pcall(function()
+		Library.DevicePlatform = UserInputService:GetPlatform()
+	end)
+	--[[ Pure touch clients (no mouse): phones/tablets. Touch+mouse stays "desktop" UI (e.g. Surface). ]]
+	Library.IsMobile = UserInputService.TouchEnabled and not UserInputService.MouseEnabled
 end
 
 if Library._libFocusConn == nil then
