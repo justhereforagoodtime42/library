@@ -1376,7 +1376,7 @@ function Library.new(config: WindowConfig)
 	local rootHInit = size.Y + 48
 	local root = Instance.new("Frame")
 	root.Name = "Root"
-	--[[ Obsidian-style: top-left anchor so drag/resize deltas track Input / PlayerMouse 1:1 (center anchor would halve resize motion). ]]
+	--[[ Top-left anchor: resize sets Size from screen pointer vs AbsolutePosition so BR tracks cursor (delta-from-click breaks when grabbing the inset grip). ]]
 	root.AnchorPoint = Vector2.zero
 	root.Position = UDim2.new(0.5, -rootWInit / 2, 0.5, -rootHInit / 2)
 	root.Size = UDim2.fromOffset(rootWInit, rootHInit)
@@ -1807,8 +1807,6 @@ function Library.new(config: WindowConfig)
 		local resizing = false
 		local dragStart: Vector2
 		local startPos: UDim2
-		local resizeStart: Vector2
-		local resizeStartSize: Vector2
 		local resizeEndConn: RBXScriptConnection? = nil
 
 		local function pointerScreen(input: InputObject): Vector2
@@ -1830,8 +1828,6 @@ function Library.new(config: WindowConfig)
 					return
 				end
 				resizing = true
-				resizeStart = pointerScreen(input)
-				resizeStartSize = Vector2.new(root.AbsoluteSize.X, root.AbsoluteSize.Y)
 				if resizeEndConn then
 					resizeEndConn:Disconnect()
 					resizeEndConn = nil
@@ -1912,9 +1908,10 @@ function Library.new(config: WindowConfig)
 				then
 					return
 				end
-				local delta = pointerScreen(input) - resizeStart
-				local newW = math.max(minRootW, resizeStartSize.X + delta.X)
-				local newH = math.max(minRootH, resizeStartSize.Y + delta.Y)
+				local tl = root.AbsolutePosition
+				local m = pointerScreen(input)
+				local newW = math.max(minRootW, m.X - tl.X)
+				local newH = math.max(minRootH, m.Y - tl.Y)
 				root.Size = UDim2.fromOffset(newW, newH)
 				return
 			end
