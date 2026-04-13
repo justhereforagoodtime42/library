@@ -1207,7 +1207,7 @@ export type WindowConfig = {
 	TabGlowEnabled: boolean?,
 	--[[ Dropdowns default to Multi when Multi is omitted (Obsidian-style) ]]
 	MultiDropdownByDefault: boolean?,
-	--[[ Mobile: "Left" | "Right" — draggable Toggle / Lock (Obsidian-style); default Right ]]
+	--[[ Mobile: "Left" | "Right" — draggable Toggle / Lock (Obsidian-style) ]]
 	MobileButtonsSide: string?,
 	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
 	UnlockMouseWhileOpen: boolean?,
@@ -1218,7 +1218,7 @@ function Library.new(config: WindowConfig)
 	local titleText = config.Title or "UI"
 	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
 	local titleIcon = config.TitleIcon
-	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Right"))
+	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Left"))
 	if mobileSide ~= "right" then
 		mobileSide = "left"
 	end
@@ -1503,13 +1503,20 @@ function Library.new(config: WindowConfig)
 		end
 	end
 
-	--[[ No full-screen notify wrapper: it sat above the hub and hid panel glow on the toast side (default right). ]]
+	-- Toasts: created after root so with Sibling ZIndex they stack above the window; high ZIndex vs root (0)
+	local notifyHost = Instance.new("Frame")
+	notifyHost.Name = "NotifyHost"
+	notifyHost.Size = UDim2.fromScale(1, 1)
+	notifyHost.BackgroundTransparency = 1
+	notifyHost.ZIndex = 800
+	notifyHost.Active = false
+	notifyHost.Parent = screenGui
 	local notifyList = Instance.new("Frame")
 	notifyList.Name = "NotifyList"
 	notifyList.Size = UDim2.new(0, 300, 1, -24)
 	notifyList.BackgroundTransparency = 1
-	notifyList.ZIndex = 800
-	notifyList.Parent = screenGui
+	notifyList.ZIndex = 801
+	notifyList.Parent = notifyHost
 	local nlayout = Instance.new("UIListLayout")
 	nlayout.SortOrder = Enum.SortOrder.LayoutOrder
 	nlayout.VerticalAlignment = Enum.VerticalAlignment.Top
@@ -1673,7 +1680,7 @@ function Library.new(config: WindowConfig)
 	sidebar.AutomaticSize = Enum.AutomaticSize.Y
 	sidebar.BackgroundTransparency = 1
 	sidebar.LayoutOrder = 0
-	-- Sidebar parented after mainPanel (see below) so tab glow draws above the panel edge.
+	sidebar.Parent = body
 
 	local sideList = Instance.new("UIListLayout")
 	sideList.Padding = UDim.new(0, 6)
@@ -1690,7 +1697,6 @@ function Library.new(config: WindowConfig)
 	mainPanel.BorderSizePixel = 0
 	mainPanel.ClipsDescendants = false
 	mainPanel.Parent = body
-	sidebar.Parent = body
 
 	local panelGlowHost: Frame? = nil
 	if config.GlowEnabled ~= false then
