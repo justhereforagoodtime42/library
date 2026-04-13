@@ -1739,7 +1739,7 @@ function Library.new(config: WindowConfig)
 		local chipOuter = Instance.new("Frame")
 		chipOuter.Name = "MobileTools"
 		chipOuter.BackgroundTransparency = 1
-		chipOuter.Size = UDim2.fromOffset(92, 78)
+		chipOuter.Size = UDim2.fromOffset(92, 98)
 		chipOuter.ZIndex = 950
 		chipOuter.Parent = screenGui
 		if mobileSide == "right" then
@@ -1748,8 +1748,11 @@ function Library.new(config: WindowConfig)
 		else
 			chipOuter.Position = UDim2.fromOffset(10, 10)
 		end
+		local chipPad = Instance.new("UIPadding")
+		chipPad.PaddingTop = UDim.new(0, 4)
+		chipPad.Parent = chipOuter
 		local _chipList = Instance.new("UIListLayout")
-		_chipList.Padding = UDim.new(0, 6)
+		_chipList.Padding = UDim.new(0, 10)
 		_chipList.Parent = chipOuter
 
 		local function makeMobileChip(label: string): TextButton
@@ -1769,14 +1772,21 @@ function Library.new(config: WindowConfig)
 			return b
 		end
 
-		makeMobileChip("Menu").MouseButton1Click:Connect(function()
-			setRootVisible(not root.Visible)
-		end)
+		local topSpacer = Instance.new("Frame")
+		topSpacer.Name = "MobileToolsTopSpacer"
+		topSpacer.BackgroundTransparency = 1
+		topSpacer.Size = UDim2.fromOffset(1, 6)
+		topSpacer.Parent = chipOuter
 
 		local lockChip = makeMobileChip("Lock")
 		lockChip.MouseButton1Click:Connect(function()
 			Library.CantDragForced = not Library.CantDragForced
 			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
+		end)
+
+		--[[ Menu (hub toggle) in the lower chip — same slot Lock used to occupy. ]]
+		makeMobileChip("Menu").MouseButton1Click:Connect(function()
+			setRootVisible(not root.Visible)
 		end)
 	end
 
