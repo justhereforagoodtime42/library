@@ -178,6 +178,9 @@ Library.IsMobile = false
 Library.DevicePlatform = nil :: Enum.Platform?
 Library.IsRobloxFocused = true
 Library.CantDragForced = false
+--[[ Mobile floating chips: theme refresh + Unload cleanup ]]
+Library._draggableBtnConns = {} :: { RBXScriptConnection }
+Library._draggableThemeButtons = {} :: { TextButton }
 
 do
 	if RunService:IsStudio() then
@@ -206,10 +209,10 @@ function Library:OnUnload(fn: () -> ())
 end
 
 function Library:RefreshTheme()
-	for _, fn in self._windowRefreshes do
+	for _, fn in self._windowRefreshes or {} do
 		pcall(fn)
 	end
-	for _, fn in self._notifyThemeRefreshes do
+	for _, fn in self._notifyThemeRefreshes or {} do
 		pcall(fn)
 	end
 end
@@ -720,10 +723,12 @@ function Library:Unload()
 		return
 	end
 	self.Unloaded = true
-	for _, fn in self._unloadCallbacks do
+	for _, fn in self._unloadCallbacks or {} do
 		pcall(fn)
 	end
-	table.clear(self._unloadCallbacks)
+	if self._unloadCallbacks then
+		table.clear(self._unloadCallbacks)
+	end
 	if self._menuInputConn then
 		self._menuInputConn:Disconnect()
 		self._menuInputConn = nil
@@ -740,8 +745,12 @@ function Library:Unload()
 	table.clear(self._themePaintDropdownScroll)
 	self._notifyList = nil
 	self._updateNotifyLayout = nil
-	table.clear(self._windowRefreshes)
-	table.clear(self._notifyThemeRefreshes)
+	if self._windowRefreshes then
+		table.clear(self._windowRefreshes)
+	end
+	if self._notifyThemeRefreshes then
+		table.clear(self._notifyThemeRefreshes)
+	end
 	table.clear(self.Toggles)
 	table.clear(self.Options)
 	self.ToggleKeybind = nil
@@ -1157,6 +1166,9 @@ function Library.new(config: WindowConfig)
 	modalSink.Parent = screenGui
 
 	Library.Unloaded = false
+	Library._windowRefreshes = Library._windowRefreshes or {}
+	Library._draggableBtnConns = Library._draggableBtnConns or {}
+	Library._draggableThemeButtons = Library._draggableThemeButtons or {}
 	table.clear(Library.Toggles)
 	table.clear(Library.Options)
 
@@ -1360,11 +1372,14 @@ function Library.new(config: WindowConfig)
 		end)
 	end
 
+	local rootWInit = size.X + mascotOffset
+	local rootHInit = size.Y + 48
 	local root = Instance.new("Frame")
 	root.Name = "Root"
-	root.AnchorPoint = Vector2.new(0.5, 0.5)
-	root.Position = UDim2.new(0.5, 0, 0.5, 0)
-	root.Size = UDim2.fromOffset(size.X + mascotOffset, size.Y + 48)
+	--[[ Obsidian-style: top-left anchor so drag/resize deltas track Input / PlayerMouse 1:1 (center anchor would halve resize motion). ]]
+	root.AnchorPoint = Vector2.zero
+	root.Position = UDim2.new(0.5, -rootWInit / 2, 0.5, -rootHInit / 2)
+	root.Size = UDim2.fromOffset(rootWInit, rootHInit)
 	root.BackgroundTransparency = 1
 	root.Parent = screenGui
 
@@ -1769,15 +1784,18 @@ function Library.new(config: WindowConfig)
 			return b
 		end
 
-		makeMobileChip("Menu").MouseButton1Click:Connect(function()
+		local menuChip = makeMobileChip("Menu")
+		menuChip.MouseButton1Click:Connect(function()
 			setRootVisible(not root.Visible)
 		end)
+		table.insert(Library._draggableThemeButtons, menuChip)
 
 		local lockChip = makeMobileChip("Lock")
 		lockChip.MouseButton1Click:Connect(function()
 			Library.CantDragForced = not Library.CantDragForced
 			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
 		end)
+		table.insert(Library._draggableThemeButtons, lockChip)
 	end
 
 	setRootVisible(true)
@@ -1791,8 +1809,14 @@ function Library.new(config: WindowConfig)
 		local startPos: UDim2
 		local resizeStart: Vector2
 		local resizeStartSize: Vector2
-		local resizeStartTL: Vector2
 		local resizeEndConn: RBXScriptConnection? = nil
+
+		local function pointerScreen(input: InputObject): Vector2
+			if input.UserInputType == Enum.UserInputType.Touch then
+				return Vector2.new(input.Position.X, input.Position.Y)
+			end
+			return Vector2.new(PlayerMouse.X, PlayerMouse.Y)
+		end
 
 		if resizeHandle then
 			resizeHandle.InputBegan:Connect(function(input: InputObject)
@@ -1806,9 +1830,8 @@ function Library.new(config: WindowConfig)
 					return
 				end
 				resizing = true
-				resizeStart = Vector2.new(input.Position.X, input.Position.Y)
+				resizeStart = pointerScreen(input)
 				resizeStartSize = Vector2.new(root.AbsoluteSize.X, root.AbsoluteSize.Y)
-				resizeStartTL = Vector2.new(root.AbsolutePosition.X, root.AbsolutePosition.Y)
 				if resizeEndConn then
 					resizeEndConn:Disconnect()
 					resizeEndConn = nil
@@ -1838,7 +1861,7 @@ function Library.new(config: WindowConfig)
 			then
 				return
 			end
-			local p = Vector2.new(input.Position.X, input.Position.Y)
+			local p = pointerScreen(input)
 			local function inDragRegion(): boolean
 				local ap = mainPanel.AbsolutePosition
 				local as = mainPanel.AbsoluteSize
@@ -1889,24 +1912,10 @@ function Library.new(config: WindowConfig)
 				then
 					return
 				end
-				local delta = Vector2.new(input.Position.X, input.Position.Y) - resizeStart
+				local delta = pointerScreen(input) - resizeStart
 				local newW = math.max(minRootW, resizeStartSize.X + delta.X)
 				local newH = math.max(minRootH, resizeStartSize.Y + delta.Y)
 				root.Size = UDim2.fromOffset(newW, newH)
-				--[[ Root uses AnchorPoint (0.5, 0.5): changing only Size keeps the center fixed, so the
-				    bottom-right moves half as much as the cursor. Keep top-left fixed so the grip tracks. ]]
-				local par = root.Parent
-				local pap = Vector2.zero
-				if par then
-					local ok, ap = pcall(function()
-						return (par :: any).AbsolutePosition
-					end)
-					if ok and typeof(ap) == "Vector2" then
-						pap = ap
-					end
-				end
-				local center = resizeStartTL + Vector2.new(newW / 2, newH / 2)
-				root.Position = UDim2.fromOffset(center.X - pap.X, center.Y - pap.Y)
 				return
 			end
 			if not dragging then
@@ -1918,7 +1927,7 @@ function Library.new(config: WindowConfig)
 			then
 				return
 			end
-			local delta = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+			local delta = pointerScreen(input) - dragStart
 			root.Position = UDim2.new(
 				startPos.X.Scale,
 				startPos.X.Offset + delta.X,
@@ -2013,6 +2022,17 @@ function Library.new(config: WindowConfig)
 			pcall(chevRefresh)
 		end
 		selectTab(activeTab)
+		for _, db in Library._draggableThemeButtons or {} do
+			if db.Parent then
+				db.BackgroundColor3 = Theme.Elevated
+				db.TextColor3 = Theme.Text
+				for _, ch in db:GetChildren() do
+					if ch:IsA("UIStroke") then
+						ch.Color = Theme.Stroke
+					end
+				end
+			end
+		end
 		if resizeHandle then
 			local grip = resizeHandle:FindFirstChild("ResizeIcon")
 			if grip and grip:IsA("ImageLabel") then
@@ -2065,16 +2085,24 @@ function Library.new(config: WindowConfig)
 
 	local function destroyWindowGui()
 		destroyKeybindModeMenu()
-		for _, c in dragConn do
-			c:Disconnect()
+		Library._draggableBtnConns = Library._draggableBtnConns or {}
+		Library._draggableThemeButtons = Library._draggableThemeButtons or {}
+		for _, c in Library._draggableBtnConns do
+			pcall(function()
+				c:Disconnect()
+			end)
 		end
-		table.clear(dragConn)
-		for i, fn in Library._windowRefreshes do
-			if fn == refreshThemeFn then
-				table.remove(Library._windowRefreshes, i)
-				break
+		table.clear(Library._draggableBtnConns)
+		table.clear(Library._draggableThemeButtons)
+		if dragConn then
+			for _, c in dragConn do
+				pcall(function()
+					c:Disconnect()
+				end)
 			end
+			table.clear(dragConn)
 		end
+		--[[ _windowRefreshes cleared in Library:Unload after this; avoid iterating if table missing. ]]
 		if screenGui.Parent then
 			screenGui:Destroy()
 		end
