@@ -1865,8 +1865,9 @@ function Library.new(config: WindowConfig)
 
 	--[[ Floating Toggle / Lock (Obsidian-style draggable buttons) — keyboard toggle is unreliable on pure touch clients ]]
 	if Library.IsMobile then
-		local topY = GuiService:GetGuiInset().Y + 10
-		local rowGap = 40
+		--[[ Inset alone is often 0 under injectors / too small vs CoreGui menu; force clearance below Roblox top bar ]]
+		local topY = math.max(GuiService:GetGuiInset().Y + 48, 58)
+		local rowGap = 42
 		local ToggleButton = Library:AddDraggableButton("Toggle", function()
 			Library:Toggle()
 		end, true)
