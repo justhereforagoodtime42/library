@@ -8,7 +8,6 @@ local UserInputService = cloneref(game:GetService("UserInputService"))
 local TweenService = cloneref(game:GetService("TweenService"))
 local RunService = cloneref(game:GetService("RunService"))
 local TextService = cloneref(game:GetService("TextService"))
-local GuiService = cloneref(game:GetService("GuiService"))
 
 local protectgui = protectgui or (syn and syn.protect_gui) or function() end
 local gethui = gethui or function()
@@ -1208,7 +1207,7 @@ export type WindowConfig = {
 	TabGlowEnabled: boolean?,
 	--[[ Dropdowns default to Multi when Multi is omitted (Obsidian-style) ]]
 	MultiDropdownByDefault: boolean?,
-	--[[ Mobile: "Left" | "Right" — draggable Toggle / Lock (Obsidian-style) ]]
+	--[[ Mobile: "Left" | "Right" — draggable Toggle / Lock (Obsidian-style); default Right ]]
 	MobileButtonsSide: string?,
 	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
 	UnlockMouseWhileOpen: boolean?,
@@ -1219,7 +1218,7 @@ function Library.new(config: WindowConfig)
 	local titleText = config.Title or "UI"
 	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
 	local titleIcon = config.TitleIcon
-	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Left"))
+	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Right"))
 	if mobileSide ~= "right" then
 		mobileSide = "left"
 	end
@@ -1865,9 +1864,6 @@ function Library.new(config: WindowConfig)
 
 	--[[ Floating Toggle / Lock (Obsidian-style draggable buttons) — keyboard toggle is unreliable on pure touch clients ]]
 	if Library.IsMobile then
-		--[[ Inset alone is often 0 under injectors / too small vs CoreGui menu; force clearance below Roblox top bar ]]
-		local topY = math.max(GuiService:GetGuiInset().Y + 48, 58)
-		local rowGap = 42
 		local ToggleButton = Library:AddDraggableButton("Toggle", function()
 			Library:Toggle()
 		end, true)
@@ -1878,14 +1874,13 @@ function Library.new(config: WindowConfig)
 		end, true)
 
 		if mobileSide == "right" then
-			ToggleButton.Button.Position = UDim2.new(1, -6, 0, topY)
+			ToggleButton.Button.Position = UDim2.new(1, -6, 0, 6)
 			ToggleButton.Button.AnchorPoint = Vector2.new(1, 0)
 
-			LockButton.Button.Position = UDim2.new(1, -6, 0, topY + rowGap)
+			LockButton.Button.Position = UDim2.new(1, -6, 0, 46)
 			LockButton.Button.AnchorPoint = Vector2.new(1, 0)
 		else
-			ToggleButton.Button.Position = UDim2.fromOffset(6, topY)
-			LockButton.Button.Position = UDim2.fromOffset(6, topY + rowGap)
+			LockButton.Button.Position = UDim2.fromOffset(6, 46)
 		end
 	end
 
