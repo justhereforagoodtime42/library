@@ -160,6 +160,11 @@ Library._notifyList = nil :: Frame?
 Library._notifyOrder = 0
 Library._updateNotifyLayout = nil :: (() -> ())?
 Library._windowDestroy = nil :: (() -> ())?
+--[[ Obsidian-style draggable HUD (mobile Toggle / Lock) ]]
+Library.ScreenGui = nil :: ScreenGui?
+Library._windowToggleFn = nil :: ((boolean?) -> ())?
+Library._draggableBtnConns = {} :: { RBXScriptConnection }
+Library._draggableThemeButtons = {} :: { TextButton }
 --[[ Per-toast refresh callbacks so notifications follow Library.Theme after ThemeManager:ApplyTheme ]]
 Library._notifyThemeRefreshes = {} :: { () -> () }
 Library._libFocusConn = nil :: RBXScriptConnection?
@@ -746,6 +751,10 @@ function Library:Unload()
 	table.clear(self.Options)
 	self.ToggleKeybind = nil
 	self.CantDragForced = false
+	self.ScreenGui = nil
+	self._windowToggleFn = nil
+	table.clear(self._draggableBtnConns)
+	table.clear(self._draggableThemeButtons)
 end
 
 --[[ Works when Color3.fromHex is missing or picky; accepts #RGB, #RRGGBB ]]
@@ -1076,6 +1085,112 @@ function Library:SetIconModule(module: any)
 	end
 end
 
+--[[ Obsidian-style: floating draggable TextButton on ScreenGui (mobile Toggle / Lock). ]]
+function Library:AddDraggableButton(
+	text: string,
+	callback: (tbl: { SetText: (string) -> (), Button: TextButton }) -> (),
+	_excludeScaling: boolean?
+): { Button: TextButton, SetText: (string) -> () }
+	if not self.ScreenGui or not self.ScreenGui.Parent then
+		error("AddDraggableButton: ScreenGui not ready")
+	end
+	local btn = Instance.new("TextButton")
+	btn.Name = "DraggableBtn"
+	btn.BackgroundColor3 = Theme.Elevated
+	btn.BackgroundTransparency = 0.08
+	btn.Text = text
+	btn.TextColor3 = Theme.Text
+	btn.TextSize = 16
+	btn.Font = Enum.Font.GothamMedium
+	btn.AutoButtonColor = false
+	btn.BorderSizePixel = 0
+	btn.Position = UDim2.fromOffset(6, 6)
+	btn.ZIndex = 950
+	corner(Theme.CornerSm).Parent = btn
+	stroke(Theme.Stroke, 1, 0.5).Parent = btn
+	btn.Parent = self.ScreenGui
+	table.insert(self._draggableThemeButtons, btn)
+
+	local tbl = {
+		Button = btn,
+	}
+	function tbl:SetText(s: string)
+		btn.Text = s
+		local p = Instance.new("GetTextBoundsParams")
+		p.Text = s
+		p.RichText = false
+		p.Font = Font.fromEnum(Enum.Font.GothamMedium)
+		p.Size = 16
+		p.Width = 4096
+		local sz = TextService:GetTextBoundsAsync(p)
+		btn.Size = UDim2.fromOffset(math.ceil(sz.X * 2), math.ceil(sz.Y * 2))
+	end
+	tbl:SetText(text)
+
+	btn.MouseButton1Click:Connect(function()
+		callback(tbl)
+	end)
+
+	local dragging = false
+	local dragStart: Vector2
+	local startPos: UDim2
+	local endConn: RBXScriptConnection? = nil
+	btn.InputBegan:Connect(function(input: InputObject)
+		if
+			input.UserInputType ~= Enum.UserInputType.MouseButton1
+			and input.UserInputType ~= Enum.UserInputType.Touch
+		then
+			return
+		end
+		if not self.IsRobloxFocused then
+			return
+		end
+		dragging = true
+		dragStart = Vector2.new(input.Position.X, input.Position.Y)
+		startPos = btn.Position
+		if endConn then
+			endConn:Disconnect()
+			endConn = nil
+		end
+		endConn = input.Changed:Connect(function()
+			if input.UserInputState == Enum.UserInputState.End then
+				dragging = false
+				if endConn then
+					endConn:Disconnect()
+					endConn = nil
+				end
+			end
+		end)
+	end)
+	local moveConn = UserInputService.InputChanged:Connect(function(input: InputObject)
+		if not dragging then
+			return
+		end
+		if
+			input.UserInputType ~= Enum.UserInputType.MouseMovement
+			and input.UserInputType ~= Enum.UserInputType.Touch
+		then
+			return
+		end
+		local d = Vector2.new(input.Position.X, input.Position.Y) - dragStart
+		btn.Position = UDim2.new(
+			startPos.X.Scale,
+			startPos.X.Offset + d.X,
+			startPos.Y.Scale,
+			startPos.Y.Offset + d.Y
+		)
+	end)
+	table.insert(self._draggableBtnConns, moveConn)
+	return tbl
+end
+
+function Library:Toggle(value: boolean?)
+	if self.Unloaded or not self._windowToggleFn then
+		return
+	end
+	self._windowToggleFn(value)
+end
+
 export type WindowConfig = {
 	Title: string?,
 	Subtitle: string?,
@@ -1092,7 +1207,7 @@ export type WindowConfig = {
 	TabGlowEnabled: boolean?,
 	--[[ Dropdowns default to Multi when Multi is omitted (Obsidian-style) ]]
 	MultiDropdownByDefault: boolean?,
-	--[[ Mobile: "Left" | "Right" — floating Menu / Lock chips ]]
+	--[[ Mobile: "Left" | "Right" — draggable Toggle / Lock (Obsidian-style) ]]
 	MobileButtonsSide: string?,
 	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
 	UnlockMouseWhileOpen: boolean?,
@@ -1997,6 +2112,17 @@ function Library.new(config: WindowConfig)
 			pcall(chevRefresh)
 		end
 		selectTab(activeTab)
+		for _, db in Library._draggableThemeButtons do
+			if db.Parent then
+				db.BackgroundColor3 = Theme.Elevated
+				db.TextColor3 = Theme.Text
+				for _, ch in db:GetChildren() do
+					if ch:IsA("UIStroke") then
+						ch.Color = Theme.Stroke
+					end
+				end
+			end
+		end
 		if resizeHandle then
 			local grip = resizeHandle:FindFirstChild("ResizeIcon")
 			if grip and grip:IsA("ImageLabel") then
@@ -2049,6 +2175,15 @@ function Library.new(config: WindowConfig)
 
 	local function destroyWindowGui()
 		destroyKeybindModeMenu()
+		for _, c in Library._draggableBtnConns do
+			pcall(function()
+				c:Disconnect()
+			end)
+		end
+		table.clear(Library._draggableBtnConns)
+		table.clear(Library._draggableThemeButtons)
+		Library.ScreenGui = nil
+		Library._windowToggleFn = nil
 		for _, c in dragConn do
 			c:Disconnect()
 		end
