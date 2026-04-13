@@ -1098,7 +1098,7 @@ export type WindowConfig = {
 	TabGlowEnabled: boolean?,
 	--[[ Dropdowns default to Multi when Multi is omitted (Obsidian-style) ]]
 	MultiDropdownByDefault: boolean?,
-	--[[ Mobile: "Left" | "Right" — floating Menu / Lock chips (default Right) ]]
+	--[[ Touch clients: floating Menu / Lock chips. "Left" | "Right" (default Right). ]]
 	MobileButtonsSide: string?,
 	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
 	UnlockMouseWhileOpen: boolean?,
@@ -1109,9 +1109,15 @@ function Library.new(config: WindowConfig)
 	local titleText = config.Title or "UI"
 	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
 	local titleIcon = config.TitleIcon
-	local mobileSide = string.lower(tostring(config.MobileButtonsSide or "Right"))
-	if mobileSide ~= "right" then
-		mobileSide = "left"
+	local mobileSide: string = "right"
+	do
+		local raw = config.MobileButtonsSide
+		if raw ~= nil then
+			local s = string.lower((tostring(raw):gsub("^%s*(.-)%s*$", "%1")))
+			if s == "left" then
+				mobileSide = "left"
+			end
+		end
 	end
 	local unlockMouseWhileOpen = config.UnlockMouseWhileOpen ~= false
 	local defaultMin = if Library.IsMobile then Vector2.new(300, 200) else Vector2.new(380, 300)
@@ -1746,8 +1752,8 @@ function Library.new(config: WindowConfig)
 		resizeHandle = rh
 	end
 
-	--[[ Floating Menu / Lock (Obsidian-style) — keyboard toggle is unreliable on pure touch clients ]]
-	if Library.IsMobile then
+	--[[ Floating Menu / Lock — any TouchEnabled client (some phones still report MouseEnabled) ]]
+	if UserInputService.TouchEnabled then
 		local chipOuter = Instance.new("Frame")
 		chipOuter.Name = "MobileTools"
 		chipOuter.BackgroundTransparency = 1
@@ -1758,10 +1764,14 @@ function Library.new(config: WindowConfig)
 			chipOuter.AnchorPoint = Vector2.new(1, 0)
 			chipOuter.Position = UDim2.new(1, -10, 0, 10)
 		else
+			chipOuter.AnchorPoint = Vector2.zero
 			chipOuter.Position = UDim2.fromOffset(10, 10)
 		end
 		local _chipList = Instance.new("UIListLayout")
 		_chipList.Padding = UDim.new(0, 6)
+		_chipList.HorizontalAlignment = if mobileSide == "right"
+			then Enum.HorizontalAlignment.Right
+			else Enum.HorizontalAlignment.Left
 		_chipList.Parent = chipOuter
 
 		local function makeMobileChip(label: string): TextButton
