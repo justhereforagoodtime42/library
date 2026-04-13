@@ -178,9 +178,6 @@ Library.IsMobile = false
 Library.DevicePlatform = nil :: Enum.Platform?
 Library.IsRobloxFocused = true
 Library.CantDragForced = false
---[[ Mobile floating chips: theme refresh + Unload cleanup ]]
-Library._draggableBtnConns = {} :: { RBXScriptConnection }
-Library._draggableThemeButtons = {} :: { TextButton }
 
 do
 	if RunService:IsStudio() then
@@ -1772,18 +1769,15 @@ function Library.new(config: WindowConfig)
 			return b
 		end
 
-		local menuChip = makeMobileChip("Menu")
-		menuChip.MouseButton1Click:Connect(function()
+		makeMobileChip("Menu").MouseButton1Click:Connect(function()
 			setRootVisible(not root.Visible)
 		end)
-		table.insert(Library._draggableThemeButtons, menuChip)
 
 		local lockChip = makeMobileChip("Lock")
 		lockChip.MouseButton1Click:Connect(function()
 			Library.CantDragForced = not Library.CantDragForced
 			lockChip.Text = if Library.CantDragForced then "Unlock" else "Lock"
 		end)
-		table.insert(Library._draggableThemeButtons, lockChip)
 	end
 
 	setRootVisible(true)
@@ -2003,17 +1997,6 @@ function Library.new(config: WindowConfig)
 			pcall(chevRefresh)
 		end
 		selectTab(activeTab)
-		for _, db in Library._draggableThemeButtons or {} do
-			if db.Parent then
-				db.BackgroundColor3 = Theme.Elevated
-				db.TextColor3 = Theme.Text
-				for _, ch in db:GetChildren() do
-					if ch:IsA("UIStroke") then
-						ch.Color = Theme.Stroke
-					end
-				end
-			end
-		end
 		if resizeHandle then
 			local grip = resizeHandle:FindFirstChild("ResizeIcon")
 			if grip and grip:IsA("ImageLabel") then
@@ -2066,19 +2049,6 @@ function Library.new(config: WindowConfig)
 
 	local function destroyWindowGui()
 		destroyKeybindModeMenu()
-		if not Library._draggableBtnConns then
-			Library._draggableBtnConns = {}
-		end
-		if not Library._draggableThemeButtons then
-			Library._draggableThemeButtons = {}
-		end
-		for _, c in Library._draggableBtnConns do
-			pcall(function()
-				c:Disconnect()
-			end)
-		end
-		table.clear(Library._draggableBtnConns)
-		table.clear(Library._draggableThemeButtons)
 		for _, c in dragConn do
 			c:Disconnect()
 		end
