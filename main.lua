@@ -160,6 +160,8 @@ Library._notifyList = nil :: Frame?
 Library._notifyOrder = 0
 Library._updateNotifyLayout = nil :: (() -> ())?
 Library._windowDestroy = nil :: (() -> ())?
+--[[ Set while a hub window from Library.new exists; used by SaveManager for window size in configs ]]
+Library.Window = nil :: any
 --[[ Per-toast refresh callbacks so notifications follow Library.Theme after ThemeManager:ApplyTheme ]]
 Library._notifyThemeRefreshes = {} :: { () -> () }
 Library._libFocusConn = nil :: RBXScriptConnection?
@@ -734,6 +736,7 @@ function Library:Unload()
 		self._windowDestroy()
 		self._windowDestroy = nil
 	end
+	self.Window = nil
 	self:_disconnectThemePaintSubscribers()
 	self._themePaintHost = nil
 	self:InvalidateThemePaintCache()
@@ -2168,6 +2171,24 @@ function Library.new(config: WindowConfig)
 		setRootVisible(not root.Visible)
 	end)
 
+	local function getRootMaxSize(): (number, number)
+		local cam = workspace.CurrentCamera
+		local margin = 28
+		local maxContentW = minContent.X
+		local maxContentH = minContent.Y
+		if cam then
+			local vs = cam.ViewportSize
+			maxContentW = math.max(minContent.X, vs.X - margin)
+			maxContentH = math.max(minContent.Y, vs.Y - margin)
+		end
+		return maxContentW + mascotOffset, maxContentH + 48
+	end
+
+	local function clampRootSizePixels(nw: number, nh: number): (number, number)
+		local maxW, maxH = getRootMaxSize()
+		return math.clamp(nw, minRootW, maxW), math.clamp(nh, minRootH, maxH)
+	end
+
 	local window = {
 		_gui = screenGui,
 		_root = root,
@@ -2217,6 +2238,16 @@ function Library.new(config: WindowConfig)
 
 	function window:SetSubtitle(t: string)
 		subtitle.Text = t
+	end
+
+	--[[ Root frame pixel size (includes mascot strip + 48px header); used by SaveManager. ]]
+	function window:GetRootSize(): Vector2
+		return Vector2.new(root.Size.X.Offset, root.Size.Y.Offset)
+	end
+
+	function window:SetRootSize(width: number, height: number)
+		local w, h = clampRootSizePixels(width, height)
+		root.Size = UDim2.fromOffset(w, h)
 	end
 
 	function window:SetCornerRadius(n: number)
@@ -5023,6 +5054,7 @@ function Library.new(config: WindowConfig)
 		return Tab.AddSection(self, header, o)
 	end
 
+	Library.Window = window
 	return window
 end
 
