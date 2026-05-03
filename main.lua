@@ -4014,8 +4014,18 @@ function Library.new(config: WindowConfig)
 				else
 					-- keep empty until user picks
 				end
+				--[[
+					If SetValues runs while the list is open, stale search text can filter out all new rows;
+					rebuild must run against a cleared query so the open panel visibly updates.
+				]]
+				if open and searchBox then
+					searchBox.Text = ""
+				end
 				buildOptionButtons()
 				refreshOptionVisuals()
+				if open then
+					listF.Visible = true
+				end
 				syncReg()
 			end
 
