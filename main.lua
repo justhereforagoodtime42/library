@@ -3091,6 +3091,7 @@ function Library.new(config: WindowConfig)
 			end
 
 			local listening = false
+			local suppressUntil = 0
 			local keyCbs: { () -> () } = {}
 			local bindMode: string = ko.Mode == "Hold" and "Hold" or "Toggle"
 
@@ -3107,6 +3108,7 @@ function Library.new(config: WindowConfig)
 				keyName = name
 				keyReg.Value = kc
 				capBtn.Text = keyCapLabel(kc, keyName)
+				suppressUntil = os.clock() + 0.2
 				for _, cb in keyCbs do
 					task.spawn(cb)
 				end
@@ -3118,6 +3120,7 @@ function Library.new(config: WindowConfig)
 				end
 				bindMode = m
 				keyReg.Mode = bindMode
+				suppressUntil = os.clock() + 0.2
 				for _, cb in keyCbs do
 					task.spawn(cb)
 				end
@@ -3213,6 +3216,9 @@ function Library.new(config: WindowConfig)
 
 			UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
 				if Library.Unloaded or listening or gp then
+					return
+				end
+				if os.clock() < suppressUntil then
 					return
 				end
 				if not Library.IsRobloxFocused then
@@ -4309,6 +4315,7 @@ function Library.new(config: WindowConfig)
 			corner(Theme.CornerSm).Parent = capBtn
 
 			local listening = false
+			local suppressUntil = 0
 			local keyCbs: { () -> () } = {}
 			local reg: any = {
 				Type = "KeyPicker",
@@ -4323,6 +4330,7 @@ function Library.new(config: WindowConfig)
 				keyName = name
 				reg.Value = kc
 				capBtn.Text = keyCapLabel(kc, keyName)
+				suppressUntil = os.clock() + 0.2
 				for _, cb in keyCbs do
 					task.spawn(cb)
 				end
@@ -4334,6 +4342,7 @@ function Library.new(config: WindowConfig)
 				end
 				bindMode = m
 				reg.Mode = bindMode
+				suppressUntil = os.clock() + 0.2
 				for _, cb in keyCbs do
 					task.spawn(cb)
 				end
@@ -4426,6 +4435,9 @@ function Library.new(config: WindowConfig)
 
 			UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
 				if Library.Unloaded or listening or gp then
+					return
+				end
+				if os.clock() < suppressUntil then
 					return
 				end
 				if not Library.IsRobloxFocused then
