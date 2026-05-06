@@ -3091,7 +3091,7 @@ function Library.new(config: WindowConfig)
 			end
 
 			local listening = false
-			local suppressUntil = 0
+			local ignoredInputForActivation: InputObject? = nil
 			local keyCbs: { () -> () } = {}
 			local bindMode: string = ko.Mode == "Hold" and "Hold" or "Toggle"
 
@@ -3108,7 +3108,6 @@ function Library.new(config: WindowConfig)
 				keyName = name
 				keyReg.Value = kc
 				capBtn.Text = keyCapLabel(kc, keyName)
-				suppressUntil = os.clock() + 0.2
 				for _, cb in keyCbs do
 					task.spawn(cb)
 				end
@@ -3120,7 +3119,6 @@ function Library.new(config: WindowConfig)
 				end
 				bindMode = m
 				keyReg.Mode = bindMode
-				suppressUntil = os.clock() + 0.2
 				for _, cb in keyCbs do
 					task.spawn(cb)
 				end
@@ -3201,6 +3199,7 @@ function Library.new(config: WindowConfig)
 								capConn = nil
 							end
 							listening = false
+							ignoredInputForActivation = input
 							applyKey(input.KeyCode, input.KeyCode.Name)
 							if ko.Idx == "MenuKeybind" or ko.NoUI then
 								Library.ToggleKeybind = keyReg
@@ -3218,7 +3217,8 @@ function Library.new(config: WindowConfig)
 				if Library.Unloaded or listening or gp then
 					return
 				end
-				if os.clock() < suppressUntil then
+				if input == ignoredInputForActivation then
+					ignoredInputForActivation = nil
 					return
 				end
 				if not Library.IsRobloxFocused then
@@ -4315,7 +4315,7 @@ function Library.new(config: WindowConfig)
 			corner(Theme.CornerSm).Parent = capBtn
 
 			local listening = false
-			local suppressUntil = 0
+			local ignoredInputForActivation: InputObject? = nil
 			local keyCbs: { () -> () } = {}
 			local reg: any = {
 				Type = "KeyPicker",
@@ -4330,7 +4330,6 @@ function Library.new(config: WindowConfig)
 				keyName = name
 				reg.Value = kc
 				capBtn.Text = keyCapLabel(kc, keyName)
-				suppressUntil = os.clock() + 0.2
 				for _, cb in keyCbs do
 					task.spawn(cb)
 				end
@@ -4342,7 +4341,6 @@ function Library.new(config: WindowConfig)
 				end
 				bindMode = m
 				reg.Mode = bindMode
-				suppressUntil = os.clock() + 0.2
 				for _, cb in keyCbs do
 					task.spawn(cb)
 				end
@@ -4420,6 +4418,7 @@ function Library.new(config: WindowConfig)
 								capConn = nil
 							end
 							listening = false
+							ignoredInputForActivation = input
 							applyKey(input.KeyCode, input.KeyCode.Name)
 							if o.Idx == "MenuKeybind" or o.NoUI then
 								Library.ToggleKeybind = reg
@@ -4437,7 +4436,8 @@ function Library.new(config: WindowConfig)
 				if Library.Unloaded or listening or gp then
 					return
 				end
-				if os.clock() < suppressUntil then
+				if input == ignoredInputForActivation then
+					ignoredInputForActivation = nil
 					return
 				end
 				if not Library.IsRobloxFocused then
