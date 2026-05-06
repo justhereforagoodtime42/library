@@ -3107,6 +3107,7 @@ function Library.new(config: WindowConfig)
 				kc = newK
 				keyName = name
 				keyReg.Value = kc
+				keyReg.Toggled = false
 				capBtn.Text = keyCapLabel(kc, keyName)
 				for _, cb in keyCbs do
 					task.spawn(cb)
@@ -3119,6 +3120,9 @@ function Library.new(config: WindowConfig)
 				end
 				bindMode = m
 				keyReg.Mode = bindMode
+				if bindMode == "Toggle" then
+					keyReg.Toggled = false
+				end
 				for _, cb in keyCbs do
 					task.spawn(cb)
 				end
@@ -4329,6 +4333,7 @@ function Library.new(config: WindowConfig)
 				kc = newK
 				keyName = name
 				reg.Value = kc
+				reg.Toggled = false
 				capBtn.Text = keyCapLabel(kc, keyName)
 				for _, cb in keyCbs do
 					task.spawn(cb)
@@ -4341,6 +4346,9 @@ function Library.new(config: WindowConfig)
 				end
 				bindMode = m
 				reg.Mode = bindMode
+				if bindMode == "Toggle" then
+					reg.Toggled = false
+				end
 				for _, cb in keyCbs do
 					task.spawn(cb)
 				end
