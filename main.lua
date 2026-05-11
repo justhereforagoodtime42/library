@@ -171,7 +171,9 @@ Library._libFocusReleasedConn = nil :: RBXScriptConnection?
 
 Library.ShowCustomCursor = false
 Library.CursorImage = ""
+Library.CursorColor = Color3.new(1, 1, 1)
 Library._cursorRoot = nil :: Frame?
+Library._cursorVBar = nil :: Frame?
 Library._cursorImage = nil :: ImageLabel?
 Library._cursorRenderBound = false
 Library._cursorRenderName = "AcidHubCustomCursor"
@@ -352,6 +354,20 @@ function Library:SetCursorEnabled(state: boolean)
 	self.ShowCustomCursor = state == true
 	if typeof(self._cursorRefresh) == "function" then
 		self._cursorRefresh()
+	end
+end
+
+
+function Library:SetCursorColor(color: Color3)
+	if typeof(color) ~= "Color3" then
+		return
+	end
+	self.CursorColor = color
+	if self._cursorRoot then
+		self._cursorRoot.BackgroundColor3 = color
+	end
+	if self._cursorVBar then
+		self._cursorVBar.BackgroundColor3 = color
 	end
 end
 
@@ -796,6 +812,7 @@ function Library:Unload()
 		self._cursorPrevMouseIcon = nil
 	end
 	self._cursorRoot = nil
+	self._cursorVBar = nil
 	self._cursorImage = nil
 	self._cursorRefresh = nil
 	self._cursorWindowOpen = false
@@ -1235,10 +1252,11 @@ function Library.new(config: WindowConfig)
 	--[[ Cursor — same structure / sizes / ZIndex as Obsidian (deividcomsono/Obsidian):
 		horizontal bar = root Frame (WhiteColor), dark outline behind H, vertical bar child (WhiteColor),
 		dark outline behind V, optional ImageLabel overlay. Scheme: WhiteColor / DarkColor as pure white/black. ]]
+	local cursorColor = if typeof(Library.CursorColor) == "Color3" then Library.CursorColor else Color3.new(1, 1, 1)
 	local cursorRoot = Instance.new("Frame")
 	cursorRoot.Name = "Cursor"
 	cursorRoot.AnchorPoint = Vector2.new(0.5, 0.5)
-	cursorRoot.BackgroundColor3 = Color3.new(1, 1, 1)
+	cursorRoot.BackgroundColor3 = cursorColor
 	cursorRoot.BorderSizePixel = 0
 	cursorRoot.Size = UDim2.fromOffset(9, 1)
 	cursorRoot.Visible = false
@@ -1257,7 +1275,7 @@ function Library.new(config: WindowConfig)
 
 	local cursorV = Instance.new("Frame")
 	cursorV.AnchorPoint = Vector2.new(0.5, 0.5)
-	cursorV.BackgroundColor3 = Color3.new(1, 1, 1)
+	cursorV.BackgroundColor3 = cursorColor
 	cursorV.BorderSizePixel = 0
 	cursorV.Position = UDim2.fromScale(0.5, 0.5)
 	cursorV.Size = UDim2.fromOffset(1, 9)
@@ -1284,6 +1302,7 @@ function Library.new(config: WindowConfig)
 	cursorImage.Parent = cursorRoot
 
 	Library._cursorRoot = cursorRoot
+	Library._cursorVBar = cursorV
 	Library._cursorImage = cursorImage
 
 	Library.Unloaded = false
@@ -2410,6 +2429,7 @@ function Library.new(config: WindowConfig)
 			Library._cursorPrevMouseIcon = nil
 		end
 		Library._cursorRoot = nil
+		Library._cursorVBar = nil
 		Library._cursorImage = nil
 		Library._cursorRefresh = nil
 		Library._cursorWindowOpen = false
