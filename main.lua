@@ -1249,9 +1249,6 @@ function Library.new(config: WindowConfig)
 	modalSink.AutoButtonColor = false
 	modalSink.Parent = screenGui
 
-	--[[ Cursor — same structure / sizes / ZIndex as Obsidian (deividcomsono/Obsidian):
-		horizontal bar = root Frame (WhiteColor), dark outline behind H, vertical bar child (WhiteColor),
-		dark outline behind V, optional ImageLabel overlay. Scheme: WhiteColor / DarkColor as pure white/black. ]]
 	local cursorColor = if typeof(Library.CursorColor) == "Color3" then Library.CursorColor else Color3.new(1, 1, 1)
 	local cursorRoot = Instance.new("Frame")
 	cursorRoot.Name = "Cursor"
@@ -1264,14 +1261,12 @@ function Library.new(config: WindowConfig)
 	cursorRoot.ZIndex = 11000
 	cursorRoot.Parent = screenGui
 
-	local cursorHShadow = Instance.new("Frame")
-	cursorHShadow.AnchorPoint = Vector2.new(0.5, 0.5)
-	cursorHShadow.BackgroundColor3 = Color3.new(0, 0, 0)
-	cursorHShadow.BorderSizePixel = 0
-	cursorHShadow.Position = UDim2.fromScale(0.5, 0.5)
-	cursorHShadow.Size = UDim2.new(1, 2, 1, 2)
-	cursorHShadow.ZIndex = 10999
-	cursorHShadow.Parent = cursorRoot
+	local cursorHStroke = Instance.new("UIStroke")
+	cursorHStroke.Color = Color3.new(0, 0, 0)
+	cursorHStroke.Thickness = 1
+	cursorHStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	cursorHStroke.LineJoinMode = Enum.LineJoinMode.Miter
+	cursorHStroke.Parent = cursorRoot
 
 	local cursorV = Instance.new("Frame")
 	cursorV.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1279,17 +1274,15 @@ function Library.new(config: WindowConfig)
 	cursorV.BorderSizePixel = 0
 	cursorV.Position = UDim2.fromScale(0.5, 0.5)
 	cursorV.Size = UDim2.fromOffset(1, 9)
-	cursorV.ZIndex = 11000
+	cursorV.ZIndex = 11001
 	cursorV.Parent = cursorRoot
 
-	local cursorVShadow = Instance.new("Frame")
-	cursorVShadow.AnchorPoint = Vector2.new(0.5, 0.5)
-	cursorVShadow.BackgroundColor3 = Color3.new(0, 0, 0)
-	cursorVShadow.BorderSizePixel = 0
-	cursorVShadow.Position = UDim2.fromScale(0.5, 0.5)
-	cursorVShadow.Size = UDim2.new(1, 2, 1, 2)
-	cursorVShadow.ZIndex = 10999
-	cursorVShadow.Parent = cursorV
+	local cursorVStroke = Instance.new("UIStroke")
+	cursorVStroke.Color = Color3.new(0, 0, 0)
+	cursorVStroke.Thickness = 1
+	cursorVStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+	cursorVStroke.LineJoinMode = Enum.LineJoinMode.Miter
+	cursorVStroke.Parent = cursorV
 
 	local cursorImage = Instance.new("ImageLabel")
 	cursorImage.Name = "CursorCustomImage"
@@ -1298,7 +1291,7 @@ function Library.new(config: WindowConfig)
 	cursorImage.Position = UDim2.fromScale(0.5, 0.5)
 	cursorImage.Size = UDim2.fromOffset(20, 20)
 	cursorImage.Visible = false
-	cursorImage.ZIndex = 11000
+	cursorImage.ZIndex = 11002
 	cursorImage.Parent = cursorRoot
 
 	Library._cursorRoot = cursorRoot
