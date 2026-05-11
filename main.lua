@@ -17,6 +17,8 @@ end
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 --[[ Obsidian-style: PlayerMouse matches GuiObject.AbsolutePosition better than GetMouseLocation on some clients. ]]
 local PlayerMouse = LocalPlayer:GetMouse()
+--[[ Same as Obsidian: cloneref'd Mouse for custom cursor tracking. ]]
+local Mouse = cloneref(LocalPlayer:GetMouse())
 
 -- ----------------------------------------------------------------------------- theme (mutable; ThemeManager / RefreshTheme)
 local Library = {}
@@ -361,6 +363,7 @@ function Library:SetCursorImage(image: any)
 		if self._cursorImage then
 			self._cursorImage.Visible = false
 			self._cursorImage.Image = ""
+			self._cursorImage.Size = UDim2.fromOffset(20, 20)
 		end
 		return
 	end
@@ -1229,9 +1232,11 @@ function Library.new(config: WindowConfig)
 	modalSink.AutoButtonColor = false
 	modalSink.Parent = screenGui
 
-	
+	--[[ Cursor — same structure / sizes / ZIndex as Obsidian (deividcomsono/Obsidian):
+		horizontal bar = root Frame (WhiteColor), dark outline behind H, vertical bar child (WhiteColor),
+		dark outline behind V, optional ImageLabel overlay. Scheme: WhiteColor / DarkColor as pure white/black. ]]
 	local cursorRoot = Instance.new("Frame")
-	cursorRoot.Name = "CustomCursor"
+	cursorRoot.Name = "Cursor"
 	cursorRoot.AnchorPoint = Vector2.new(0.5, 0.5)
 	cursorRoot.BackgroundColor3 = Color3.new(1, 1, 1)
 	cursorRoot.BorderSizePixel = 0
@@ -1269,13 +1274,13 @@ function Library.new(config: WindowConfig)
 	cursorVShadow.Parent = cursorV
 
 	local cursorImage = Instance.new("ImageLabel")
-	cursorImage.Name = "CursorImage"
+	cursorImage.Name = "CursorCustomImage"
 	cursorImage.AnchorPoint = Vector2.new(0.5, 0.5)
 	cursorImage.BackgroundTransparency = 1
 	cursorImage.Position = UDim2.fromScale(0.5, 0.5)
 	cursorImage.Size = UDim2.fromOffset(20, 20)
 	cursorImage.Visible = false
-	cursorImage.ZIndex = 11001
+	cursorImage.ZIndex = 11000
 	cursorImage.Parent = cursorRoot
 
 	Library._cursorRoot = cursorRoot
@@ -1523,15 +1528,15 @@ function Library.new(config: WindowConfig)
 							if Library.Unloaded or not cursorRoot.Parent then
 								return
 							end
-							local mx: number
-							local my: number
-							if Library.IsMobile then
-								local ml = UserInputService:GetMouseLocation()
-								mx, my = ml.X, ml.Y
-							else
-								mx, my = PlayerMouse.X, PlayerMouse.Y
+							if not Library._cursorWindowOpen or not Library.ShowCustomCursor then
+								return
 							end
-							cursorRoot.Position = UDim2.fromOffset(mx, my)
+							--[[ Obsidian: force system cursor off every frame (other scripts may toggle). ]]
+							UserInputService.MouseIconEnabled = false
+							--[[ Window-space mouse → local space under this ScreenGui (fixes offset when parented under gethui() / non-(0,0) absolute origin). ]]
+							local ap = screenGui.AbsolutePosition
+							cursorRoot.Position = UDim2.fromOffset(Mouse.X - ap.X, Mouse.Y - ap.Y)
+							cursorRoot.Visible = true
 						end
 					)
 				end)
