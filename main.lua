@@ -3255,7 +3255,11 @@ function Library.new(config: WindowConfig)
 		end
 
 		local function refreshToggleTooltip(reg: any)
+			
 			local tt = reg._toggleTooltip
+			if reg.Disabled and typeof(reg._toggleDisabledTooltip) == "string" and reg._toggleDisabledTooltip ~= "" then
+				tt = reg._toggleDisabledTooltip
+			end
 			if typeof(tt) ~= "string" or tt == "" then
 				return
 			end
@@ -3523,7 +3527,9 @@ function Library.new(config: WindowConfig)
 			Default: boolean?,
 			Callback: ((boolean) -> ())?,
 			Tooltip: string?,
+			DisabledTooltip: string?,
 			Idx: string?,
+			Disabled: boolean?,
 			Keybind: {
 				Default: string?,
 				Idx: string?,
@@ -3557,11 +3563,14 @@ function Library.new(config: WindowConfig)
 			label.Parent = row
 
 			local on = o.Default == true
+			local disabled = o.Disabled == true
 			local track = Instance.new("TextButton")
 			track.AutoButtonColor = false
+			track.Active = not disabled
 			track.Size = UDim2.fromOffset(TW, TH)
 			track.Position = UDim2.new(1, -TW, 0.5, -TH / 2)
 			track.BackgroundColor3 = if on then Theme.ToggleOn else Theme.ToggleOff
+			track.BackgroundTransparency = if disabled then 0.5 else 0
 			track.Text = ""
 			track.Parent = row
 			corner(UDim.new(1, 0)).Parent = track
@@ -3570,8 +3579,12 @@ function Library.new(config: WindowConfig)
 			knob.Size = UDim2.fromOffset(K, K)
 			knob.Position = if on then kOn else kOff
 			knob.BackgroundColor3 = Color3.new(1, 1, 1)
+			knob.BackgroundTransparency = if disabled then 0.4 else 0
 			knob.Parent = track
 			corner(UDim.new(1, 0)).Parent = knob
+
+			--[[ Apply Obsidian-style "dim everything" treatment so disabled state is obvious. ]]
+			label.TextTransparency = if disabled then 0.6 else 0
 
 			table.insert(toggleThemeRows, {
 				track = track,
@@ -3584,13 +3597,47 @@ function Library.new(config: WindowConfig)
 			local reg: any = {
 				Type = "Toggle",
 				Value = on,
+				Disabled = disabled,
 			}
 			reg._toggleRow = row
 			reg._toggleLabel = label
 			reg._toggleTrack = track
+			reg._toggleKnob = knob
 			reg._toggleTooltip = o.Tooltip
+			reg._toggleDisabledTooltip = o.DisabledTooltip
+
+			local function applyDisabledVisuals()
+				track.Active = not disabled
+				track.BackgroundTransparency = if disabled then 0.5 else 0
+				knob.BackgroundTransparency = if disabled then 0.4 else 0
+				label.TextTransparency = if disabled then 0.6 else 0
+				--[[ Propagate to inline keybind cap + color swatch if present (Obsidian disables them with the parent). ]]
+				local cap = row:FindFirstChild("ToggleKeybind")
+				if cap and cap:IsA("GuiObject") then
+					cap.Active = not disabled
+					if cap:IsA("GuiButton") then
+						(cap :: GuiButton).AutoButtonColor = false
+					end
+					if cap:IsA("TextButton") or cap:IsA("TextLabel") then
+						(cap :: any).TextTransparency = if disabled then 0.6 else 0
+					end
+					cap.BackgroundTransparency = if disabled then 0.5 else 0.15
+				end
+				local sw = row:FindFirstChild("ToggleColorSwatch")
+				if sw and sw:IsA("GuiObject") then
+					sw.Active = not disabled
+					if disabled then
+						sw.BackgroundTransparency = math.max(sw.BackgroundTransparency, 0.5)
+					end
+				end
+			end
+
+			local permaLocked = disabled
 
 			local function apply(v: boolean)
+				if disabled or permaLocked then
+					return
+				end
 				on = v
 				reg.Value = v
 				tween(track, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
@@ -3618,7 +3665,36 @@ function Library.new(config: WindowConfig)
 				table.insert(changeCbs, cb)
 			end
 
+			--[[ Obsidian-style :SetDisabled(state). Accepts truthy/falsy, normalises to boolean.
+				Updates inline keybind/color swatch too, and swaps active vs disabled tooltip.
+				If the toggle was created with `Disabled = true`, it is permaLocked: any
+				attempt to clear `disabled` (the common re-enable bypass loop) is silently
+				ignored and the toggle re-asserts itself as disabled. ]]
+			reg.SetDisabled = function(_: any, state: boolean)
+				local want = state == true
+				if permaLocked and not want then
+					if not disabled then
+						disabled = true
+						reg.Disabled = true
+						applyDisabledVisuals()
+					end
+					return
+				end
+				disabled = want
+				reg.Disabled = disabled
+				applyDisabledVisuals()
+				if typeof(refreshToggleTooltip) == "function" then
+					refreshToggleTooltip(reg)
+				end
+			end
+			reg.IsDisabled = function()
+				return disabled
+			end
+
 			track.MouseButton1Click:Connect(function()
+				if disabled or permaLocked then
+					return
+				end
 				apply(not on)
 			end)
 
