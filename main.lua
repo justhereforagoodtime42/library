@@ -167,6 +167,16 @@ Library._notifyThemeRefreshes = {} :: { () -> () }
 Library._libFocusConn = nil :: RBXScriptConnection?
 Library._libFocusReleasedConn = nil :: RBXScriptConnection?
 
+Library.ShowCustomCursor = false
+Library.CursorImage = ""
+Library._cursorRoot = nil :: Frame?
+Library._cursorImage = nil :: ImageLabel?
+Library._cursorRenderBound = false
+Library._cursorRenderName = "AcidHubCustomCursor"
+Library._cursorPrevMouseIcon = nil :: boolean?
+Library._cursorWindowOpen = false
+Library._cursorRefresh = nil :: (() -> ())?
+
 --[[ Theme paint cache: instances tagged with Ui* attrs; rebuilt on descendant changes (no full GetDescendants each RefreshTheme). ]]
 Library._themePaintHost = nil :: Instance?
 Library._themePaintValid = false
@@ -333,6 +343,45 @@ end
 
 function Library:SetDPIScale(_scale: number)
 	-- Reserved: fixed scale for now; hook here if you add DPI scaling later.
+end
+
+
+function Library:SetCursorEnabled(state: boolean)
+	self.ShowCustomCursor = state == true
+	if typeof(self._cursorRefresh) == "function" then
+		self._cursorRefresh()
+	end
+end
+
+--[[ Optional rbxassetid / lucide name / url to overlay on top of the "+" cross.
+	Pass nil/"" to clear back to the plain crosshair. ]]
+function Library:SetCursorImage(image: any)
+	if image == nil or image == "" then
+		self.CursorImage = ""
+		if self._cursorImage then
+			self._cursorImage.Visible = false
+			self._cursorImage.Image = ""
+		end
+		return
+	end
+
+	self.CursorImage = image
+	local img = self._cursorImage
+	if not img then
+		return
+	end
+
+	local parsed = self:GetCustomIcon(image)
+	if typeof(parsed) == "table" and parsed.Url then
+		img.Image = parsed.Url
+		img.ImageRectOffset = parsed.ImageRectOffset or Vector2.zero
+		img.ImageRectSize = parsed.ImageRectSize or Vector2.zero
+	else
+		img.Image = tostring(image)
+		img.ImageRectOffset = Vector2.zero
+		img.ImageRectSize = Vector2.zero
+	end
+	img.Visible = true
 end
 
 function Library:Notify(payload: any, duration: number?)
@@ -732,6 +781,21 @@ function Library:Unload()
 		self._menuInputConn:Disconnect()
 		self._menuInputConn = nil
 	end
+
+	if self._cursorRenderBound then
+		pcall(function()
+			RunService:UnbindFromRenderStep(self._cursorRenderName)
+		end)
+		self._cursorRenderBound = false
+	end
+	if self._cursorPrevMouseIcon ~= nil then
+		UserInputService.MouseIconEnabled = self._cursorPrevMouseIcon
+		self._cursorPrevMouseIcon = nil
+	end
+	self._cursorRoot = nil
+	self._cursorImage = nil
+	self._cursorRefresh = nil
+	self._cursorWindowOpen = false
 	if self._windowDestroy then
 		self._windowDestroy()
 		self._windowDestroy = nil
@@ -1165,6 +1229,58 @@ function Library.new(config: WindowConfig)
 	modalSink.AutoButtonColor = false
 	modalSink.Parent = screenGui
 
+	
+	local cursorRoot = Instance.new("Frame")
+	cursorRoot.Name = "CustomCursor"
+	cursorRoot.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorRoot.BackgroundColor3 = Color3.new(1, 1, 1)
+	cursorRoot.BorderSizePixel = 0
+	cursorRoot.Size = UDim2.fromOffset(9, 1)
+	cursorRoot.Visible = false
+	cursorRoot.Active = false
+	cursorRoot.ZIndex = 11000
+	cursorRoot.Parent = screenGui
+
+	local cursorHShadow = Instance.new("Frame")
+	cursorHShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorHShadow.BackgroundColor3 = Color3.new(0, 0, 0)
+	cursorHShadow.BorderSizePixel = 0
+	cursorHShadow.Position = UDim2.fromScale(0.5, 0.5)
+	cursorHShadow.Size = UDim2.new(1, 2, 1, 2)
+	cursorHShadow.ZIndex = 10999
+	cursorHShadow.Parent = cursorRoot
+
+	local cursorV = Instance.new("Frame")
+	cursorV.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorV.BackgroundColor3 = Color3.new(1, 1, 1)
+	cursorV.BorderSizePixel = 0
+	cursorV.Position = UDim2.fromScale(0.5, 0.5)
+	cursorV.Size = UDim2.fromOffset(1, 9)
+	cursorV.ZIndex = 11000
+	cursorV.Parent = cursorRoot
+
+	local cursorVShadow = Instance.new("Frame")
+	cursorVShadow.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorVShadow.BackgroundColor3 = Color3.new(0, 0, 0)
+	cursorVShadow.BorderSizePixel = 0
+	cursorVShadow.Position = UDim2.fromScale(0.5, 0.5)
+	cursorVShadow.Size = UDim2.new(1, 2, 1, 2)
+	cursorVShadow.ZIndex = 10999
+	cursorVShadow.Parent = cursorV
+
+	local cursorImage = Instance.new("ImageLabel")
+	cursorImage.Name = "CursorImage"
+	cursorImage.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorImage.BackgroundTransparency = 1
+	cursorImage.Position = UDim2.fromScale(0.5, 0.5)
+	cursorImage.Size = UDim2.fromOffset(20, 20)
+	cursorImage.Visible = false
+	cursorImage.ZIndex = 11001
+	cursorImage.Parent = cursorRoot
+
+	Library._cursorRoot = cursorRoot
+	Library._cursorImage = cursorImage
+
 	Library.Unloaded = false
 	Library._windowRefreshes = Library._windowRefreshes or {}
 	Library._draggableBtnConns = Library._draggableBtnConns or {}
@@ -1383,11 +1499,69 @@ function Library.new(config: WindowConfig)
 	root.BackgroundTransparency = 1
 	root.Parent = screenGui
 
+
+	local function refreshCustomCursor()
+		local shouldShow = Library._cursorWindowOpen
+			and Library.ShowCustomCursor == true
+			and not Library.IsMobile
+			and not Library.Unloaded
+			and cursorRoot.Parent ~= nil
+
+		if shouldShow then
+			if Library._cursorPrevMouseIcon == nil then
+				Library._cursorPrevMouseIcon = UserInputService.MouseIconEnabled
+			end
+			UserInputService.MouseIconEnabled = false
+			cursorRoot.Visible = true
+
+			if not Library._cursorRenderBound then
+				local ok = pcall(function()
+					RunService:BindToRenderStep(
+						Library._cursorRenderName,
+						Enum.RenderPriority.Last.Value,
+						function()
+							if Library.Unloaded or not cursorRoot.Parent then
+								return
+							end
+							local mx: number
+							local my: number
+							if Library.IsMobile then
+								local ml = UserInputService:GetMouseLocation()
+								mx, my = ml.X, ml.Y
+							else
+								mx, my = PlayerMouse.X, PlayerMouse.Y
+							end
+							cursorRoot.Position = UDim2.fromOffset(mx, my)
+						end
+					)
+				end)
+				if ok then
+					Library._cursorRenderBound = true
+				end
+			end
+		else
+			cursorRoot.Visible = false
+			if Library._cursorRenderBound then
+				pcall(function()
+					RunService:UnbindFromRenderStep(Library._cursorRenderName)
+				end)
+				Library._cursorRenderBound = false
+			end
+			if Library._cursorPrevMouseIcon ~= nil then
+				UserInputService.MouseIconEnabled = Library._cursorPrevMouseIcon
+				Library._cursorPrevMouseIcon = nil
+			end
+		end
+	end
+	Library._cursorRefresh = refreshCustomCursor
+
 	local function setRootVisible(v: boolean)
 		root.Visible = v
+		Library._cursorWindowOpen = v
 		if unlockMouseWhileOpen and Library.IsMobile then
 			modalSink.Modal = v
 		end
+		refreshCustomCursor()
 	end
 
 	-- Toasts: created after root so with Sibling ZIndex they stack above the window; high ZIndex vs root (0)
@@ -2219,6 +2393,21 @@ function Library.new(config: WindowConfig)
 			end
 			table.clear(dragConn)
 		end
+
+		if Library._cursorRenderBound then
+			pcall(function()
+				RunService:UnbindFromRenderStep(Library._cursorRenderName)
+			end)
+			Library._cursorRenderBound = false
+		end
+		if Library._cursorPrevMouseIcon ~= nil then
+			UserInputService.MouseIconEnabled = Library._cursorPrevMouseIcon
+			Library._cursorPrevMouseIcon = nil
+		end
+		Library._cursorRoot = nil
+		Library._cursorImage = nil
+		Library._cursorRefresh = nil
+		Library._cursorWindowOpen = false
 		--[[ _windowRefreshes cleared in Library:Unload after this; avoid iterating if table missing. ]]
 		if screenGui.Parent then
 			screenGui:Destroy()
