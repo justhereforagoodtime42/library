@@ -173,6 +173,7 @@ Library.ShowCustomCursor = false
 Library.CursorImage = ""
 Library.CursorColor = Color3.new(1, 1, 1)
 Library._cursorRoot = nil :: Frame?
+Library._cursorHBar = nil :: Frame?
 Library._cursorVBar = nil :: Frame?
 Library._cursorImage = nil :: ImageLabel?
 Library._cursorRenderBound = false
@@ -363,8 +364,8 @@ function Library:SetCursorColor(color: Color3)
 		return
 	end
 	self.CursorColor = color
-	if self._cursorRoot then
-		self._cursorRoot.BackgroundColor3 = color
+	if self._cursorHBar then
+		self._cursorHBar.BackgroundColor3 = color
 	end
 	if self._cursorVBar then
 		self._cursorVBar.BackgroundColor3 = color
@@ -812,6 +813,7 @@ function Library:Unload()
 		self._cursorPrevMouseIcon = nil
 	end
 	self._cursorRoot = nil
+	self._cursorHBar = nil
 	self._cursorVBar = nil
 	self._cursorImage = nil
 	self._cursorRefresh = nil
@@ -1253,22 +1255,46 @@ function Library.new(config: WindowConfig)
 	local cursorRoot = Instance.new("Frame")
 	cursorRoot.Name = "Cursor"
 	cursorRoot.AnchorPoint = Vector2.new(0.5, 0.5)
-	cursorRoot.BackgroundColor3 = cursorColor
+	cursorRoot.BackgroundTransparency = 1
 	cursorRoot.BorderSizePixel = 0
-	cursorRoot.Size = UDim2.fromOffset(9, 1)
+	cursorRoot.Size = UDim2.fromOffset(1, 1)
 	cursorRoot.Visible = false
 	cursorRoot.Active = false
 	cursorRoot.ZIndex = 11000
 	cursorRoot.Parent = screenGui
 
-	local cursorHStroke = Instance.new("UIStroke")
-	cursorHStroke.Color = Color3.new(0, 0, 0)
-	cursorHStroke.Thickness = 1
-	cursorHStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	cursorHStroke.LineJoinMode = Enum.LineJoinMode.Miter
-	cursorHStroke.Parent = cursorRoot
+	local cursorHOutline = Instance.new("Frame")
+	cursorHOutline.Name = "OutlineH"
+	cursorHOutline.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorHOutline.BackgroundColor3 = Color3.new(0, 0, 0)
+	cursorHOutline.BorderSizePixel = 0
+	cursorHOutline.Position = UDim2.fromScale(0.5, 0.5)
+	cursorHOutline.Size = UDim2.fromOffset(11, 3)
+	cursorHOutline.ZIndex = 11000
+	cursorHOutline.Parent = cursorRoot
+
+	local cursorVOutline = Instance.new("Frame")
+	cursorVOutline.Name = "OutlineV"
+	cursorVOutline.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorVOutline.BackgroundColor3 = Color3.new(0, 0, 0)
+	cursorVOutline.BorderSizePixel = 0
+	cursorVOutline.Position = UDim2.fromScale(0.5, 0.5)
+	cursorVOutline.Size = UDim2.fromOffset(3, 11)
+	cursorVOutline.ZIndex = 11000
+	cursorVOutline.Parent = cursorRoot
+
+	local cursorHBar = Instance.new("Frame")
+	cursorHBar.Name = "BarH"
+	cursorHBar.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorHBar.BackgroundColor3 = cursorColor
+	cursorHBar.BorderSizePixel = 0
+	cursorHBar.Position = UDim2.fromScale(0.5, 0.5)
+	cursorHBar.Size = UDim2.fromOffset(9, 1)
+	cursorHBar.ZIndex = 11001
+	cursorHBar.Parent = cursorRoot
 
 	local cursorV = Instance.new("Frame")
+	cursorV.Name = "BarV"
 	cursorV.AnchorPoint = Vector2.new(0.5, 0.5)
 	cursorV.BackgroundColor3 = cursorColor
 	cursorV.BorderSizePixel = 0
@@ -1276,13 +1302,6 @@ function Library.new(config: WindowConfig)
 	cursorV.Size = UDim2.fromOffset(1, 9)
 	cursorV.ZIndex = 11001
 	cursorV.Parent = cursorRoot
-
-	local cursorVStroke = Instance.new("UIStroke")
-	cursorVStroke.Color = Color3.new(0, 0, 0)
-	cursorVStroke.Thickness = 1
-	cursorVStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-	cursorVStroke.LineJoinMode = Enum.LineJoinMode.Miter
-	cursorVStroke.Parent = cursorV
 
 	local cursorImage = Instance.new("ImageLabel")
 	cursorImage.Name = "CursorCustomImage"
@@ -1295,6 +1314,7 @@ function Library.new(config: WindowConfig)
 	cursorImage.Parent = cursorRoot
 
 	Library._cursorRoot = cursorRoot
+	Library._cursorHBar = cursorHBar
 	Library._cursorVBar = cursorV
 	Library._cursorImage = cursorImage
 
@@ -2422,6 +2442,7 @@ function Library.new(config: WindowConfig)
 			Library._cursorPrevMouseIcon = nil
 		end
 		Library._cursorRoot = nil
+		Library._cursorHBar = nil
 		Library._cursorVBar = nil
 		Library._cursorImage = nil
 		Library._cursorRefresh = nil
