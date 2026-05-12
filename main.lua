@@ -1667,8 +1667,8 @@ function Library.new(config: WindowConfig)
 		local wmOuter = Instance.new("Frame")
 		wmOuter.Name = "Watermark"
 		wmOuter.BackgroundTransparency = 1
-		wmOuter.AnchorPoint = Vector2.new(0.5, 0)
-		wmOuter.Position = UDim2.new(0.5, 0, 0, 10)
+		wmOuter.AnchorPoint = Vector2.new(1, 0)
+		wmOuter.Position = UDim2.new(1, -12, 0, 10)
 		wmOuter.Size = UDim2.fromOffset(0, 30)
 		wmOuter.AutomaticSize = Enum.AutomaticSize.X
 		wmOuter.ZIndex = 750
@@ -1746,10 +1746,11 @@ function Library.new(config: WindowConfig)
 		brand.Name = "BrandIcon"
 		brand.BackgroundTransparency = 1
 		brand.Image = "rbxassetid://71835868356227"
-		brand.Size = UDim2.fromOffset(16, 16)
+		brand.Size = UDim2.fromOffset(18, 18)
 		brand.ScaleType = Enum.ScaleType.Fit
 		brand.LayoutOrder = 0
 		brand.Parent = wmPill
+		corner(UDim.new(1, 0)).Parent = brand
 
 		local lblName = wmAddSegment(1, "user", LocalPlayer.Name)
 		local lblPing = wmAddSegment(2, "wifi", "0 MS")
@@ -1783,7 +1784,7 @@ function Library.new(config: WindowConfig)
 		local dragging = false
 		local dragInputType: Enum.UserInputType? = nil
 		local dragStartMouse = Vector2.zero
-		local dragStartCenter = Vector2.zero
+		local dragStartTopLeft = Vector2.zero
 		wmPill.Active = true
 		table.insert(
 			Library._watermarkDragConns,
@@ -1795,10 +1796,7 @@ function Library.new(config: WindowConfig)
 					dragging = true
 					dragInputType = input.UserInputType
 					dragStartMouse = Vector2.new(input.Position.X, input.Position.Y)
-					dragStartCenter = Vector2.new(
-						wmOuter.AbsolutePosition.X + wmOuter.AbsoluteSize.X * 0.5,
-						wmOuter.AbsolutePosition.Y
-					)
+					dragStartTopLeft = wmOuter.AbsolutePosition
 				end
 			end)
 		)
@@ -1815,15 +1813,21 @@ function Library.new(config: WindowConfig)
 					return
 				end
 				local cur = Vector2.new(input.Position.X, input.Position.Y)
-				local delta = cur - dragStartMouse
-				local newX = dragStartCenter.X + delta.X
-				local newY = dragStartCenter.Y + delta.Y
-				local screenSize = screenGui.AbsoluteSize
-				local halfW = wmOuter.AbsoluteSize.X * 0.5
+				local parentGui = wmOuter.Parent
+				if not parentGui or not parentGui:IsA("GuiObject") then
+					return
+				end
+				local pAbs = (parentGui :: GuiObject).AbsolutePosition
+				local screenSize = (parentGui :: GuiObject).AbsoluteSize
+				local w = wmOuter.AbsoluteSize.X
 				local h = wmOuter.AbsoluteSize.Y
-				newX = math.clamp(newX, halfW + 4, math.max(halfW + 4, screenSize.X - halfW - 4))
-				newY = math.clamp(newY, 4, math.max(4, screenSize.Y - h - 4))
-				wmOuter.Position = UDim2.fromOffset(newX, newY)
+				local newTL = dragStartTopLeft + (cur - dragStartMouse)
+				newTL = Vector2.new(
+					math.clamp(newTL.X, 0, math.max(0, screenSize.X - w)),
+					math.clamp(newTL.Y, 0, math.max(0, screenSize.Y - h))
+				)
+				--[[ AnchorPoint (1,0): Position is parent-space coords of the frame's top-right corner. ]]
+				wmOuter.Position = UDim2.fromOffset(newTL.X + w - pAbs.X, newTL.Y - pAbs.Y)
 			end)
 		)
 		table.insert(
