@@ -3986,10 +3986,22 @@ function Library.new(config: WindowConfig)
 			local function computeValue(): any
 				if multi then
 					local out = {}
+					local seen: { [string]: boolean } = {}
 					for _, opt in options do
 						if selected[opt] then
 							table.insert(out, opt)
+							seen[opt] = true
 						end
+					end
+					local extra: { string } = {}
+					for k in pairs(selected) do
+						if typeof(k) == "string" and not seen[k] then
+							table.insert(extra, k)
+						end
+					end
+					table.sort(extra)
+					for _, s in extra do
+						table.insert(out, s)
 					end
 					return out
 				end
@@ -4002,10 +4014,22 @@ function Library.new(config: WindowConfig)
 			local function summary(): string
 				if multi then
 					local parts = {}
+					local seen: { [string]: boolean } = {}
 					for _, opt in options do
 						if selected[opt] then
 							table.insert(parts, opt)
+							seen[opt] = true
 						end
+					end
+					local extra: { string } = {}
+					for k in pairs(selected) do
+						if typeof(k) == "string" and not seen[k] then
+							table.insert(extra, k)
+						end
+					end
+					table.sort(extra)
+					for _, s in extra do
+						table.insert(parts, s)
 					end
 					if #parts == 0 then
 						return "Select…"
@@ -4306,6 +4330,11 @@ function Library.new(config: WindowConfig)
 							selected[s] = true
 						end
 					end
+					for k, val in pairs(v :: { [any]: any }) do
+						if typeof(k) == "string" and val == true then
+							selected[k] = true
+						end
+					end
 				elseif not multi and v == nil and allowNull then
 					-- cleared
 				elseif not multi and type(v) == "string" then
@@ -4324,15 +4353,17 @@ function Library.new(config: WindowConfig)
 			reg.SetValues = function(_: any, newOpts: { string })
 				options = newOpts or {}
 
-				local validSet: { [string]: boolean } = {}
-				for _, o2 in options do
-					if typeof(o2) == "string" then
-						validSet[o2] = true
+				if not multi then
+					local validSet: { [string]: boolean } = {}
+					for _, o2 in options do
+						if typeof(o2) == "string" then
+							validSet[o2] = true
+						end
 					end
-				end
-				for k in pairs(selected) do
-					if not validSet[k] then
-						selected[k] = nil
+					for k in pairs(selected) do
+						if not validSet[k] then
+							selected[k] = nil
+						end
 					end
 				end
 
