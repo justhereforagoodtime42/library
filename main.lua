@@ -182,7 +182,7 @@ Library._cursorPrevMouseIcon = nil :: boolean?
 Library._cursorWindowOpen = false
 Library._cursorRefresh = nil :: (() -> ())?
 
---[[ Top-center stats pill (ping / FPS / time / session / menu visibility). Toggle with Library:SetWatermarkEnabled. ]]
+--[[ Top-center stats pill (player / ping / FPS / time / session). Draggable; toggle with Library:SetWatermarkEnabled. ]]
 Library.ShowWatermark = true
 Library._watermarkOuter = nil :: Frame?
 Library._watermarkConn = nil :: RBXScriptConnection?
@@ -1742,12 +1742,20 @@ function Library.new(config: WindowConfig)
 			return lbl
 		end
 
+		local brand = Instance.new("ImageLabel")
+		brand.Name = "BrandIcon"
+		brand.BackgroundTransparency = 1
+		brand.Image = "rbxassetid://114741603622587"
+		brand.Size = UDim2.fromOffset(16, 16)
+		brand.ScaleType = Enum.ScaleType.Fit
+		brand.LayoutOrder = 0
+		brand.Parent = wmPill
+
 		local lblName = wmAddSegment(1, "user", LocalPlayer.Name)
 		local lblPing = wmAddSegment(2, "wifi", "0 MS")
 		local lblFps = wmAddSegment(3, "activity", "0 FPS")
 		local lblTime = wmAddSegment(4, "clock", os.date("%H:%M"))
 		local lblSess = wmAddSegment(5, "history", "0s")
-		local lblUi = wmAddSegment(6, "crosshair", "Hidden")
 
 		local paintWatermark = function()
 			if not wmPill or not wmPill.Parent then
@@ -1767,9 +1775,66 @@ function Library.new(config: WindowConfig)
 			lblFps.TextColor3 = Theme.Text
 			lblTime.TextColor3 = Theme.Text
 			lblSess.TextColor3 = Theme.Text
-			lblUi.TextColor3 = Theme.Text
 		end
 		Library._watermarkPaint = paintWatermark
+
+		-- Drag: click+hold (or touch+hold) the pill to move the watermark anywhere on screen.
+		Library._watermarkDragConns = Library._watermarkDragConns or {}
+		local dragging = false
+		local dragInputType: Enum.UserInputType? = nil
+		local dragStartMouse = Vector2.zero
+		local dragStartCenter = Vector2.zero
+		wmPill.Active = true
+		table.insert(
+			Library._watermarkDragConns,
+			wmPill.InputBegan:Connect(function(input: InputObject)
+				if
+					input.UserInputType == Enum.UserInputType.MouseButton1
+					or input.UserInputType == Enum.UserInputType.Touch
+				then
+					dragging = true
+					dragInputType = input.UserInputType
+					dragStartMouse = Vector2.new(input.Position.X, input.Position.Y)
+					dragStartCenter = Vector2.new(
+						wmOuter.AbsolutePosition.X + wmOuter.AbsoluteSize.X * 0.5,
+						wmOuter.AbsolutePosition.Y
+					)
+				end
+			end)
+		)
+		table.insert(
+			Library._watermarkDragConns,
+			UserInputService.InputChanged:Connect(function(input: InputObject)
+				if not dragging or Library.Unloaded then
+					return
+				end
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseMovement
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				local cur = Vector2.new(input.Position.X, input.Position.Y)
+				local delta = cur - dragStartMouse
+				local newX = dragStartCenter.X + delta.X
+				local newY = dragStartCenter.Y + delta.Y
+				local screenSize = screenGui.AbsoluteSize
+				local halfW = wmOuter.AbsoluteSize.X * 0.5
+				local h = wmOuter.AbsoluteSize.Y
+				newX = math.clamp(newX, halfW + 4, math.max(halfW + 4, screenSize.X - halfW - 4))
+				newY = math.clamp(newY, 4, math.max(4, screenSize.Y - h - 4))
+				wmOuter.Position = UDim2.fromOffset(newX, newY)
+			end)
+		)
+		table.insert(
+			Library._watermarkDragConns,
+			UserInputService.InputEnded:Connect(function(input: InputObject)
+				if dragging and input.UserInputType == dragInputType then
+					dragging = false
+					dragInputType = nil
+				end
+			end)
+		)
 
 		local fpsAcc = 0
 		local fpsFrames = 0
@@ -1807,7 +1872,6 @@ function Library.new(config: WindowConfig)
 				else
 					lblSess.Text = string.format("%dm", math.floor(elapsed / 60))
 				end
-				lblUi.Text = root.Visible and "Open" or "Hidden"
 				local dn = LocalPlayer.DisplayName
 				if typeof(dn) == "string" and dn ~= "" then
 					lblName.Text = #dn > 18 and (string.sub(dn, 1, 17) .. "…") or dn
@@ -2638,6 +2702,15 @@ function Library.new(config: WindowConfig)
 			end)
 			Library._watermarkConn = nil
 		end
+		if Library._watermarkDragConns then
+			for _, c in Library._watermarkDragConns do
+				pcall(function()
+					c:Disconnect()
+				end)
+			end
+			table.clear(Library._watermarkDragConns)
+		end
+		Library._watermarkDragConns = nil
 		Library._watermarkOuter = nil
 		Library._watermarkPaint = nil
 		--[[ _windowRefreshes cleared in Library:Unload after this; avoid iterating if table missing. ]]
