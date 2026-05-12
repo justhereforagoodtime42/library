@@ -3700,7 +3700,10 @@ function Library.new(config: WindowConfig)
 
 			function reg:AddKeybind(ko: any): any
 				local kr = attachInlineKeybindToToggle(row, label, track, apply, reg, ko)
-				if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+				if
+					(typeof(o.Tooltip) == "string" and o.Tooltip ~= "")
+					or (typeof(o.DisabledTooltip) == "string" and o.DisabledTooltip ~= "")
+				then
 					refreshToggleTooltip(reg)
 				elseif typeof(ko.Tooltip) == "string" and ko.Tooltip ~= "" then
 					local cap = row:FindFirstChild("ToggleKeybind")
@@ -3724,7 +3727,10 @@ function Library.new(config: WindowConfig)
 					track = track,
 				})
 				reg._inlineColorReg = cr
-				if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+				if
+					(typeof(o.Tooltip) == "string" and o.Tooltip ~= "")
+					or (typeof(o.DisabledTooltip) == "string" and o.DisabledTooltip ~= "")
+				then
 					refreshToggleTooltip(reg)
 				elseif typeof(co.Tooltip) == "string" and co.Tooltip ~= "" then
 					local sw = row:FindFirstChild("ToggleColorSwatch")
@@ -3738,7 +3744,10 @@ function Library.new(config: WindowConfig)
 
 			if o.Keybind then
 				reg:AddKeybind(o.Keybind)
-			elseif typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+			elseif
+				(typeof(o.Tooltip) == "string" and o.Tooltip ~= "")
+				or (typeof(o.DisabledTooltip) == "string" and o.DisabledTooltip ~= "")
+			then
 				refreshToggleTooltip(reg)
 			end
 
