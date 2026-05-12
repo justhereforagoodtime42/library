@@ -169,7 +169,7 @@ Library._notifyThemeRefreshes = {} :: { () -> () }
 Library._libFocusConn = nil :: RBXScriptConnection?
 Library._libFocusReleasedConn = nil :: RBXScriptConnection?
 
-Library.ShowCustomCursor = false
+Library.ShowCustomCursor = true
 Library.CursorImage = ""
 Library.CursorColor = Color3.new(1, 1, 1)
 Library._cursorRoot = nil :: Frame?
@@ -181,6 +181,12 @@ Library._cursorRenderName = "AcidHubCustomCursor"
 Library._cursorPrevMouseIcon = nil :: boolean?
 Library._cursorWindowOpen = false
 Library._cursorRefresh = nil :: (() -> ())?
+
+--[[ Top-center stats pill (ping / FPS / time / session / menu visibility). Toggle with Library:SetWatermarkEnabled. ]]
+Library.ShowWatermark = true
+Library._watermarkOuter = nil :: Frame?
+Library._watermarkConn = nil :: RBXScriptConnection?
+Library._watermarkPaint = nil :: (() -> ())?
 
 --[[ Theme paint cache: instances tagged with Ui* attrs; rebuilt on descendant changes (no full GetDescendants each RefreshTheme). ]]
 Library._themePaintHost = nil :: Instance?
@@ -356,6 +362,21 @@ function Library:SetCursorEnabled(state: boolean)
 	if typeof(self._cursorRefresh) == "function" then
 		self._cursorRefresh()
 	end
+end
+
+function Library:SetWatermarkEnabled(state: boolean)
+	self.ShowWatermark = state == true
+	local outer = self._watermarkOuter
+	if outer and outer.Parent then
+		outer.Visible = self.ShowWatermark
+	end
+	if typeof(self._watermarkPaint) == "function" then
+		pcall(self._watermarkPaint)
+	end
+end
+
+function Library:IsWatermarkEnabled(): boolean
+	return self.ShowWatermark == true
 end
 
 
@@ -1191,6 +1212,8 @@ export type WindowConfig = {
 	MobileButtonsSide: string?,
 	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
 	UnlockMouseWhileOpen: boolean?,
+	--[[ When false, no top watermark is created (default: true / shown). ]]
+	Watermark: boolean?,
 }
 
 function Library.new(config: WindowConfig)
@@ -1205,7 +1228,7 @@ function Library.new(config: WindowConfig)
 	local unlockMouseWhileOpen = config.UnlockMouseWhileOpen ~= false
 	local defaultMin = if Library.IsMobile then Vector2.new(300, 200) else Vector2.new(380, 300)
 	local minContent = config.MinSize or defaultMin
-	local size = config.Size or (if Library.IsMobile then Vector2.new(480, 360) else Vector2.new(520, 440))
+	local size = config.Size or (if Library.IsMobile then Vector2.new(480, 360) else Vector2.new(760, 620))
 	size = Vector2.new(math.max(size.X, minContent.X), math.max(size.Y, minContent.Y))
 	local cam0 = workspace.CurrentCamera
 	if cam0 then
@@ -1636,6 +1659,165 @@ function Library.new(config: WindowConfig)
 	updateNotifyLayout()
 	Library._notifyList = notifyList
 	Library._updateNotifyLayout = updateNotifyLayout
+
+	if config.Watermark ~= false then
+		local wmSessionStart = os.clock()
+		local wmIcons: { ImageLabel } = {}
+
+		local wmOuter = Instance.new("Frame")
+		wmOuter.Name = "Watermark"
+		wmOuter.BackgroundTransparency = 1
+		wmOuter.AnchorPoint = Vector2.new(0.5, 0)
+		wmOuter.Position = UDim2.new(0.5, 0, 0, 10)
+		wmOuter.Size = UDim2.fromOffset(0, 30)
+		wmOuter.AutomaticSize = Enum.AutomaticSize.X
+		wmOuter.ZIndex = 750
+		wmOuter.Visible = Library.ShowWatermark == true
+		wmOuter.Parent = screenGui
+		Library._watermarkOuter = wmOuter
+
+		local wmPill = Instance.new("Frame")
+		wmPill.Name = "Pill"
+		wmPill.BackgroundTransparency = 0.1
+		wmPill.BorderSizePixel = 0
+		wmPill.AutomaticSize = Enum.AutomaticSize.XY
+		wmPill.Size = UDim2.fromOffset(0, 28)
+		wmPill.Parent = wmOuter
+		corner(UDim.new(1, 0)).Parent = wmPill
+		local wmStroke = stroke(Theme.Stroke, 1, Theme.StrokeTrans)
+		wmStroke.Parent = wmPill
+		local wmPad = Instance.new("UIPadding")
+		wmPad.PaddingLeft = UDim.new(0, 10)
+		wmPad.PaddingRight = UDim.new(0, 10)
+		wmPad.PaddingTop = UDim.new(0, 5)
+		wmPad.PaddingBottom = UDim.new(0, 5)
+		wmPad.Parent = wmPill
+		local wmLayout = Instance.new("UIListLayout")
+		wmLayout.FillDirection = Enum.FillDirection.Horizontal
+		wmLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		wmLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+		wmLayout.Padding = UDim.new(0, 12)
+		wmLayout.Parent = wmPill
+
+		local function wmAddSegment(order: number, iconToken: string, initial: string): TextLabel
+			local seg = Instance.new("Frame")
+			seg.BackgroundTransparency = 1
+			seg.AutomaticSize = Enum.AutomaticSize.XY
+			seg.LayoutOrder = order
+			seg.Parent = wmPill
+			local sl = Instance.new("UIListLayout")
+			sl.FillDirection = Enum.FillDirection.Horizontal
+			sl.SortOrder = Enum.SortOrder.LayoutOrder
+			sl.VerticalAlignment = Enum.VerticalAlignment.Center
+			sl.Padding = UDim.new(0, 5)
+			sl.Parent = seg
+			local icon = Instance.new("ImageLabel")
+			icon.Name = "Icon"
+			icon.BackgroundTransparency = 1
+			icon.Size = UDim2.fromOffset(14, 14)
+			icon.ScaleType = Enum.ScaleType.Fit
+			local ci = Library:GetCustomIcon(iconToken)
+			if ci and typeof(ci.Url) == "string" and ci.Url ~= "" then
+				icon.Image = ci.Url
+				icon.ImageRectOffset = ci.ImageRectOffset or Vector2.zero
+				icon.ImageRectSize = ci.ImageRectSize or Vector2.zero
+				icon.Visible = true
+			else
+				icon.Image = ""
+				icon.Visible = false
+			end
+			icon.ImageColor3 = Theme.AccentBlue
+			icon.Parent = seg
+			table.insert(wmIcons, icon)
+			local lbl = Instance.new("TextLabel")
+			lbl.BackgroundTransparency = 1
+			lbl.Font = Enum.Font.GothamBold
+			lbl.TextSize = 13
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.TextYAlignment = Enum.TextYAlignment.Center
+			lbl.AutomaticSize = Enum.AutomaticSize.XY
+			lbl.Text = initial
+			lbl.TextColor3 = Theme.Text
+			lbl.Parent = seg
+			return lbl
+		end
+
+		local lblName = wmAddSegment(1, "user", LocalPlayer.Name)
+		local lblPing = wmAddSegment(2, "wifi", "0 MS")
+		local lblFps = wmAddSegment(3, "activity", "0 FPS")
+		local lblTime = wmAddSegment(4, "clock", os.date("%H:%M"))
+		local lblSess = wmAddSegment(5, "history", "0s")
+		local lblUi = wmAddSegment(6, "crosshair", "Hidden")
+
+		local paintWatermark = function()
+			if not wmPill or not wmPill.Parent then
+				return
+			end
+			wmPill.BackgroundColor3 = Theme.Elevated
+			wmPill.BackgroundTransparency = 0.1
+			wmStroke.Color = Theme.Stroke
+			wmStroke.Transparency = math.clamp(Theme.StrokeTrans, 0.3, 0.72)
+			for _, ic in wmIcons do
+				if ic and ic.Parent then
+					ic.ImageColor3 = Theme.AccentBlue
+				end
+			end
+			lblName.TextColor3 = Theme.Text
+			lblPing.TextColor3 = Theme.Text
+			lblFps.TextColor3 = Theme.Text
+			lblTime.TextColor3 = Theme.Text
+			lblSess.TextColor3 = Theme.Text
+			lblUi.TextColor3 = Theme.Text
+		end
+		Library._watermarkPaint = paintWatermark
+
+		local fpsAcc = 0
+		local fpsFrames = 0
+		local fpsShown = 0
+		local tickAcc = 0
+		Library._watermarkConn = RunService.Heartbeat:Connect(function(dt)
+			if Library.Unloaded or not wmOuter.Parent then
+				return
+			end
+			if not Library.ShowWatermark then
+				wmOuter.Visible = false
+				return
+			end
+			wmOuter.Visible = true
+			fpsAcc += dt
+			fpsFrames += 1
+			tickAcc += dt
+			if fpsAcc >= 0.25 then
+				fpsShown = math.floor(fpsFrames / fpsAcc + 0.5)
+				fpsFrames = 0
+				fpsAcc = 0
+			end
+			if tickAcc >= 0.35 then
+				tickAcc = 0
+				local pingMs = 0
+				pcall(function()
+					pingMs = math.floor(LocalPlayer:GetNetworkPing() * 1000 + 0.5)
+				end)
+				lblPing.Text = tostring(pingMs) .. " MS"
+				lblFps.Text = tostring(fpsShown) .. " FPS"
+				lblTime.Text = os.date("%H:%M")
+				local elapsed = os.clock() - wmSessionStart
+				if elapsed < 60 then
+					lblSess.Text = string.format("%ds", math.floor(elapsed))
+				else
+					lblSess.Text = string.format("%dm", math.floor(elapsed / 60))
+				end
+				lblUi.Text = root.Visible and "Open" or "Hidden"
+				local dn = LocalPlayer.DisplayName
+				if typeof(dn) == "string" and dn ~= "" then
+					lblName.Text = #dn > 18 and (string.sub(dn, 1, 17) .. "…") or dn
+				else
+					lblName.Text = LocalPlayer.Name
+				end
+			end
+		end)
+		paintWatermark()
+	end
 
 	-- top row: mascot + pill
 	local topRow = Instance.new("Frame")
@@ -2353,6 +2535,9 @@ function Library.new(config: WindowConfig)
 				g2.TextColor3 = Theme.TextDim
 			end
 		end
+		if typeof(Library._watermarkPaint) == "function" then
+			pcall(Library._watermarkPaint)
+		end
 	end
 
 	if Library._menuInputConn then
@@ -2447,6 +2632,14 @@ function Library.new(config: WindowConfig)
 		Library._cursorImage = nil
 		Library._cursorRefresh = nil
 		Library._cursorWindowOpen = false
+		if Library._watermarkConn then
+			pcall(function()
+				Library._watermarkConn:Disconnect()
+			end)
+			Library._watermarkConn = nil
+		end
+		Library._watermarkOuter = nil
+		Library._watermarkPaint = nil
 		--[[ _windowRefreshes cleared in Library:Unload after this; avoid iterating if table missing. ]]
 		if screenGui.Parent then
 			screenGui:Destroy()
@@ -2466,6 +2659,14 @@ function Library.new(config: WindowConfig)
 
 	function window:SetSubtitle(t: string)
 		subtitle.Text = t
+	end
+
+	function window:SetVisible(v: boolean)
+		setRootVisible(v == true)
+	end
+
+	function window:IsVisible(): boolean
+		return root.Visible
 	end
 
 	--[[ Root frame pixel size (includes mascot strip + 48px header); used by SaveManager. ]]
@@ -3994,8 +4195,8 @@ function Library.new(config: WindowConfig)
 						end
 					end
 					local extra: { string } = {}
-					for k in pairs(selected) do
-						if typeof(k) == "string" and not seen[k] then
+					for k, v in pairs(selected) do
+						if v and typeof(k) == "string" and not seen[k] then
 							table.insert(extra, k)
 						end
 					end
@@ -4005,8 +4206,10 @@ function Library.new(config: WindowConfig)
 					end
 					return out
 				end
-				for k in pairs(selected) do
-					return k
+				for k, v in pairs(selected) do
+					if v then
+						return k
+					end
 				end
 				return nil
 			end
@@ -4022,8 +4225,8 @@ function Library.new(config: WindowConfig)
 						end
 					end
 					local extra: { string } = {}
-					for k in pairs(selected) do
-						if typeof(k) == "string" and not seen[k] then
+					for k, v in pairs(selected) do
+						if v and typeof(k) == "string" and not seen[k] then
 							table.insert(extra, k)
 						end
 					end
@@ -4036,8 +4239,10 @@ function Library.new(config: WindowConfig)
 					end
 					return table.concat(parts, ", ")
 				end
-				for k in pairs(selected) do
-					return k
+				for k, v in pairs(selected) do
+					if v then
+						return k
+					end
 				end
 				return if allowNull then "None" else "Select…"
 			end
