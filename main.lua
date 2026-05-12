@@ -3981,8 +3981,6 @@ function Library.new(config: WindowConfig)
 			elseif typeof(o.Default) == "number" and not multi and #options > 0 then
 				local i = math.clamp(math.floor(o.Default :: number), 1, #options)
 				selected[options[i]] = true
-			elseif not allowNull and #options > 0 then
-				selected[options[1]] = true
 			end
 
 			local function computeValue(): any
@@ -4332,19 +4330,9 @@ function Library.new(config: WindowConfig)
 						validSet[o2] = true
 					end
 				end
-				local hadSelection = false
 				for k in pairs(selected) do
-					if validSet[k] then
-						hadSelection = true
-					else
+					if not validSet[k] then
 						selected[k] = nil
-					end
-				end
-				if not multi and not hadSelection then
-					if allowNull then
-						-- none
-					elseif #options > 0 then
-						selected[options[1]] = true
 					end
 				end
 
