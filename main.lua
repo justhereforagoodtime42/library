@@ -1745,7 +1745,7 @@ function Library.new(config: WindowConfig)
 		local brand = Instance.new("ImageLabel")
 		brand.Name = "BrandIcon"
 		brand.BackgroundTransparency = 1
-		brand.Image = "rbxassetid://114741603622587"
+		brand.Image = "rbxassetid://71835868356227"
 		brand.Size = UDim2.fromOffset(16, 16)
 		brand.ScaleType = Enum.ScaleType.Fit
 		brand.LayoutOrder = 0
