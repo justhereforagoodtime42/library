@@ -4325,27 +4325,35 @@ function Library.new(config: WindowConfig)
 			end
 			reg.SetValues = function(_: any, newOpts: { string })
 				options = newOpts or {}
-				for k in pairs(selected) do
-					selected[k] = nil
+
+				local validSet: { [string]: boolean } = {}
+				for _, o2 in options do
+					if typeof(o2) == "string" then
+						validSet[o2] = true
+					end
 				end
-				if not multi then
+				local hadSelection = false
+				for k in pairs(selected) do
+					if validSet[k] then
+						hadSelection = true
+					else
+						selected[k] = nil
+					end
+				end
+				if not multi and not hadSelection then
 					if allowNull then
 						-- none
 					elseif #options > 0 then
 						selected[options[1]] = true
 					end
-				else
-					-- keep empty until user picks
 				end
-				--[[
-					If SetValues runs while the list is open, stale search text can filter out all new rows;
-					rebuild must run against a cleared query so the open panel visibly updates.
-				]]
+
 				if open and searchBox then
 					searchBox.Text = ""
 				end
 				buildOptionButtons()
 				refreshOptionVisuals()
+				btn.Text = "  " .. summary()
 				if open then
 					listF.Visible = true
 				end
