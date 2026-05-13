@@ -179,7 +179,6 @@ Library._cursorImage = nil :: ImageLabel?
 Library._cursorRenderBound = false
 Library._cursorRenderName = "AcidHubCustomCursor"
 Library._cursorPrevMouseIcon = nil :: boolean?
-Library._cursorWindowOpen = false
 Library._cursorRefresh = nil :: (() -> ())?
 
 --[[ Top-center stats pill (player / ping / FPS / time / session). Draggable; toggle with Library:SetWatermarkEnabled. ]]
@@ -838,7 +837,6 @@ function Library:Unload()
 	self._cursorVBar = nil
 	self._cursorImage = nil
 	self._cursorRefresh = nil
-	self._cursorWindowOpen = false
 	if self._windowDestroy then
 		self._windowDestroy()
 		self._windowDestroy = nil
@@ -1561,8 +1559,9 @@ function Library.new(config: WindowConfig)
 
 
 	local function refreshCustomCursor()
-		local shouldShow = Library._cursorWindowOpen
-			and Library.ShowCustomCursor == true
+		--[[ Custom cursor stays on while the ScreenGui exists, even when the main
+			window (root) is hidden — only ShowCustomCursor / mobile / unload gate it. ]]
+		local shouldShow = Library.ShowCustomCursor == true
 			and not Library.IsMobile
 			and not Library.Unloaded
 			and cursorRoot.Parent ~= nil
@@ -1583,7 +1582,7 @@ function Library.new(config: WindowConfig)
 							if Library.Unloaded or not cursorRoot.Parent then
 								return
 							end
-							if not Library._cursorWindowOpen or not Library.ShowCustomCursor then
+							if not Library.ShowCustomCursor then
 								return
 							end
 							--[[ Obsidian: force system cursor off every frame (other scripts may toggle). ]]
@@ -1617,7 +1616,6 @@ function Library.new(config: WindowConfig)
 
 	local function setRootVisible(v: boolean)
 		root.Visible = v
-		Library._cursorWindowOpen = v
 		if unlockMouseWhileOpen and Library.IsMobile then
 			modalSink.Modal = v
 		end
@@ -2699,7 +2697,6 @@ function Library.new(config: WindowConfig)
 		Library._cursorVBar = nil
 		Library._cursorImage = nil
 		Library._cursorRefresh = nil
-		Library._cursorWindowOpen = false
 		if Library._watermarkConn then
 			pcall(function()
 				Library._watermarkConn:Disconnect()
