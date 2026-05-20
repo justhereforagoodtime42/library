@@ -223,11 +223,10 @@ function Library:ApplyHideUIOnLoad()
 	if self._hideUIOnLoadApplied then
 		return
 	end
-	self._hideUIOnLoadApplied = true
 
-	local function tryHide()
+	local function tryHide(): boolean
 		if self.Unloaded then
-			return
+			return false
 		end
 		local sm = self.SaveManager
 		local configWantsHide = sm and sm._configHideUIOnLoad == true
@@ -238,117 +237,31 @@ function Library:ApplyHideUIOnLoad()
 				toggle:SetValue(true)
 			end)
 		end
-		if shouldHide then
-			local win = self.Window
-			if win and typeof(win.SetVisible) == "function" then
-				pcall(function()
-					win:SetVisible(false)
-				end)
-			end
+		if not shouldHide then
+			return false
 		end
-	end
-
-	tryHide()
-	task.defer(tryHide)
-end
-
---[[ Call once after SaveManager:LoadAutoloadConfig() (or at end of script). Wires menu keybind + hide-on-load. ]]
-function Library:FinishSetup()
-	local menuKey = self.Options.MenuKeybind
-	if menuKey then
-		self.ToggleKeybind = menuKey
-	end
-	self:ApplyHideUIOnLoad()
-end
-
-export type MenuSectionOptions = {
-	GroupboxTitle: string?,
-	Icon: string?,
-	HideUIOnLoadDefault: boolean?,
-	IncludeNotificationSide: boolean?,
-	IncludeCornerRadius: boolean?,
-	IncludeHideUIOnLoad: boolean?,
-	IncludeMenuKeybind: boolean?,
-	IncludeUnload: boolean?,
-	UnloadCallback: (() -> ())?,
-}
-
---[[ Standard UI Settings menu (notification side, corner radius, hide UI on load, menu keybind, unload). ]]
-function Library:BuildMenuSection(tab: any, opts: MenuSectionOptions?): any
-	opts = opts or {}
-	local win = self.Window
-	local groupTitle = opts.GroupboxTitle or "Menu"
-	local groupIcon = opts.Icon or "wrench"
-
-	local group: any
-	if typeof(tab.AddLeftGroupbox) == "function" then
-		group = tab:AddLeftGroupbox(groupTitle, { Icon = groupIcon })
-	elseif typeof(tab.AddSection) == "function" then
-		group = tab:AddSection(groupTitle)
-	else
-		error("BuildMenuSection: tab must support AddLeftGroupbox or AddSection", 2)
-	end
-
-	if opts.IncludeNotificationSide ~= false then
-		group:AddDropdown({
-			Text = "Notification Side",
-			Options = { "Left", "Right" },
-			Default = self.NotifySide or "Right",
-			Idx = "NotificationSide",
-			Callback = function(value: string)
-				self:SetNotifySide(value)
-			end,
-		})
-	end
-
-	if opts.IncludeCornerRadius ~= false and win and typeof(win.SetCornerRadius) == "function" then
-		group:AddSlider({
-			Text = "Corner Radius",
-			Min = 0,
-			Max = 20,
-			Rounding = 0,
-			Default = self.CornerRadius,
-			Idx = "UICornerSlider",
-			Callback = function(value: number)
-				win:SetCornerRadius(value)
-			end,
-		})
-	end
-
-	if opts.IncludeHideUIOnLoad ~= false then
-		group:AddToggle({
-			Idx = "HideUIOnLoad",
-			Text = "Hide UI on load",
-			Default = opts.HideUIOnLoadDefault == true,
-			HideOnLoad = true,
-		})
-	end
-
-	if opts.IncludeMenuKeybind ~= false then
-		group:AddDivider()
-		group:AddLabel("Menu bind")
-		group:AddKeybind({
-			Text = "Menu keybind",
-			Default = "RightShift",
-			Idx = "MenuKeybind",
-			NoUI = true,
-		})
-	end
-
-	if opts.IncludeUnload ~= false then
-		local unloadFn = opts.UnloadCallback
-		if typeof(unloadFn) ~= "function" then
-			unloadFn = function()
-				self:Unload()
-			end
+		local win = self.Window
+		if win and typeof(win.SetVisible) == "function" then
+			pcall(function()
+				win:SetVisible(false)
+			end)
+			return true
 		end
-		group:AddButton({
-			Text = "Unload",
-			Func = unloadFn,
-		})
+		return false
 	end
 
-	return group
+	if tryHide() then
+		self._hideUIOnLoadApplied = true
+		return
+	end
+
+	task.defer(function()
+		if self._hideUIOnLoadApplied or self.Unloaded then
+			return
+		end
+		tryHide()
+		self._hideUIOnLoadApplied = true
+	end)
 end
 
 function Library:InvalidateThemePaintCache()
