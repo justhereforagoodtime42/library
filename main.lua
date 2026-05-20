@@ -223,9 +223,10 @@ function Library:ApplyHideUIOnLoad()
 	if self._hideUIOnLoadApplied then
 		return
 	end
-	self._hideUIOnLoadApplied = true
 	local toggle = self.Toggles.HideUIOnLoad or self.Toggles.HideGUIOnLoad
-	if toggle and toggle.Value == true then
+	local shouldHide = toggle and toggle.Value == true
+	self._hideUIOnLoadApplied = true
+	if shouldHide then
 		local win = self.Window
 		if win and typeof(win.SetVisible) == "function" then
 			pcall(function()
