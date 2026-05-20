@@ -168,6 +168,12 @@ Library._libFocusConn = nil :: RBXScriptConnection?
 Library._libFocusReleasedConn = nil :: RBXScriptConnection?
 --[[ Set after first ApplyHideUIOnLoad; toggling HideUIOnLoad mid-session does not hide the menu ]]
 Library._hideUIOnLoadApplied = false
+Library.ShowCustomCursor = false
+Library.CursorColor = Color3.new(1, 1, 1)
+Library._cursorOuter = nil :: Frame?
+Library._cursorInner = nil :: Frame?
+Library._cursorStroke = nil :: UIStroke?
+Library._cursorConn = nil :: RBXScriptConnection?
 
 --[[ Theme paint cache: instances tagged with Ui* attrs; rebuilt on descendant changes (no full GetDescendants each RefreshTheme). ]]
 Library._themePaintHost = nil :: Instance?
@@ -369,6 +375,115 @@ end
 
 function Library:SetDPIScale(_scale: number)
 	-- Reserved: fixed scale for now; hook here if you add DPI scaling later.
+end
+
+function Library:_destroyCustomCursor()
+	if self._cursorConn then
+		self._cursorConn:Disconnect()
+		self._cursorConn = nil
+	end
+	if self._cursorOuter then
+		pcall(function()
+			self._cursorOuter:Destroy()
+		end)
+		self._cursorOuter = nil
+		self._cursorInner = nil
+		self._cursorStroke = nil
+	end
+	pcall(function()
+		UserInputService.MouseIconEnabled = true
+	end)
+end
+
+function Library:_ensureCustomCursor(parent: Instance)
+	if self._cursorOuter and self._cursorOuter.Parent then
+		return
+	end
+	self:_destroyCustomCursor()
+
+	local holder = Instance.new("Frame")
+	holder.Name = "CustomCursor"
+	holder.BackgroundTransparency = 1
+	holder.Size = UDim2.fromOffset(0, 0)
+	holder.ZIndex = 10000
+	holder.Active = false
+	holder.Parent = parent
+
+	local outer = Instance.new("Frame")
+	outer.Name = "Outer"
+	outer.AnchorPoint = Vector2.new(0.5, 0.5)
+	outer.Size = UDim2.fromOffset(12, 12)
+	outer.BackgroundTransparency = 1
+	outer.Visible = false
+	outer.Parent = holder
+	local outerCorner = Instance.new("UICorner")
+	outerCorner.CornerRadius = UDim.new(1, 0)
+	outerCorner.Parent = outer
+	local outerStroke = Instance.new("UIStroke")
+	outerStroke.Color = self.CursorColor
+	outerStroke.Thickness = 1.5
+	outerStroke.Parent = outer
+
+	local inner = Instance.new("Frame")
+	inner.Name = "Inner"
+	inner.AnchorPoint = Vector2.new(0.5, 0.5)
+	inner.Position = UDim2.fromScale(0.5, 0.5)
+	inner.Size = UDim2.fromOffset(4, 4)
+	inner.BackgroundColor3 = self.CursorColor
+	inner.BorderSizePixel = 0
+	inner.Parent = outer
+	local innerCorner = Instance.new("UICorner")
+	innerCorner.CornerRadius = UDim.new(1, 0)
+	innerCorner.Parent = inner
+
+	self._cursorOuter = outer
+	self._cursorInner = inner
+	self._cursorStroke = outerStroke
+end
+
+function Library:_updateCustomCursorPosition()
+	local outer = self._cursorOuter
+	if not outer or not outer.Parent or not self.ShowCustomCursor then
+		return
+	end
+	outer.Position = UDim2.fromOffset(PlayerMouse.X, PlayerMouse.Y)
+end
+
+function Library:SetCursorColor(color: Color3)
+	self.CursorColor = color
+	if self._cursorStroke then
+		self._cursorStroke.Color = color
+	end
+	if self._cursorInner then
+		self._cursorInner.BackgroundColor3 = color
+	end
+end
+
+function Library:SetCursorEnabled(enabled: boolean)
+	self.ShowCustomCursor = enabled == true
+	local outer = self._cursorOuter
+	if outer then
+		outer.Visible = self.ShowCustomCursor
+	end
+	if self.ShowCustomCursor then
+		pcall(function()
+			UserInputService.MouseIconEnabled = false
+		end)
+		self:_updateCustomCursorPosition()
+		if not self._cursorConn then
+			self._cursorConn = RunService.RenderStepped:Connect(function()
+				self:_updateCustomCursorPosition()
+			end)
+		end
+	else
+		pcall(function()
+			UserInputService.MouseIconEnabled = true
+		end)
+		if self._cursorConn then
+			self._cursorConn:Disconnect()
+			self._cursorConn = nil
+		end
+	end
 end
 
 function Library:Notify(payload: any, duration: number?)
@@ -787,11 +902,13 @@ function Library:Unload()
 	if self._notifyThemeRefreshes then
 		table.clear(self._notifyThemeRefreshes)
 	end
+	self:_destroyCustomCursor()
 	table.clear(self.Toggles)
 	table.clear(self.Options)
 	self.ToggleKeybind = nil
 	self.CantDragForced = false
 	self._hideUIOnLoadApplied = false
+	self.ShowCustomCursor = false
 end
 
 --[[ Works when Color3.fromHex is missing or picky; accepts #RGB, #RRGGBB ]]
@@ -1201,6 +1318,8 @@ function Library.new(config: WindowConfig)
 	modalSink.Active = false
 	modalSink.AutoButtonColor = false
 	modalSink.Parent = screenGui
+
+	Library:_ensureCustomCursor(screenGui)
 
 	Library.Unloaded = false
 	Library._hideUIOnLoadApplied = false
