@@ -17,6 +17,8 @@ end
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 --[[ Obsidian-style: PlayerMouse matches GuiObject.AbsolutePosition better than GetMouseLocation on some clients. ]]
 local PlayerMouse = LocalPlayer:GetMouse()
+--[[ Same as Obsidian: cloneref'd Mouse for custom cursor tracking. ]]
+local Mouse = cloneref(LocalPlayer:GetMouse())
 
 -- ----------------------------------------------------------------------------- theme (mutable; ThemeManager / RefreshTheme)
 local Library = {}
@@ -166,14 +168,24 @@ Library.Window = nil :: any
 Library._notifyThemeRefreshes = {} :: { () -> () }
 Library._libFocusConn = nil :: RBXScriptConnection?
 Library._libFocusReleasedConn = nil :: RBXScriptConnection?
---[[ Set after first ApplyHideUIOnLoad; toggling HideUIOnLoad mid-session does not hide the menu ]]
-Library._hideUIOnLoadApplied = false
-Library.ShowCustomCursor = false
+
+Library.ShowCustomCursor = true
+Library.CursorImage = ""
 Library.CursorColor = Color3.new(1, 1, 1)
-Library._cursorOuter = nil :: Frame?
-Library._cursorInner = nil :: Frame?
-Library._cursorStroke = nil :: UIStroke?
-Library._cursorConn = nil :: RBXScriptConnection?
+Library._cursorRoot = nil :: Frame?
+Library._cursorHBar = nil :: Frame?
+Library._cursorVBar = nil :: Frame?
+Library._cursorImage = nil :: ImageLabel?
+Library._cursorRenderBound = false
+Library._cursorRenderName = "AcidHubCustomCursor"
+Library._cursorPrevMouseIcon = nil :: boolean?
+Library._cursorRefresh = nil :: (() -> ())?
+
+--[[ Top-center stats pill (player / ping / FPS / time / session). Draggable; toggle with Library:SetWatermarkEnabled. ]]
+Library.ShowWatermark = true
+Library._watermarkOuter = nil :: Frame?
+Library._watermarkConn = nil :: RBXScriptConnection?
+Library._watermarkPaint = nil :: (() -> ())?
 
 --[[ Theme paint cache: instances tagged with Ui* attrs; rebuilt on descendant changes (no full GetDescendants each RefreshTheme). ]]
 Library._themePaintHost = nil :: Instance?
@@ -222,40 +234,6 @@ function Library:RefreshTheme()
 	for _, fn in self._notifyThemeRefreshes or {} do
 		pcall(fn)
 	end
-end
-
---[[ Hide menu once per hub session when Toggles.HideUIOnLoad is on (after autoload). Not when the user flips the toggle on later. ]]
-function Library:ApplyHideUIOnLoad()
-	if self._hideUIOnLoadApplied then
-		return
-	end
-	self._hideUIOnLoadApplied = true
-
-	local function tryHide()
-		if self.Unloaded then
-			return
-		end
-		local sm = self.SaveManager
-		local configWantsHide = sm and sm._configHideUIOnLoad == true
-		local toggle = self.Toggles.HideUIOnLoad or self.Toggles.HideGUIOnLoad
-		local shouldHide = configWantsHide or (toggle and toggle.Value == true)
-		if shouldHide and toggle and toggle.Value ~= true and typeof(toggle.SetValue) == "function" then
-			pcall(function()
-				toggle:SetValue(true)
-			end)
-		end
-		if shouldHide then
-			local win = self.Window
-			if win and typeof(win.SetVisible) == "function" then
-				pcall(function()
-					win:SetVisible(false)
-				end)
-			end
-		end
-	end
-
-	tryHide()
-	task.defer(tryHide)
 end
 
 function Library:InvalidateThemePaintCache()
@@ -377,113 +355,73 @@ function Library:SetDPIScale(_scale: number)
 	-- Reserved: fixed scale for now; hook here if you add DPI scaling later.
 end
 
-function Library:_destroyCustomCursor()
-	if self._cursorConn then
-		self._cursorConn:Disconnect()
-		self._cursorConn = nil
+
+function Library:SetCursorEnabled(state: boolean)
+	self.ShowCustomCursor = state == true
+	if typeof(self._cursorRefresh) == "function" then
+		self._cursorRefresh()
 	end
-	if self._cursorOuter then
-		pcall(function()
-			self._cursorOuter:Destroy()
-		end)
-		self._cursorOuter = nil
-		self._cursorInner = nil
-		self._cursorStroke = nil
-	end
-	pcall(function()
-		UserInputService.MouseIconEnabled = true
-	end)
 end
 
-function Library:_ensureCustomCursor(parent: Instance)
-	if self._cursorOuter and self._cursorOuter.Parent then
-		return
+function Library:SetWatermarkEnabled(state: boolean)
+	self.ShowWatermark = state == true
+	local outer = self._watermarkOuter
+	if outer and outer.Parent then
+		outer.Visible = self.ShowWatermark
 	end
-	self:_destroyCustomCursor()
-
-	local holder = Instance.new("Frame")
-	holder.Name = "CustomCursor"
-	holder.BackgroundTransparency = 1
-	holder.Size = UDim2.fromOffset(0, 0)
-	holder.ZIndex = 10000
-	holder.Active = false
-	holder.Parent = parent
-
-	local outer = Instance.new("Frame")
-	outer.Name = "Outer"
-	outer.AnchorPoint = Vector2.new(0.5, 0.5)
-	outer.Size = UDim2.fromOffset(12, 12)
-	outer.BackgroundTransparency = 1
-	outer.Visible = false
-	outer.Parent = holder
-	local outerCorner = Instance.new("UICorner")
-	outerCorner.CornerRadius = UDim.new(1, 0)
-	outerCorner.Parent = outer
-	local outerStroke = Instance.new("UIStroke")
-	outerStroke.Color = self.CursorColor
-	outerStroke.Thickness = 1.5
-	outerStroke.Parent = outer
-
-	local inner = Instance.new("Frame")
-	inner.Name = "Inner"
-	inner.AnchorPoint = Vector2.new(0.5, 0.5)
-	inner.Position = UDim2.fromScale(0.5, 0.5)
-	inner.Size = UDim2.fromOffset(4, 4)
-	inner.BackgroundColor3 = self.CursorColor
-	inner.BorderSizePixel = 0
-	inner.Parent = outer
-	local innerCorner = Instance.new("UICorner")
-	innerCorner.CornerRadius = UDim.new(1, 0)
-	innerCorner.Parent = inner
-
-	self._cursorOuter = outer
-	self._cursorInner = inner
-	self._cursorStroke = outerStroke
+	if typeof(self._watermarkPaint) == "function" then
+		pcall(self._watermarkPaint)
+	end
 end
 
-function Library:_updateCustomCursorPosition()
-	local outer = self._cursorOuter
-	if not outer or not outer.Parent or not self.ShowCustomCursor then
-		return
-	end
-	outer.Position = UDim2.fromOffset(PlayerMouse.X, PlayerMouse.Y)
+function Library:IsWatermarkEnabled(): boolean
+	return self.ShowWatermark == true
 end
+
 
 function Library:SetCursorColor(color: Color3)
-	self.CursorColor = color
-	if self._cursorStroke then
-		self._cursorStroke.Color = color
+	if typeof(color) ~= "Color3" then
+		return
 	end
-	if self._cursorInner then
-		self._cursorInner.BackgroundColor3 = color
+	self.CursorColor = color
+	if self._cursorHBar then
+		self._cursorHBar.BackgroundColor3 = color
+	end
+	if self._cursorVBar then
+		self._cursorVBar.BackgroundColor3 = color
 	end
 end
 
-function Library:SetCursorEnabled(enabled: boolean)
-	self.ShowCustomCursor = enabled == true
-	local outer = self._cursorOuter
-	if outer then
-		outer.Visible = self.ShowCustomCursor
-	end
-	if self.ShowCustomCursor then
-		pcall(function()
-			UserInputService.MouseIconEnabled = false
-		end)
-		self:_updateCustomCursorPosition()
-		if not self._cursorConn then
-			self._cursorConn = RunService.RenderStepped:Connect(function()
-				self:_updateCustomCursorPosition()
-			end)
+--[[ Optional rbxassetid / lucide name / url to overlay on top of the "+" cross.
+	Pass nil/"" to clear back to the plain crosshair. ]]
+function Library:SetCursorImage(image: any)
+	if image == nil or image == "" then
+		self.CursorImage = ""
+		if self._cursorImage then
+			self._cursorImage.Visible = false
+			self._cursorImage.Image = ""
+			self._cursorImage.Size = UDim2.fromOffset(20, 20)
 		end
+		return
+	end
+
+	self.CursorImage = image
+	local img = self._cursorImage
+	if not img then
+		return
+	end
+
+	local parsed = self:GetCustomIcon(image)
+	if typeof(parsed) == "table" and parsed.Url then
+		img.Image = parsed.Url
+		img.ImageRectOffset = parsed.ImageRectOffset or Vector2.zero
+		img.ImageRectSize = parsed.ImageRectSize or Vector2.zero
 	else
-		pcall(function()
-			UserInputService.MouseIconEnabled = true
-		end)
-		if self._cursorConn then
-			self._cursorConn:Disconnect()
-			self._cursorConn = nil
-		end
+		img.Image = tostring(image)
+		img.ImageRectOffset = Vector2.zero
+		img.ImageRectSize = Vector2.zero
 	end
+	img.Visible = true
 end
 
 function Library:Notify(payload: any, duration: number?)
@@ -883,6 +821,22 @@ function Library:Unload()
 		self._menuInputConn:Disconnect()
 		self._menuInputConn = nil
 	end
+
+	if self._cursorRenderBound then
+		pcall(function()
+			RunService:UnbindFromRenderStep(self._cursorRenderName)
+		end)
+		self._cursorRenderBound = false
+	end
+	if self._cursorPrevMouseIcon ~= nil then
+		UserInputService.MouseIconEnabled = self._cursorPrevMouseIcon
+		self._cursorPrevMouseIcon = nil
+	end
+	self._cursorRoot = nil
+	self._cursorHBar = nil
+	self._cursorVBar = nil
+	self._cursorImage = nil
+	self._cursorRefresh = nil
 	if self._windowDestroy then
 		self._windowDestroy()
 		self._windowDestroy = nil
@@ -902,13 +856,10 @@ function Library:Unload()
 	if self._notifyThemeRefreshes then
 		table.clear(self._notifyThemeRefreshes)
 	end
-	self:_destroyCustomCursor()
 	table.clear(self.Toggles)
 	table.clear(self.Options)
 	self.ToggleKeybind = nil
 	self.CantDragForced = false
-	self._hideUIOnLoadApplied = false
-	self.ShowCustomCursor = false
 end
 
 --[[ Works when Color3.fromHex is missing or picky; accepts #RGB, #RRGGBB ]]
@@ -1259,6 +1210,8 @@ export type WindowConfig = {
 	MobileButtonsSide: string?,
 	--[[ Like Obsidian UnlockMouseWhileOpen: tiny Modal sink when hub is open on touch devices ]]
 	UnlockMouseWhileOpen: boolean?,
+	--[[ When false, no top watermark is created (default: true / shown). ]]
+	Watermark: boolean?,
 }
 
 function Library.new(config: WindowConfig)
@@ -1273,7 +1226,7 @@ function Library.new(config: WindowConfig)
 	local unlockMouseWhileOpen = config.UnlockMouseWhileOpen ~= false
 	local defaultMin = if Library.IsMobile then Vector2.new(300, 200) else Vector2.new(380, 300)
 	local minContent = config.MinSize or defaultMin
-	local size = config.Size or (if Library.IsMobile then Vector2.new(480, 360) else Vector2.new(520, 440))
+	local size = config.Size or (if Library.IsMobile then Vector2.new(480, 360) else Vector2.new(760, 620))
 	size = Vector2.new(math.max(size.X, minContent.X), math.max(size.Y, minContent.Y))
 	local cam0 = workspace.CurrentCamera
 	if cam0 then
@@ -1319,10 +1272,74 @@ function Library.new(config: WindowConfig)
 	modalSink.AutoButtonColor = false
 	modalSink.Parent = screenGui
 
-	Library:_ensureCustomCursor(screenGui)
+	local cursorColor = if typeof(Library.CursorColor) == "Color3" then Library.CursorColor else Color3.new(1, 1, 1)
+	local cursorRoot = Instance.new("Frame")
+	cursorRoot.Name = "Cursor"
+	cursorRoot.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorRoot.BackgroundTransparency = 1
+	cursorRoot.BorderSizePixel = 0
+	cursorRoot.Size = UDim2.fromOffset(1, 1)
+	cursorRoot.Visible = false
+	cursorRoot.Active = false
+	cursorRoot.ZIndex = 11000
+	cursorRoot.Parent = screenGui
+
+	local cursorHOutline = Instance.new("Frame")
+	cursorHOutline.Name = "OutlineH"
+	cursorHOutline.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorHOutline.BackgroundColor3 = Color3.new(0, 0, 0)
+	cursorHOutline.BorderSizePixel = 0
+	cursorHOutline.Position = UDim2.fromScale(0.5, 0.5)
+	cursorHOutline.Size = UDim2.fromOffset(11, 3)
+	cursorHOutline.ZIndex = 11000
+	cursorHOutline.Parent = cursorRoot
+
+	local cursorVOutline = Instance.new("Frame")
+	cursorVOutline.Name = "OutlineV"
+	cursorVOutline.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorVOutline.BackgroundColor3 = Color3.new(0, 0, 0)
+	cursorVOutline.BorderSizePixel = 0
+	cursorVOutline.Position = UDim2.fromScale(0.5, 0.5)
+	cursorVOutline.Size = UDim2.fromOffset(3, 11)
+	cursorVOutline.ZIndex = 11000
+	cursorVOutline.Parent = cursorRoot
+
+	local cursorHBar = Instance.new("Frame")
+	cursorHBar.Name = "BarH"
+	cursorHBar.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorHBar.BackgroundColor3 = cursorColor
+	cursorHBar.BorderSizePixel = 0
+	cursorHBar.Position = UDim2.fromScale(0.5, 0.5)
+	cursorHBar.Size = UDim2.fromOffset(9, 1)
+	cursorHBar.ZIndex = 11001
+	cursorHBar.Parent = cursorRoot
+
+	local cursorV = Instance.new("Frame")
+	cursorV.Name = "BarV"
+	cursorV.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorV.BackgroundColor3 = cursorColor
+	cursorV.BorderSizePixel = 0
+	cursorV.Position = UDim2.fromScale(0.5, 0.5)
+	cursorV.Size = UDim2.fromOffset(1, 9)
+	cursorV.ZIndex = 11001
+	cursorV.Parent = cursorRoot
+
+	local cursorImage = Instance.new("ImageLabel")
+	cursorImage.Name = "CursorCustomImage"
+	cursorImage.AnchorPoint = Vector2.new(0.5, 0.5)
+	cursorImage.BackgroundTransparency = 1
+	cursorImage.Position = UDim2.fromScale(0.5, 0.5)
+	cursorImage.Size = UDim2.fromOffset(20, 20)
+	cursorImage.Visible = false
+	cursorImage.ZIndex = 11002
+	cursorImage.Parent = cursorRoot
+
+	Library._cursorRoot = cursorRoot
+	Library._cursorHBar = cursorHBar
+	Library._cursorVBar = cursorV
+	Library._cursorImage = cursorImage
 
 	Library.Unloaded = false
-	Library._hideUIOnLoadApplied = false
 	Library._windowRefreshes = Library._windowRefreshes or {}
 	Library._draggableBtnConns = Library._draggableBtnConns or {}
 	Library._draggableThemeButtons = Library._draggableThemeButtons or {}
@@ -1540,11 +1557,69 @@ function Library.new(config: WindowConfig)
 	root.BackgroundTransparency = 1
 	root.Parent = screenGui
 
+
+	local function refreshCustomCursor()
+		--[[ Custom cursor stays on while the ScreenGui exists, even when the main
+			window (root) is hidden — only ShowCustomCursor / mobile / unload gate it. ]]
+		local shouldShow = Library.ShowCustomCursor == true
+			and not Library.IsMobile
+			and not Library.Unloaded
+			and cursorRoot.Parent ~= nil
+
+		if shouldShow then
+			if Library._cursorPrevMouseIcon == nil then
+				Library._cursorPrevMouseIcon = UserInputService.MouseIconEnabled
+			end
+			UserInputService.MouseIconEnabled = false
+			cursorRoot.Visible = true
+
+			if not Library._cursorRenderBound then
+				local ok = pcall(function()
+					RunService:BindToRenderStep(
+						Library._cursorRenderName,
+						Enum.RenderPriority.Last.Value,
+						function()
+							if Library.Unloaded or not cursorRoot.Parent then
+								return
+							end
+							if not Library.ShowCustomCursor then
+								return
+							end
+							--[[ Obsidian: force system cursor off every frame (other scripts may toggle). ]]
+							UserInputService.MouseIconEnabled = false
+							--[[ Window-space mouse → local space under this ScreenGui (fixes offset when parented under gethui() / non-(0,0) absolute origin). ]]
+							local ap = screenGui.AbsolutePosition
+							cursorRoot.Position = UDim2.fromOffset(Mouse.X - ap.X, Mouse.Y - ap.Y)
+							cursorRoot.Visible = true
+						end
+					)
+				end)
+				if ok then
+					Library._cursorRenderBound = true
+				end
+			end
+		else
+			cursorRoot.Visible = false
+			if Library._cursorRenderBound then
+				pcall(function()
+					RunService:UnbindFromRenderStep(Library._cursorRenderName)
+				end)
+				Library._cursorRenderBound = false
+			end
+			if Library._cursorPrevMouseIcon ~= nil then
+				UserInputService.MouseIconEnabled = Library._cursorPrevMouseIcon
+				Library._cursorPrevMouseIcon = nil
+			end
+		end
+	end
+	Library._cursorRefresh = refreshCustomCursor
+
 	local function setRootVisible(v: boolean)
 		root.Visible = v
 		if unlockMouseWhileOpen and Library.IsMobile then
 			modalSink.Modal = v
 		end
+		refreshCustomCursor()
 	end
 
 	-- Toasts: created after root so with Sibling ZIndex they stack above the window; high ZIndex vs root (0)
@@ -1582,6 +1657,233 @@ function Library.new(config: WindowConfig)
 	updateNotifyLayout()
 	Library._notifyList = notifyList
 	Library._updateNotifyLayout = updateNotifyLayout
+
+	if config.Watermark ~= false then
+		local wmSessionStart = os.clock()
+		local wmIcons: { ImageLabel } = {}
+
+		local wmOuter = Instance.new("Frame")
+		wmOuter.Name = "Watermark"
+		wmOuter.BackgroundTransparency = 1
+		wmOuter.AnchorPoint = Vector2.new(1, 0)
+		wmOuter.Position = UDim2.new(1, -12, 0, 10)
+		wmOuter.Size = UDim2.fromOffset(0, 30)
+		wmOuter.AutomaticSize = Enum.AutomaticSize.X
+		wmOuter.ZIndex = 750
+		wmOuter.Visible = Library.ShowWatermark == true
+		wmOuter.Parent = screenGui
+		Library._watermarkOuter = wmOuter
+
+		local wmPill = Instance.new("Frame")
+		wmPill.Name = "Pill"
+		wmPill.BackgroundTransparency = 0.1
+		wmPill.BorderSizePixel = 0
+		wmPill.AutomaticSize = Enum.AutomaticSize.XY
+		wmPill.Size = UDim2.fromOffset(0, 28)
+		wmPill.Parent = wmOuter
+		corner(UDim.new(1, 0)).Parent = wmPill
+		local wmStroke = stroke(Theme.Stroke, 1, Theme.StrokeTrans)
+		wmStroke.Parent = wmPill
+		local wmPad = Instance.new("UIPadding")
+		wmPad.PaddingLeft = UDim.new(0, 10)
+		wmPad.PaddingRight = UDim.new(0, 10)
+		wmPad.PaddingTop = UDim.new(0, 5)
+		wmPad.PaddingBottom = UDim.new(0, 5)
+		wmPad.Parent = wmPill
+		local wmLayout = Instance.new("UIListLayout")
+		wmLayout.FillDirection = Enum.FillDirection.Horizontal
+		wmLayout.SortOrder = Enum.SortOrder.LayoutOrder
+		wmLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+		wmLayout.Padding = UDim.new(0, 12)
+		wmLayout.Parent = wmPill
+
+		local function wmAddSegment(order: number, iconToken: string, initial: string): TextLabel
+			local seg = Instance.new("Frame")
+			seg.BackgroundTransparency = 1
+			seg.AutomaticSize = Enum.AutomaticSize.XY
+			seg.LayoutOrder = order
+			seg.Parent = wmPill
+			local sl = Instance.new("UIListLayout")
+			sl.FillDirection = Enum.FillDirection.Horizontal
+			sl.SortOrder = Enum.SortOrder.LayoutOrder
+			sl.VerticalAlignment = Enum.VerticalAlignment.Center
+			sl.Padding = UDim.new(0, 5)
+			sl.Parent = seg
+			local icon = Instance.new("ImageLabel")
+			icon.Name = "Icon"
+			icon.BackgroundTransparency = 1
+			icon.Size = UDim2.fromOffset(14, 14)
+			icon.ScaleType = Enum.ScaleType.Fit
+			local ci = Library:GetCustomIcon(iconToken)
+			if ci and typeof(ci.Url) == "string" and ci.Url ~= "" then
+				icon.Image = ci.Url
+				icon.ImageRectOffset = ci.ImageRectOffset or Vector2.zero
+				icon.ImageRectSize = ci.ImageRectSize or Vector2.zero
+				icon.Visible = true
+			else
+				icon.Image = ""
+				icon.Visible = false
+			end
+			icon.ImageColor3 = Theme.AccentBlue
+			icon.Parent = seg
+			table.insert(wmIcons, icon)
+			local lbl = Instance.new("TextLabel")
+			lbl.BackgroundTransparency = 1
+			lbl.Font = Enum.Font.GothamBold
+			lbl.TextSize = 13
+			lbl.TextXAlignment = Enum.TextXAlignment.Left
+			lbl.TextYAlignment = Enum.TextYAlignment.Center
+			lbl.AutomaticSize = Enum.AutomaticSize.XY
+			lbl.Text = initial
+			lbl.TextColor3 = Theme.Text
+			lbl.Parent = seg
+			return lbl
+		end
+
+		local brand = Instance.new("ImageLabel")
+		brand.Name = "BrandIcon"
+		brand.BackgroundTransparency = 1
+		brand.Image = "rbxassetid://71835868356227"
+		brand.Size = UDim2.fromOffset(18, 18)
+		brand.ScaleType = Enum.ScaleType.Fit
+		brand.LayoutOrder = 0
+		brand.Parent = wmPill
+		corner(UDim.new(1, 0)).Parent = brand
+
+		local lblName = wmAddSegment(1, "user", LocalPlayer.Name)
+		local lblPing = wmAddSegment(2, "wifi", "0 MS")
+		local lblFps = wmAddSegment(3, "activity", "0 FPS")
+		local lblTime = wmAddSegment(4, "clock", os.date("%H:%M"))
+		local lblSess = wmAddSegment(5, "history", "0s")
+
+		local paintWatermark = function()
+			if not wmPill or not wmPill.Parent then
+				return
+			end
+			wmPill.BackgroundColor3 = Theme.Elevated
+			wmPill.BackgroundTransparency = 0.1
+			wmStroke.Color = Theme.Stroke
+			wmStroke.Transparency = math.clamp(Theme.StrokeTrans, 0.3, 0.72)
+			for _, ic in wmIcons do
+				if ic and ic.Parent then
+					ic.ImageColor3 = Theme.AccentBlue
+				end
+			end
+			lblName.TextColor3 = Theme.Text
+			lblPing.TextColor3 = Theme.Text
+			lblFps.TextColor3 = Theme.Text
+			lblTime.TextColor3 = Theme.Text
+			lblSess.TextColor3 = Theme.Text
+		end
+		Library._watermarkPaint = paintWatermark
+
+		-- Drag: click+hold (or touch+hold) the pill to move the watermark anywhere on screen.
+		Library._watermarkDragConns = Library._watermarkDragConns or {}
+		local dragging = false
+		local dragInputType: Enum.UserInputType? = nil
+		local dragStartMouse = Vector2.zero
+		local dragStartTopLeft = Vector2.zero
+		wmPill.Active = true
+		table.insert(
+			Library._watermarkDragConns,
+			wmPill.InputBegan:Connect(function(input: InputObject)
+				if
+					input.UserInputType == Enum.UserInputType.MouseButton1
+					or input.UserInputType == Enum.UserInputType.Touch
+				then
+					dragging = true
+					dragInputType = input.UserInputType
+					dragStartMouse = Vector2.new(input.Position.X, input.Position.Y)
+					dragStartTopLeft = wmOuter.AbsolutePosition
+				end
+			end)
+		)
+		table.insert(
+			Library._watermarkDragConns,
+			UserInputService.InputChanged:Connect(function(input: InputObject)
+				if not dragging or Library.Unloaded then
+					return
+				end
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseMovement
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				local cur = Vector2.new(input.Position.X, input.Position.Y)
+				local parentGui = wmOuter.Parent
+				if not parentGui or not parentGui:IsA("GuiObject") then
+					return
+				end
+				local pAbs = (parentGui :: GuiObject).AbsolutePosition
+				local screenSize = (parentGui :: GuiObject).AbsoluteSize
+				local w = wmOuter.AbsoluteSize.X
+				local h = wmOuter.AbsoluteSize.Y
+				local newTL = dragStartTopLeft + (cur - dragStartMouse)
+				newTL = Vector2.new(
+					math.clamp(newTL.X, 0, math.max(0, screenSize.X - w)),
+					math.clamp(newTL.Y, 0, math.max(0, screenSize.Y - h))
+				)
+				--[[ AnchorPoint (1,0): Position is parent-space coords of the frame's top-right corner. ]]
+				wmOuter.Position = UDim2.fromOffset(newTL.X + w - pAbs.X, newTL.Y - pAbs.Y)
+			end)
+		)
+		table.insert(
+			Library._watermarkDragConns,
+			UserInputService.InputEnded:Connect(function(input: InputObject)
+				if dragging and input.UserInputType == dragInputType then
+					dragging = false
+					dragInputType = nil
+				end
+			end)
+		)
+
+		local fpsAcc = 0
+		local fpsFrames = 0
+		local fpsShown = 0
+		local tickAcc = 0
+		Library._watermarkConn = RunService.Heartbeat:Connect(function(dt)
+			if Library.Unloaded or not wmOuter.Parent then
+				return
+			end
+			if not Library.ShowWatermark then
+				wmOuter.Visible = false
+				return
+			end
+			wmOuter.Visible = true
+			fpsAcc += dt
+			fpsFrames += 1
+			tickAcc += dt
+			if fpsAcc >= 0.25 then
+				fpsShown = math.floor(fpsFrames / fpsAcc + 0.5)
+				fpsFrames = 0
+				fpsAcc = 0
+			end
+			if tickAcc >= 0.35 then
+				tickAcc = 0
+				local pingMs = 0
+				pcall(function()
+					pingMs = math.floor(LocalPlayer:GetNetworkPing() * 1000 + 0.5)
+				end)
+				lblPing.Text = tostring(pingMs) .. " MS"
+				lblFps.Text = tostring(fpsShown) .. " FPS"
+				lblTime.Text = os.date("%H:%M")
+				local elapsed = os.clock() - wmSessionStart
+				if elapsed < 60 then
+					lblSess.Text = string.format("%ds", math.floor(elapsed))
+				else
+					lblSess.Text = string.format("%dm", math.floor(elapsed / 60))
+				end
+				local dn = LocalPlayer.DisplayName
+				if typeof(dn) == "string" and dn ~= "" then
+					lblName.Text = #dn > 18 and (string.sub(dn, 1, 17) .. "…") or dn
+				else
+					lblName.Text = LocalPlayer.Name
+				end
+			end
+		end)
+		paintWatermark()
+	end
 
 	-- top row: mascot + pill
 	local topRow = Instance.new("Frame")
@@ -2299,6 +2601,9 @@ function Library.new(config: WindowConfig)
 				g2.TextColor3 = Theme.TextDim
 			end
 		end
+		if typeof(Library._watermarkPaint) == "function" then
+			pcall(Library._watermarkPaint)
+		end
 	end
 
 	if Library._menuInputConn then
@@ -2376,6 +2681,39 @@ function Library.new(config: WindowConfig)
 			end
 			table.clear(dragConn)
 		end
+
+		if Library._cursorRenderBound then
+			pcall(function()
+				RunService:UnbindFromRenderStep(Library._cursorRenderName)
+			end)
+			Library._cursorRenderBound = false
+		end
+		if Library._cursorPrevMouseIcon ~= nil then
+			UserInputService.MouseIconEnabled = Library._cursorPrevMouseIcon
+			Library._cursorPrevMouseIcon = nil
+		end
+		Library._cursorRoot = nil
+		Library._cursorHBar = nil
+		Library._cursorVBar = nil
+		Library._cursorImage = nil
+		Library._cursorRefresh = nil
+		if Library._watermarkConn then
+			pcall(function()
+				Library._watermarkConn:Disconnect()
+			end)
+			Library._watermarkConn = nil
+		end
+		if Library._watermarkDragConns then
+			for _, c in Library._watermarkDragConns do
+				pcall(function()
+					c:Disconnect()
+				end)
+			end
+			table.clear(Library._watermarkDragConns)
+		end
+		Library._watermarkDragConns = nil
+		Library._watermarkOuter = nil
+		Library._watermarkPaint = nil
 		--[[ _windowRefreshes cleared in Library:Unload after this; avoid iterating if table missing. ]]
 		if screenGui.Parent then
 			screenGui:Destroy()
@@ -2397,6 +2735,14 @@ function Library.new(config: WindowConfig)
 		subtitle.Text = t
 	end
 
+	function window:SetVisible(v: boolean)
+		setRootVisible(v == true)
+	end
+
+	function window:IsVisible(): boolean
+		return root.Visible
+	end
+
 	--[[ Root frame pixel size (includes mascot strip + 48px header); used by SaveManager. ]]
 	function window:GetRootSize(): Vector2
 		return Vector2.new(root.Size.X.Offset, root.Size.Y.Offset)
@@ -2405,14 +2751,6 @@ function Library.new(config: WindowConfig)
 	function window:SetRootSize(width: number, height: number)
 		local w, h = clampRootSizePixels(width, height)
 		root.Size = UDim2.fromOffset(w, h)
-	end
-
-	function window:SetVisible(visible: boolean)
-		setRootVisible(visible == true)
-	end
-
-	function window:GetVisible(): boolean
-		return root.Visible
 	end
 
 	function window:SetCornerRadius(n: number)
@@ -3192,7 +3530,11 @@ function Library.new(config: WindowConfig)
 		end
 
 		local function refreshToggleTooltip(reg: any)
+			
 			local tt = reg._toggleTooltip
+			if reg.Disabled and typeof(reg._toggleDisabledTooltip) == "string" and reg._toggleDisabledTooltip ~= "" then
+				tt = reg._toggleDisabledTooltip
+			end
 			if typeof(tt) ~= "string" or tt == "" then
 				return
 			end
@@ -3460,9 +3802,9 @@ function Library.new(config: WindowConfig)
 			Default: boolean?,
 			Callback: ((boolean) -> ())?,
 			Tooltip: string?,
-			--[[ Idx HideUIOnLoad (or HideOnLoad) hides the hub once after autoload via Library:ApplyHideUIOnLoad — not when toggled on mid-session ]]
-			HideOnLoad: boolean?,
+			DisabledTooltip: string?,
 			Idx: string?,
+			Disabled: boolean?,
 			Keybind: {
 				Default: string?,
 				Idx: string?,
@@ -3473,8 +3815,6 @@ function Library.new(config: WindowConfig)
 				Callback: ((boolean) -> ())?,
 			}?,
 		})
-			local hideOnLoad = o.HideOnLoad == true or o.Idx == "HideUIOnLoad" or o.Idx == "HideGUIOnLoad"
-
 			local TW, TH = UID.ToggleTrackW, UID.ToggleTrackH
 			local K = UID.ToggleKnob
 			local knobHalf = K / 2
@@ -3498,11 +3838,14 @@ function Library.new(config: WindowConfig)
 			label.Parent = row
 
 			local on = o.Default == true
+			local disabled = o.Disabled == true
 			local track = Instance.new("TextButton")
 			track.AutoButtonColor = false
+			track.Active = not disabled
 			track.Size = UDim2.fromOffset(TW, TH)
 			track.Position = UDim2.new(1, -TW, 0.5, -TH / 2)
 			track.BackgroundColor3 = if on then Theme.ToggleOn else Theme.ToggleOff
+			track.BackgroundTransparency = if disabled then 0.5 else 0
 			track.Text = ""
 			track.Parent = row
 			corner(UDim.new(1, 0)).Parent = track
@@ -3511,8 +3854,12 @@ function Library.new(config: WindowConfig)
 			knob.Size = UDim2.fromOffset(K, K)
 			knob.Position = if on then kOn else kOff
 			knob.BackgroundColor3 = Color3.new(1, 1, 1)
+			knob.BackgroundTransparency = if disabled then 0.4 else 0
 			knob.Parent = track
 			corner(UDim.new(1, 0)).Parent = knob
+
+			--[[ Apply Obsidian-style "dim everything" treatment so disabled state is obvious. ]]
+			label.TextTransparency = if disabled then 0.6 else 0
 
 			table.insert(toggleThemeRows, {
 				track = track,
@@ -3525,14 +3872,47 @@ function Library.new(config: WindowConfig)
 			local reg: any = {
 				Type = "Toggle",
 				Value = on,
-				HideOnLoad = hideOnLoad,
+				Disabled = disabled,
 			}
 			reg._toggleRow = row
 			reg._toggleLabel = label
 			reg._toggleTrack = track
+			reg._toggleKnob = knob
 			reg._toggleTooltip = o.Tooltip
+			reg._toggleDisabledTooltip = o.DisabledTooltip
+
+			local function applyDisabledVisuals()
+				track.Active = not disabled
+				track.BackgroundTransparency = if disabled then 0.5 else 0
+				knob.BackgroundTransparency = if disabled then 0.4 else 0
+				label.TextTransparency = if disabled then 0.6 else 0
+				--[[ Propagate to inline keybind cap + color swatch if present (Obsidian disables them with the parent). ]]
+				local cap = row:FindFirstChild("ToggleKeybind")
+				if cap and cap:IsA("GuiObject") then
+					cap.Active = not disabled
+					if cap:IsA("GuiButton") then
+						(cap :: GuiButton).AutoButtonColor = false
+					end
+					if cap:IsA("TextButton") or cap:IsA("TextLabel") then
+						(cap :: any).TextTransparency = if disabled then 0.6 else 0
+					end
+					cap.BackgroundTransparency = if disabled then 0.5 else 0.15
+				end
+				local sw = row:FindFirstChild("ToggleColorSwatch")
+				if sw and sw:IsA("GuiObject") then
+					sw.Active = not disabled
+					if disabled then
+						sw.BackgroundTransparency = math.max(sw.BackgroundTransparency, 0.5)
+					end
+				end
+			end
+
+			local permaLocked = disabled
 
 			local function apply(v: boolean)
+				if disabled or permaLocked then
+					return
+				end
 				on = v
 				reg.Value = v
 				tween(track, TweenInfo.new(0.15, Enum.EasingStyle.Quad), {
@@ -3560,13 +3940,45 @@ function Library.new(config: WindowConfig)
 				table.insert(changeCbs, cb)
 			end
 
+			--[[ Obsidian-style :SetDisabled(state). Accepts truthy/falsy, normalises to boolean.
+				Updates inline keybind/color swatch too, and swaps active vs disabled tooltip.
+				If the toggle was created with `Disabled = true`, it is permaLocked: any
+				attempt to clear `disabled` (the common re-enable bypass loop) is silently
+				ignored and the toggle re-asserts itself as disabled. ]]
+			reg.SetDisabled = function(_: any, state: boolean)
+				local want = state == true
+				if permaLocked and not want then
+					if not disabled then
+						disabled = true
+						reg.Disabled = true
+						applyDisabledVisuals()
+					end
+					return
+				end
+				disabled = want
+				reg.Disabled = disabled
+				applyDisabledVisuals()
+				if typeof(refreshToggleTooltip) == "function" then
+					refreshToggleTooltip(reg)
+				end
+			end
+			reg.IsDisabled = function()
+				return disabled
+			end
+
 			track.MouseButton1Click:Connect(function()
+				if disabled or permaLocked then
+					return
+				end
 				apply(not on)
 			end)
 
 			function reg:AddKeybind(ko: any): any
 				local kr = attachInlineKeybindToToggle(row, label, track, apply, reg, ko)
-				if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+				if
+					(typeof(o.Tooltip) == "string" and o.Tooltip ~= "")
+					or (typeof(o.DisabledTooltip) == "string" and o.DisabledTooltip ~= "")
+				then
 					refreshToggleTooltip(reg)
 				elseif typeof(ko.Tooltip) == "string" and ko.Tooltip ~= "" then
 					local cap = row:FindFirstChild("ToggleKeybind")
@@ -3590,7 +4002,10 @@ function Library.new(config: WindowConfig)
 					track = track,
 				})
 				reg._inlineColorReg = cr
-				if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+				if
+					(typeof(o.Tooltip) == "string" and o.Tooltip ~= "")
+					or (typeof(o.DisabledTooltip) == "string" and o.DisabledTooltip ~= "")
+				then
 					refreshToggleTooltip(reg)
 				elseif typeof(co.Tooltip) == "string" and co.Tooltip ~= "" then
 					local sw = row:FindFirstChild("ToggleColorSwatch")
@@ -3604,16 +4019,15 @@ function Library.new(config: WindowConfig)
 
 			if o.Keybind then
 				reg:AddKeybind(o.Keybind)
-			elseif typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+			elseif
+				(typeof(o.Tooltip) == "string" and o.Tooltip ~= "")
+				or (typeof(o.DisabledTooltip) == "string" and o.DisabledTooltip ~= "")
+			then
 				refreshToggleTooltip(reg)
 			end
 
 			if typeof(o.Idx) == "string" and o.Idx ~= "" then
 				Library.Toggles[o.Idx] = reg
-			end
-
-			if hideOnLoad and Library.SaveManager and Library.SaveManager._configHideUIOnLoad == true then
-				apply(true)
 			end
 
 			return reg
@@ -3842,22 +4256,34 @@ function Library.new(config: WindowConfig)
 			elseif typeof(o.Default) == "number" and not multi and #options > 0 then
 				local i = math.clamp(math.floor(o.Default :: number), 1, #options)
 				selected[options[i]] = true
-			elseif not allowNull and #options > 0 then
-				selected[options[1]] = true
 			end
 
 			local function computeValue(): any
 				if multi then
 					local out = {}
+					local seen: { [string]: boolean } = {}
 					for _, opt in options do
 						if selected[opt] then
 							table.insert(out, opt)
+							seen[opt] = true
 						end
+					end
+					local extra: { string } = {}
+					for k, v in pairs(selected) do
+						if v and typeof(k) == "string" and not seen[k] then
+							table.insert(extra, k)
+						end
+					end
+					table.sort(extra)
+					for _, s in extra do
+						table.insert(out, s)
 					end
 					return out
 				end
-				for k in pairs(selected) do
-					return k
+				for k, v in pairs(selected) do
+					if v then
+						return k
+					end
 				end
 				return nil
 			end
@@ -3865,18 +4291,32 @@ function Library.new(config: WindowConfig)
 			local function summary(): string
 				if multi then
 					local parts = {}
+					local seen: { [string]: boolean } = {}
 					for _, opt in options do
 						if selected[opt] then
 							table.insert(parts, opt)
+							seen[opt] = true
 						end
+					end
+					local extra: { string } = {}
+					for k, v in pairs(selected) do
+						if v and typeof(k) == "string" and not seen[k] then
+							table.insert(extra, k)
+						end
+					end
+					table.sort(extra)
+					for _, s in extra do
+						table.insert(parts, s)
 					end
 					if #parts == 0 then
 						return "Select…"
 					end
 					return table.concat(parts, ", ")
 				end
-				for k in pairs(selected) do
-					return k
+				for k, v in pairs(selected) do
+					if v then
+						return k
+					end
 				end
 				return if allowNull then "None" else "Select…"
 			end
@@ -4169,6 +4609,11 @@ function Library.new(config: WindowConfig)
 							selected[s] = true
 						end
 					end
+					for k, val in pairs(v :: { [any]: any }) do
+						if typeof(k) == "string" and val == true then
+							selected[k] = true
+						end
+					end
 				elseif not multi and v == nil and allowNull then
 					-- cleared
 				elseif not multi and type(v) == "string" then
@@ -4186,27 +4631,27 @@ function Library.new(config: WindowConfig)
 			end
 			reg.SetValues = function(_: any, newOpts: { string })
 				options = newOpts or {}
-				for k in pairs(selected) do
-					selected[k] = nil
-				end
+
 				if not multi then
-					if allowNull then
-						-- none
-					elseif #options > 0 then
-						selected[options[1]] = true
+					local validSet: { [string]: boolean } = {}
+					for _, o2 in options do
+						if typeof(o2) == "string" then
+							validSet[o2] = true
+						end
 					end
-				else
-					-- keep empty until user picks
+					for k in pairs(selected) do
+						if not validSet[k] then
+							selected[k] = nil
+						end
+					end
 				end
-				--[[
-					If SetValues runs while the list is open, stale search text can filter out all new rows;
-					rebuild must run against a cleared query so the open panel visibly updates.
-				]]
+
 				if open and searchBox then
 					searchBox.Text = ""
 				end
 				buildOptionButtons()
 				refreshOptionVisuals()
+				btn.Text = "  " .. summary()
 				if open then
 					listF.Visible = true
 				end
