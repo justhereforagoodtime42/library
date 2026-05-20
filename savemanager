@@ -72,6 +72,8 @@ do
 	SaveManager.SubFolder = ""
 	SaveManager.Ignore = {}
 	SaveManager.Library = nil
+	--[[ Set while parsing a loaded config; used by Library:ApplyHideUIOnLoad before the toggle exists ]]
+	SaveManager._configHideUIOnLoad = false
 	SaveManager.Parser = {
 		Toggle = {
 			Save = function(idx, object)
@@ -79,8 +81,12 @@ do
 			end,
 			Load = function(idx, data)
 				local object = SaveManager.Library.Toggles[idx]
-				if object and object.Value ~= data.value then
-					object:SetValue(data.value)
+				if not object then
+					return
+				end
+				local want = data.value == true
+				if object.Value ~= want then
+					object:SetValue(want)
 				end
 			end,
 		},
@@ -175,6 +181,7 @@ do
 
 	function SaveManager:SetLibrary(library)
 		self.Library = library
+		library.SaveManager = self
 	end
 
 	function SaveManager:IgnoreThemeSettings()
@@ -366,6 +373,8 @@ do
 			end
 		end
 
+		self._configHideUIOnLoad = false
+
 		local objs = decoded.objects
 		if typeof(objs) == "table" then
 			for _, option in pairs(objs) do
@@ -377,6 +386,14 @@ do
 				end
 				if self.Ignore[option.idx] then
 					continue
+				end
+
+				if
+					option.type == "Toggle"
+					and (option.idx == "HideUIOnLoad" or option.idx == "HideGUIOnLoad")
+					and option.value == true
+				then
+					self._configHideUIOnLoad = true
 				end
 
 				self.Parser[option.type].Load(option.idx, option)
@@ -483,28 +500,9 @@ do
 
 		if isfile(autoLoadPath) then
 			local successRead, name = pcall(readfile, autoLoadPath)
-			if not successRead then
-				self.Library:Notify({
-					Title = "Autoload",
-					Description = "Read autoload file failed",
-					Time = 3,
-				})
-			else
+			if successRead then
 				name = tostring(name):gsub("^%s+", ""):gsub("%s+$", ""):gsub("\r", ""):gsub("\n", "")
-				local success, err = self:Load(name)
-				if not success then
-					self.Library:Notify({
-						Title = "Autoload",
-						Description = tostring(err),
-						Time = 4,
-					})
-				else
-					self.Library:Notify({
-						Title = "Autoload",
-						Description = string.format("Loaded config %q", name),
-						Time = 3,
-					})
-				end
+				self:Load(name)
 			end
 		end
 
