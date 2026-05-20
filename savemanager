@@ -379,7 +379,7 @@ do
 					continue
 				end
 
-				task.spawn(self.Parser[option.type].Load, option.idx, option)
+				self.Parser[option.type].Load(option.idx, option)
 			end
 		end
 
@@ -489,25 +489,27 @@ do
 					Description = "Read autoload file failed",
 					Time = 3,
 				})
-				return
+			else
+				name = tostring(name):gsub("^%s+", ""):gsub("%s+$", ""):gsub("\r", ""):gsub("\n", "")
+				local success, err = self:Load(name)
+				if not success then
+					self.Library:Notify({
+						Title = "Autoload",
+						Description = tostring(err),
+						Time = 4,
+					})
+				else
+					self.Library:Notify({
+						Title = "Autoload",
+						Description = string.format("Loaded config %q", name),
+						Time = 3,
+					})
+				end
 			end
+		end
 
-			name = tostring(name):gsub("^%s+", ""):gsub("%s+$", ""):gsub("\r", ""):gsub("\n", "")
-			local success, err = self:Load(name)
-			if not success then
-				self.Library:Notify({
-					Title = "Autoload",
-					Description = tostring(err),
-					Time = 4,
-				})
-				return
-			end
-
-			self.Library:Notify({
-				Title = "Autoload",
-				Description = string.format("Loaded config %q", name),
-				Time = 3,
-			})
+		if self.Library and typeof(self.Library.ApplyHideUIOnLoad) == "function" then
+			self.Library:ApplyHideUIOnLoad()
 		end
 	end
 
