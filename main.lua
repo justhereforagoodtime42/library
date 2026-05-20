@@ -223,17 +223,33 @@ function Library:ApplyHideUIOnLoad()
 	if self._hideUIOnLoadApplied then
 		return
 	end
-	local toggle = self.Toggles.HideUIOnLoad or self.Toggles.HideGUIOnLoad
-	local shouldHide = toggle and toggle.Value == true
 	self._hideUIOnLoadApplied = true
-	if shouldHide then
-		local win = self.Window
-		if win and typeof(win.SetVisible) == "function" then
+
+	local function tryHide()
+		if self.Unloaded then
+			return
+		end
+		local sm = self.SaveManager
+		local configWantsHide = sm and sm._configHideUIOnLoad == true
+		local toggle = self.Toggles.HideUIOnLoad or self.Toggles.HideGUIOnLoad
+		local shouldHide = configWantsHide or (toggle and toggle.Value == true)
+		if shouldHide and toggle and toggle.Value ~= true and typeof(toggle.SetValue) == "function" then
 			pcall(function()
-				win:SetVisible(false)
+				toggle:SetValue(true)
 			end)
 		end
+		if shouldHide then
+			local win = self.Window
+			if win and typeof(win.SetVisible) == "function" then
+				pcall(function()
+					win:SetVisible(false)
+				end)
+			end
+		end
 	end
+
+	tryHide()
+	task.defer(tryHide)
 end
 
 function Library:InvalidateThemePaintCache()
@@ -3475,6 +3491,10 @@ function Library.new(config: WindowConfig)
 
 			if typeof(o.Idx) == "string" and o.Idx ~= "" then
 				Library.Toggles[o.Idx] = reg
+			end
+
+			if hideOnLoad and Library.SaveManager and Library.SaveManager._configHideUIOnLoad == true then
+				apply(true)
 			end
 
 			return reg
