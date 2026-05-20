@@ -506,12 +506,8 @@ do
 			end
 		end
 
-		if self.Library then
-			if typeof(self.Library.FinishSetup) == "function" then
-				self.Library:FinishSetup()
-			elseif typeof(self.Library.ApplyHideUIOnLoad) == "function" then
-				self.Library:ApplyHideUIOnLoad()
-			end
+		if self.Library and typeof(self.Library.ApplyHideUIOnLoad) == "function" then
+			self.Library:ApplyHideUIOnLoad()
 		end
 	end
 
