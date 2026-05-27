@@ -4226,11 +4226,16 @@ function Library.new(config: WindowConfig)
 			if multi then
 				if type(o.Default) == "table" then
 					for _, s in o.Default :: { string } do
-						selected[s] = true
+						if typeof(s) == "string" and s ~= "" then
+							selected[s] = true
+						end
 					end
 				end
 			elseif type(o.Default) == "string" then
-				selected[o.Default :: string] = true
+				local d = o.Default :: string
+				if d ~= "" then
+					selected[d] = true
+				end
 			elseif typeof(o.Default) == "number" and not multi and #options > 0 then
 				local i = math.clamp(math.floor(o.Default :: number), 1, #options)
 				selected[options[i]] = true
@@ -4557,15 +4562,16 @@ function Library.new(config: WindowConfig)
 				end
 				if multi and type(v) == "table" then
 					for _, s in v do
-						if typeof(s) == "string" then
+						if typeof(s) == "string" and s ~= "" then
 							selected[s] = true
 						end
 					end
-				elseif not multi and v == nil and allowNull then
+				elseif not multi and (v == nil or v == "") and allowNull then
 					-- cleared
-				elseif not multi and type(v) == "string" then
+				elseif not multi and type(v) == "string" and v ~= "" then
 					selected[v] = true
 				end
+				btn.Text = "  " .. summary()
 				refreshOptionVisuals()
 				syncReg()
 			end
@@ -4690,6 +4696,11 @@ function Library.new(config: WindowConfig)
 			end
 			reg.OnChanged = function(_: any, cb: (string) -> ())
 				table.insert(inputCbs, cb)
+			end
+
+			reg._inputRow = row
+			reg.SetVisible = function(_: any, visible: boolean)
+				row.Visible = visible == true
 			end
 
 			if typeof(o.Idx) == "string" and o.Idx ~= "" then
