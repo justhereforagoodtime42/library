@@ -5245,20 +5245,6 @@ function Library.new(config: WindowConfig)
 			local SATURATION_MAP_ASSET = "rbxassetid://4155801252"
 			local popCloseConn: RBXScriptConnection? = nil
 
-			local function isColorPickerDragInput(input: InputObject): boolean
-				if not Library.IsRobloxFocused then
-					return false
-				end
-				if
-					input.UserInputType ~= Enum.UserInputType.MouseButton1
-					and input.UserInputType ~= Enum.UserInputType.Touch
-				then
-					return false
-				end
-				return input.UserInputState == Enum.UserInputState.Begin
-					or input.UserInputState == Enum.UserInputState.Change
-			end
-
 			local pop = Instance.new("Frame")
 			pop.Name = "ColorPickerPop"
 			pop.AutomaticSize = Enum.AutomaticSize.Y
@@ -5348,19 +5334,12 @@ function Library.new(config: WindowConfig)
 			end
 			syncHsVisualRef = syncHsVisual
 
-			local function pointerXY(): (number, number)
-				--[[ Match Obsidian / AbsolutePosition: Mouse aligns with AbsolutePosition; GetMouseLocation can be offset (e.g. GuiInset). ]]
-				if UserInputService.MouseEnabled then
-					return Mouse.X, Mouse.Y
-				end
-				local v = UserInputService:GetMouseLocation()
-				return v.X, v.Y
-			end
+			--[[ Slider-style drag: InputChanged + input.Position only (no Mouse/GetMouse polling — AC-sensitive). ]]
+			local cpDragTarget: "sat" | "hue" | nil = nil
 
-			local function sampleSatVal()
+			local function sampleSatValAt(px: number, py: number)
 				local ax, ay = satMap.AbsolutePosition.X, satMap.AbsolutePosition.Y
 				local sx, sy = satMap.AbsoluteSize.X, satMap.AbsoluteSize.Y
-				local px, py = pointerXY()
 				local oldSat, oldVal = satN, valN
 				satN = math.clamp((px - ax) / math.max(sx, 1e-4), 0, 1)
 				valN = 1 - math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
@@ -5370,16 +5349,20 @@ function Library.new(config: WindowConfig)
 				syncHsVisual()
 			end
 
-			local function sampleHue()
+			local function sampleHueAt(py: number)
 				local ay = hueSel.AbsolutePosition.Y
 				local sy = hueSel.AbsoluteSize.Y
-				local _, py = pointerXY()
 				local oldHue = hueN
 				hueN = math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
 				if hueN ~= oldHue then
 					applyColor(Color3.fromHSV(hueN, satN, valN))
 				end
 				syncHsVisual()
+			end
+
+			local function colorPickerPointer(input: InputObject): (number, number)
+				local p = input.Position
+				return p.X, p.Y
 			end
 
 			satMap.InputBegan:Connect(function(input: InputObject)
@@ -5389,10 +5372,9 @@ function Library.new(config: WindowConfig)
 				then
 					return
 				end
-				while isColorPickerDragInput(input) and popOpen do
-					sampleSatVal()
-					RunService.RenderStepped:Wait()
-				end
+				cpDragTarget = "sat"
+				local px, py = colorPickerPointer(input)
+				sampleSatValAt(px, py)
 			end)
 
 			hueSel.InputBegan:Connect(function(input: InputObject)
@@ -5402,10 +5384,37 @@ function Library.new(config: WindowConfig)
 				then
 					return
 				end
-				while isColorPickerDragInput(input) and popOpen do
-					sampleHue()
-					RunService.RenderStepped:Wait()
+				cpDragTarget = "hue"
+				local _, py = colorPickerPointer(input)
+				sampleHueAt(py)
+			end)
+
+			UserInputService.InputChanged:Connect(function(input: InputObject)
+				if not popOpen or not cpDragTarget then
+					return
 				end
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseMovement
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				local px, py = colorPickerPointer(input)
+				if cpDragTarget == "sat" then
+					sampleSatValAt(px, py)
+				elseif cpDragTarget == "hue" then
+					sampleHueAt(py)
+				end
+			end)
+
+			UserInputService.InputEnded:Connect(function(input: InputObject)
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				cpDragTarget = nil
 			end)
 
 			local function rgbRow(labelText: string, layoutOrder: number): TextBox
