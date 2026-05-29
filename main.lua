@@ -1316,77 +1316,143 @@ function Library.new(config: WindowConfig)
 		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
 	end
 
-	--[[ One shared color-picker drag pipeline (avoids N global InputChanged hooks per picker — AC-sensitive). ]]
-	type CpDragSession = {
-		move: (InputObject) -> (),
-		commit: () -> (),
+	--[[ Obsidian-style context menu (one dismiss listener for all color pickers). ]]
+	type ContextMenuHandle = {
+		Active: boolean,
+		Menu: Frame,
+		Holder: GuiObject,
+		Offset: { number },
+		ExtraHolders: { GuiObject },
+		PositionConn: RBXScriptConnection?,
+		Close: (self: ContextMenuHandle) -> (),
+		Open: (self: ContextMenuHandle) -> (),
+		Toggle: (self: ContextMenuHandle) -> (),
 	}
-	local cpDragSession: CpDragSession? = nil
-	local cpDragChangedConn: RBXScriptConnection? = nil
-	local cpDragEndedConn: RBXScriptConnection? = nil
-	local cpBackdrop = Instance.new("TextButton")
-	cpBackdrop.Name = "ColorPickerBackdrop"
-	cpBackdrop.BackgroundTransparency = 1
-	cpBackdrop.Text = ""
-	cpBackdrop.Size = UDim2.fromScale(1, 1)
-	cpBackdrop.Position = UDim2.fromScale(0, 0)
-	cpBackdrop.ZIndex = 2499
-	cpBackdrop.Visible = false
-	cpBackdrop.Active = true
-	cpBackdrop.AutoButtonColor = false
-	cpBackdrop.Parent = screenGui
-	local cpBackdropClose: (() -> ())? = nil
-	cpBackdrop.MouseButton1Click:Connect(function()
-		if cpBackdropClose then
-			cpBackdropClose()
-		end
-	end)
+	local activeContextMenu: ContextMenuHandle? = nil
+	local contextMenuDismissConn: RBXScriptConnection? = nil
 
-	local function stopColorPickerDrag(commit: boolean)
-		local session = cpDragSession
-		cpDragSession = nil
-		if session and commit then
-			pcall(session.commit)
+	local function mouseIsOverFrame(frame: GuiObject, mouse: Vector2): boolean
+		local ap, as = frame.AbsolutePosition, frame.AbsoluteSize
+		return mouse.X >= ap.X and mouse.X <= ap.X + as.X and mouse.Y >= ap.Y and mouse.Y <= ap.Y + as.Y
+	end
+
+	local function isMouseInput(input: InputObject, includeM2: boolean?): boolean
+		return input.UserInputType == Enum.UserInputType.MouseButton1
+			or (includeM2 == true and input.UserInputType == Enum.UserInputType.MouseButton2)
+			or input.UserInputType == Enum.UserInputType.Touch
+	end
+
+	local function isClickInput(input: InputObject, includeM2: boolean?): boolean
+		return isMouseInput(input, includeM2)
+			and input.UserInputState == Enum.UserInputState.Begin
+			and Library.IsRobloxFocused
+	end
+
+	local function isDragInput(input: InputObject, includeM2: boolean?): boolean
+		return isMouseInput(input, includeM2)
+			and (input.UserInputState == Enum.UserInputState.Begin or input.UserInputState == Enum.UserInputState.Change)
+			and Library.IsRobloxFocused
+	end
+
+	local function detachContextMenuDismiss()
+		if contextMenuDismissConn then
+			contextMenuDismissConn:Disconnect()
+			contextMenuDismissConn = nil
 		end
 	end
 
-	local function bindColorPickerDragOnce()
-		if cpDragChangedConn then
-			return
-		end
-		cpDragChangedConn = UserInputService.InputChanged:Connect(function(input: InputObject)
-			local session = cpDragSession
-			if not session then
-				return
-			end
-			if
-				input.UserInputType ~= Enum.UserInputType.MouseMovement
-				and input.UserInputType ~= Enum.UserInputType.Touch
-			then
-				return
-			end
-			pcall(session.move, input)
-		end)
-		cpDragEndedConn = UserInputService.InputEnded:Connect(function(input: InputObject)
-			if not cpDragSession then
-				return
-			end
-			if
-				input.UserInputType ~= Enum.UserInputType.MouseButton1
-				and input.UserInputType ~= Enum.UserInputType.Touch
-			then
-				return
-			end
-			stopColorPickerDrag(true)
-		end)
-	end
+	local function addContextMenu(holder: GuiObject, menuSize: UDim2, offset: { number }, extraHolders: { GuiObject }?): ContextMenuHandle
+		local menu = Instance.new("Frame")
+		menu.Name = "ColorPickerMenu"
+		menu.AutomaticSize = Enum.AutomaticSize.Y
+		menu.Size = menuSize
+		menu.BackgroundColor3 = Theme.Elevated
+		menu.BackgroundTransparency = 0.04
+		menu.Visible = false
+		menu.ZIndex = 1200
+		menu.Parent = screenGui
+		corner(Theme.CornerSm).Parent = menu
+		stroke(Theme.Stroke, 1, 0.45).Parent = menu
 
-	local function startColorPickerDrag(session: CpDragSession)
-		bindColorPickerDragOnce()
-		if cpDragSession then
-			stopColorPickerDrag(false)
+		local handle: ContextMenuHandle = {
+			Active = false,
+			Menu = menu,
+			Holder = holder,
+			Offset = offset,
+			ExtraHolders = extraHolders or {},
+			PositionConn = nil,
+			Close = nil :: any,
+			Open = nil :: any,
+			Toggle = nil :: any,
+		}
+
+		local function refreshMenuPosition()
+			local ap = holder.AbsolutePosition
+			local asz = holder.AbsoluteSize
+			menu.Position = UDim2.fromOffset(
+				math.floor(ap.X + offset[1]),
+				math.floor(ap.Y + asz.Y + offset[2])
+			)
 		end
-		cpDragSession = session
+
+		function handle:Close()
+			if activeContextMenu == handle then
+				activeContextMenu = nil
+			end
+			handle.Active = false
+			menu.Visible = false
+			if handle.PositionConn then
+				handle.PositionConn:Disconnect()
+				handle.PositionConn = nil
+			end
+			detachContextMenuDismiss()
+		end
+
+		function handle:Open()
+			if activeContextMenu and activeContextMenu ~= handle then
+				activeContextMenu:Close()
+			end
+			activeContextMenu = handle
+			handle.Active = true
+			menu.Size = menuSize
+			refreshMenuPosition()
+			menu.Visible = true
+			handle.PositionConn = holder:GetPropertyChangedSignal("AbsolutePosition"):Connect(refreshMenuPosition)
+			detachContextMenuDismiss()
+			task.defer(function()
+				if not handle.Active or not menu.Visible then
+					return
+				end
+				contextMenuDismissConn = UserInputService.InputBegan:Connect(function(input: InputObject, gameProcessed: boolean)
+					if gameProcessed or not handle.Active or not menu.Visible then
+						return
+					end
+					if not isClickInput(input) then
+						return
+					end
+					local loc = Vector2.new(input.Position.X, input.Position.Y)
+					if mouseIsOverFrame(menu, loc) or mouseIsOverFrame(holder, loc) then
+						return
+					end
+					for _, extra in handle.ExtraHolders do
+						if extra.Parent and mouseIsOverFrame(extra, loc) then
+							return
+						end
+					end
+					handle:Close()
+				end)
+			end)
+		end
+
+		function handle:Toggle()
+			if handle.Active then
+				handle:Close()
+			else
+				handle:Open()
+			end
+		end
+
+		return handle
 	end
 
 	--[[ Obsidian-style 0×0 modal sink: improves camera / world input while GUI is open on mobile ]]
@@ -1743,6 +1809,9 @@ function Library.new(config: WindowConfig)
 
 	local function setRootVisible(v: boolean)
 		root.Visible = v
+		if not v and activeContextMenu then
+			activeContextMenu:Close()
+		end
 		if unlockMouseWhileOpen and Library.IsMobile then
 			modalSink.Modal = v
 		end
@@ -5258,93 +5327,22 @@ function Library.new(config: WindowConfig)
 			local hueN, satN, valN = col:ToHSV()
 			local fillRgbBoxesRef: (() -> ())? = nil
 			local syncHsVisualRef: (() -> ())? = nil
+			local colorMenu: ContextMenuHandle
 
 			local function syncSwatch()
 				swBtn.BackgroundColor3 = col
 				swBtn.BackgroundTransparency = 1 - alpha
 			end
 
-			local popOpen = false
-			local committedHex = string.upper(col:ToHex())
-
-			local function syncPickerVisuals()
-				if hexBox then
-					hexBox.Text = string.upper(col:ToHex())
-				end
-				if popOpen then
-					hueN, satN, valN = col:ToHSV()
-					if syncHsVisualRef then
-						syncHsVisualRef()
-					end
-					if fillRgbBoxesRef then
-						fillRgbBoxesRef()
-					end
-				end
-			end
-
-			local function previewColor(c: Color3)
-				col = c
-				reg.Value = col
-				syncSwatch()
-				syncPickerVisuals()
-			end
-
-			local function commitColor(c: Color3?)
-				if c then
-					col = c
-				end
-				local newHex = string.upper(col:ToHex())
-				if newHex == committedHex then
-					return
-				end
-				committedHex = newHex
-				reg.Value = col
-				syncSwatch()
-				syncPickerVisuals()
-				for _, cb in colorCbs do
-					pcall(cb, col)
-				end
-				if o.Callback then
-					pcall(o.Callback, col)
-				end
-			end
-
-			local function applyColor(c: Color3)
-				commitColor(c)
-			end
-
-			local function tryParseHexInput()
-				if not hexBox then
-					return
-				end
-				local parsed = parseHexColor(hexBox.Text)
-				if parsed then
-					applyColor(parsed)
-				else
-					hexBox.Text = string.upper(col:ToHex())
-				end
-			end
-
-			if hexBox then
-				hexBox.FocusLost:Connect(function()
-					tryParseHexInput()
-				end)
-			end
-
 			--[[ Obsidian-style HSV surface (rbxassetid://4155801252 saturation map) + RGB fields ]]
 			local SATURATION_MAP_ASSET = "rbxassetid://4155801252"
 
-			local pop = Instance.new("Frame")
-			pop.Name = "ColorPickerPop"
-			pop.AutomaticSize = Enum.AutomaticSize.Y
-			pop.Size = UDim2.fromOffset(260, 0)
-			pop.BackgroundColor3 = Theme.Elevated
-			pop.BackgroundTransparency = 0.04
-			pop.Visible = false
-			pop.ZIndex = 2500
-			pop.Parent = screenGui
-			corner(Theme.CornerSm).Parent = pop
-			stroke(Theme.Stroke, 1, 0.45).Parent = pop
+			local extraDismiss: { GuiObject } = {}
+			if hexBox then
+				table.insert(extraDismiss, hexBox)
+			end
+			colorMenu = addContextMenu(swBtn, UDim2.fromOffset(248, 0), { 0, 4 }, extraDismiss)
+			local pop = colorMenu.Menu
 			local popPad = Instance.new("UIPadding")
 			popPad.PaddingLeft = UDim.new(0, 8)
 			popPad.PaddingRight = UDim.new(0, 8)
@@ -5360,7 +5358,7 @@ function Library.new(config: WindowConfig)
 			svRow.BackgroundTransparency = 1
 			svRow.Size = UDim2.new(1, 0, 0, 168)
 			svRow.LayoutOrder = 1
-			svRow.ZIndex = 2501
+			svRow.ZIndex = pop.ZIndex + 1
 			svRow.Parent = pop
 			local svList = Instance.new("UIListLayout")
 			svList.FillDirection = Enum.FillDirection.Horizontal
@@ -5376,7 +5374,7 @@ function Library.new(config: WindowConfig)
 			satMap.BackgroundColor3 = Color3.fromHSV(hueN, 1, 1)
 			satMap.Image = SATURATION_MAP_ASSET
 			satMap.ScaleType = Enum.ScaleType.Stretch
-			satMap.ZIndex = 2502
+			satMap.ZIndex = pop.ZIndex + 2
 			satMap.LayoutOrder = 1
 			satMap.Parent = svRow
 			corner(Theme.CornerSm).Parent = satMap
@@ -5386,7 +5384,7 @@ function Library.new(config: WindowConfig)
 			satCursor.BackgroundColor3 = Color3.new(1, 1, 1)
 			satCursor.BorderSizePixel = 0
 			satCursor.Size = UDim2.fromOffset(6, 6)
-			satCursor.ZIndex = 2503
+			satCursor.ZIndex = pop.ZIndex + 3
 			satCursor.Parent = satMap
 			corner(UDim.new(1, 0)).Parent = satCursor
 			stroke(Theme.Stroke, 1, 0.3).Parent = satCursor
@@ -5396,7 +5394,7 @@ function Library.new(config: WindowConfig)
 			hueSel.AutoButtonColor = false
 			hueSel.Size = UDim2.fromOffset(22, 168)
 			hueSel.Text = ""
-			hueSel.ZIndex = 2502
+			hueSel.ZIndex = pop.ZIndex + 2
 			hueSel.LayoutOrder = 2
 			hueSel.Parent = svRow
 			corner(Theme.CornerSm).Parent = hueSel
@@ -5411,7 +5409,7 @@ function Library.new(config: WindowConfig)
 			hueCursor.BorderSizePixel = 0
 			hueCursor.Position = UDim2.new(0.5, 0, hueN, 0)
 			hueCursor.Size = UDim2.new(1, 4, 0, 3)
-			hueCursor.ZIndex = 2503
+			hueCursor.ZIndex = pop.ZIndex + 3
 			hueCursor.Parent = hueSel
 			corner(UDim.new(0, 2)).Parent = hueCursor
 			stroke(Color3.new(0, 0, 0), 1, 0.2).Parent = hueCursor
@@ -5423,85 +5421,86 @@ function Library.new(config: WindowConfig)
 			end
 			syncHsVisualRef = syncHsVisual
 
-			local function colorPickerPointer(input: InputObject): (number, number)
-				local p = input.Position
-				return p.X, p.Y
-			end
-
-			local function sampleSatValAt(px: number, py: number)
-				local ax, ay = satMap.AbsolutePosition.X, satMap.AbsolutePosition.Y
-				local sx, sy = satMap.AbsoluteSize.X, satMap.AbsoluteSize.Y
-				satN = math.clamp((px - ax) / math.max(sx, 1e-4), 0, 1)
-				valN = 1 - math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
-				previewColor(Color3.fromHSV(hueN, satN, valN))
-				syncHsVisual()
-			end
-
-			local function sampleHueAt(py: number)
-				local ay = hueSel.AbsolutePosition.Y
-				local sy = hueSel.AbsoluteSize.Y
-				hueN = math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
-				previewColor(Color3.fromHSV(hueN, satN, valN))
-				syncHsVisual()
-			end
-
-			local function beginSatDrag(input: InputObject)
-				if
-					input.UserInputType ~= Enum.UserInputType.MouseButton1
-					and input.UserInputType ~= Enum.UserInputType.Touch
-				then
-					return
+			local function syncPickerVisuals()
+				if hexBox then
+					hexBox.Text = string.upper(col:ToHex())
 				end
-				local px, py = colorPickerPointer(input)
-				sampleSatValAt(px, py)
-				startColorPickerDrag({
-					move = function(moveInput: InputObject)
-						if not popOpen then
-							stopColorPickerDrag(false)
-							return
-						end
-						local mx, my = colorPickerPointer(moveInput)
-						sampleSatValAt(mx, my)
-					end,
-					commit = function()
-						commitColor(col)
-					end,
-				})
-			end
-
-			local function beginHueDrag(input: InputObject)
-				if
-					input.UserInputType ~= Enum.UserInputType.MouseButton1
-					and input.UserInputType ~= Enum.UserInputType.Touch
-				then
-					return
+				if colorMenu.Active then
+					hueN, satN, valN = col:ToHSV()
+					syncHsVisual()
+					if fillRgbBoxesRef then
+						fillRgbBoxesRef()
+					end
 				end
-				local _, py = colorPickerPointer(input)
-				sampleHueAt(py)
-				startColorPickerDrag({
-					move = function(moveInput: InputObject)
-						if not popOpen then
-							stopColorPickerDrag(false)
-							return
-						end
-						local _, my = colorPickerPointer(moveInput)
-						sampleHueAt(my)
-					end,
-					commit = function()
-						commitColor(col)
-					end,
-				})
 			end
 
-			satMap.InputBegan:Connect(beginSatDrag)
-			hueSel.InputBegan:Connect(beginHueDrag)
+			local function pushColorChange()
+				reg.Value = col
+				syncSwatch()
+				syncPickerVisuals()
+				for _, cb in colorCbs do
+					pcall(cb, col)
+				end
+				if o.Callback then
+					pcall(o.Callback, col)
+				end
+			end
+
+			local function applyColor(c: Color3)
+				col = c
+				pushColorChange()
+			end
+
+			local function updateFromHsv()
+				col = Color3.fromHSV(hueN, satN, valN)
+				pushColorChange()
+			end
+
+			satMap.InputBegan:Connect(function(input: InputObject)
+				while isDragInput(input) do
+					local minX = satMap.AbsolutePosition.X
+					local maxX = minX + satMap.AbsoluteSize.X
+					local locX = math.clamp(Mouse.X, minX, maxX)
+
+					local minY = satMap.AbsolutePosition.Y
+					local maxY = minY + satMap.AbsoluteSize.Y
+					local locY = math.clamp(Mouse.Y, minY, maxY)
+
+					local oldSat, oldVal = satN, valN
+					satN = (locX - minX) / math.max(maxX - minX, 1e-4)
+					valN = 1 - ((locY - minY) / math.max(maxY - minY, 1e-4))
+
+					if satN ~= oldSat or valN ~= oldVal then
+						updateFromHsv()
+					end
+
+					RunService.RenderStepped:Wait()
+				end
+			end)
+
+			hueSel.InputBegan:Connect(function(input: InputObject)
+				while isDragInput(input) do
+					local min = hueSel.AbsolutePosition.Y
+					local max = min + hueSel.AbsoluteSize.Y
+					local loc = math.clamp(Mouse.Y, min, max)
+
+					local oldHue = hueN
+					hueN = (loc - min) / math.max(max - min, 1e-4)
+
+					if hueN ~= oldHue then
+						updateFromHsv()
+					end
+
+					RunService.RenderStepped:Wait()
+				end
+			end)
 
 			local function rgbRow(labelText: string, layoutOrder: number): TextBox
 				local wrap = Instance.new("Frame")
 				wrap.BackgroundTransparency = 1
 				wrap.Size = UDim2.new(1, 0, 0, 26)
 				wrap.LayoutOrder = layoutOrder
-				wrap.ZIndex = 2501
+				wrap.ZIndex = pop.ZIndex + 1
 				wrap.Parent = pop
 				local lab = Instance.new("TextLabel")
 				lab.Size = UDim2.fromOffset(22, 26)
@@ -5511,7 +5510,7 @@ function Library.new(config: WindowConfig)
 				lab.TextColor3 = Theme.TextDim
 				lab.Text = labelText
 				lab.TextXAlignment = Enum.TextXAlignment.Left
-				lab.ZIndex = 2501
+				lab.ZIndex = pop.ZIndex + 1
 				lab.Parent = wrap
 				local box = Instance.new("TextBox")
 				box.Size = UDim2.new(1, -28, 1, 0)
@@ -5522,7 +5521,7 @@ function Library.new(config: WindowConfig)
 				box.TextSize = 12
 				box.TextColor3 = Theme.Text
 				box.ClearTextOnFocus = false
-				box.ZIndex = 2501
+				box.ZIndex = pop.ZIndex + 1
 				box.Parent = wrap
 				corner(Theme.CornerSm).Parent = box
 				pad(6).Parent = box
@@ -5567,43 +5566,42 @@ function Library.new(config: WindowConfig)
 			doneBtn.TextSize = 12
 			doneBtn.Font = Enum.Font.GothamBold
 			doneBtn.AutoButtonColor = false
-			doneBtn.ZIndex = 2501
+			doneBtn.ZIndex = pop.ZIndex + 1
 			doneBtn.Parent = pop
 			corner(Theme.CornerSm).Parent = doneBtn
 
-			local function closePop()
-				stopColorPickerDrag(true)
-				popOpen = false
-				pop.Visible = false
-				cpBackdrop.Visible = false
-				if cpBackdropClose == closePop then
-					cpBackdropClose = nil
+			local function tryParseHexInput()
+				if not hexBox then
+					return
+				end
+				local parsed = parseHexColor(hexBox.Text)
+				if parsed then
+					applyColor(parsed)
+				else
+					hexBox.Text = string.upper(col:ToHex())
 				end
 			end
 
-			local function openPop()
-				if cpBackdropClose then
-					cpBackdropClose()
-				end
+			if hexBox then
+				hexBox.FocusLost:Connect(function(enter: boolean)
+					if enter then
+						tryParseHexInput()
+					end
+				end)
+			end
+
+			local function refreshMenuBeforeOpen()
 				hueN, satN, valN = col:ToHSV()
-				committedHex = string.upper(col:ToHex())
 				syncHsVisual()
 				fillRgbBoxes()
-				local ap = swBtn.AbsolutePosition
-				local sz = swBtn.AbsoluteSize
-				pop.AnchorPoint = Vector2.new(0, 0)
-				pop.Position = UDim2.fromOffset(math.floor(ap.X), math.floor(ap.Y + sz.Y + 4))
-				pop.Visible = true
-				popOpen = true
-				cpBackdrop.Visible = true
-				cpBackdropClose = closePop
 			end
 
 			swBtn.MouseButton1Click:Connect(function()
-				if popOpen then
-					closePop()
+				if colorMenu.Active then
+					colorMenu:Close()
 				else
-					openPop()
+					refreshMenuBeforeOpen()
+					colorMenu:Open()
 				end
 			end)
 
@@ -5620,10 +5618,11 @@ function Library.new(config: WindowConfig)
 						local t = os.clock()
 						if t - lastHexTap < 0.35 then
 							lastHexTap = 0
-							if popOpen then
-								closePop()
+							if colorMenu.Active then
+								colorMenu:Close()
 							else
-								openPop()
+								refreshMenuBeforeOpen()
+								colorMenu:Open()
 							end
 						else
 							lastHexTap = t
@@ -5634,12 +5633,13 @@ function Library.new(config: WindowConfig)
 
 			doneBtn.MouseButton1Click:Connect(function()
 				tryApplyRgb()
-				closePop()
+				colorMenu:Close()
 			end)
+
+			reg.ColorMenu = colorMenu
 
 			reg.SetValueRGB = function(_: any, c: Color3, trans: number?)
 				col = c
-				committedHex = string.upper(col:ToHex())
 				reg.Value = col
 				if typeof(trans) == "number" then
 					reg.Transparency = trans
@@ -5647,10 +5647,10 @@ function Library.new(config: WindowConfig)
 				end
 				syncSwatch()
 				if hexBox then
-					hexBox.Text = committedHex
+					hexBox.Text = string.upper(col:ToHex())
 				end
 				fillRgbBoxes()
-				if popOpen then
+				if colorMenu.Active then
 					hueN, satN, valN = col:ToHSV()
 					syncHsVisual()
 				end
