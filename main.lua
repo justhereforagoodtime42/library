@@ -15,9 +15,6 @@ local gethui = gethui or function()
 end
 
 local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
---[[ Obsidian-style: PlayerMouse matches GuiObject.AbsolutePosition better than GetMouseLocation on some clients. ]]
-local PlayerMouse = LocalPlayer:GetMouse()
---[[ Same as Obsidian: cloneref'd Mouse for custom cursor tracking. ]]
 local Mouse = cloneref(LocalPlayer:GetMouse())
 
 -- ----------------------------------------------------------------------------- theme (mutable; ThemeManager / RefreshTheme)
@@ -1487,8 +1484,8 @@ function Library.new(config: WindowConfig)
 						px = ml.X
 						py = ml.Y
 					else
-						px = PlayerMouse.X
-						py = PlayerMouse.Y
+						px = Mouse.X
+						py = Mouse.Y
 					end
 					local cam = workspace.CurrentCamera
 					local vw = if cam then cam.ViewportSize.X else 1920
@@ -2293,7 +2290,7 @@ function Library.new(config: WindowConfig)
 			if input.UserInputType == Enum.UserInputType.Touch then
 				return Vector2.new(input.Position.X, input.Position.Y)
 			end
-			return Vector2.new(PlayerMouse.X, PlayerMouse.Y)
+			return Vector2.new(Mouse.X, Mouse.Y)
 		end
 
 		--[[ Per-button drag + tap suppression (returns function: true = skip this click after a drag). ]]
@@ -2333,7 +2330,7 @@ function Library.new(config: WindowConfig)
 					if input.UserInputType == Enum.UserInputType.Touch then
 						p = Vector2.new(input.Position.X, input.Position.Y)
 					else
-						p = Vector2.new(PlayerMouse.X, PlayerMouse.Y)
+						p = Vector2.new(Mouse.X, Mouse.Y)
 					end
 					local delta = p - startPtr
 					if not committed and delta.Magnitude >= 14 then
@@ -2429,7 +2426,7 @@ function Library.new(config: WindowConfig)
 			if input.UserInputType == Enum.UserInputType.Touch then
 				return Vector2.new(input.Position.X, input.Position.Y)
 			end
-			return Vector2.new(PlayerMouse.X, PlayerMouse.Y)
+			return Vector2.new(Mouse.X, Mouse.Y)
 		end
 
 		if resizeHandle then
@@ -5352,9 +5349,9 @@ function Library.new(config: WindowConfig)
 			syncHsVisualRef = syncHsVisual
 
 			local function pointerXY(): (number, number)
-				--[[ Match Obsidian / AbsolutePosition: PlayerMouse aligns with AbsolutePosition; GetMouseLocation can be offset (e.g. GuiInset). ]]
+				--[[ Match Obsidian / AbsolutePosition: Mouse aligns with AbsolutePosition; GetMouseLocation can be offset (e.g. GuiInset). ]]
 				if UserInputService.MouseEnabled then
-					return PlayerMouse.X, PlayerMouse.Y
+					return Mouse.X, Mouse.Y
 				end
 				local v = UserInputService:GetMouseLocation()
 				return v.X, v.Y
