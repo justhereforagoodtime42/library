@@ -1316,6 +1316,79 @@ function Library.new(config: WindowConfig)
 		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
 	end
 
+	--[[ One shared color-picker drag pipeline (avoids N global InputChanged hooks per picker — AC-sensitive). ]]
+	type CpDragSession = {
+		move: (InputObject) -> (),
+		commit: () -> (),
+	}
+	local cpDragSession: CpDragSession? = nil
+	local cpDragChangedConn: RBXScriptConnection? = nil
+	local cpDragEndedConn: RBXScriptConnection? = nil
+	local cpBackdrop = Instance.new("TextButton")
+	cpBackdrop.Name = "ColorPickerBackdrop"
+	cpBackdrop.BackgroundTransparency = 1
+	cpBackdrop.Text = ""
+	cpBackdrop.Size = UDim2.fromScale(1, 1)
+	cpBackdrop.Position = UDim2.fromScale(0, 0)
+	cpBackdrop.ZIndex = 2499
+	cpBackdrop.Visible = false
+	cpBackdrop.Active = true
+	cpBackdrop.AutoButtonColor = false
+	cpBackdrop.Parent = screenGui
+	local cpBackdropClose: (() -> ())? = nil
+	cpBackdrop.MouseButton1Click:Connect(function()
+		if cpBackdropClose then
+			cpBackdropClose()
+		end
+	end)
+
+	local function stopColorPickerDrag(commit: boolean)
+		local session = cpDragSession
+		cpDragSession = nil
+		if session and commit then
+			pcall(session.commit)
+		end
+	end
+
+	local function bindColorPickerDragOnce()
+		if cpDragChangedConn then
+			return
+		end
+		cpDragChangedConn = UserInputService.InputChanged:Connect(function(input: InputObject)
+			local session = cpDragSession
+			if not session then
+				return
+			end
+			if
+				input.UserInputType ~= Enum.UserInputType.MouseMovement
+				and input.UserInputType ~= Enum.UserInputType.Touch
+			then
+				return
+			end
+			pcall(session.move, input)
+		end)
+		cpDragEndedConn = UserInputService.InputEnded:Connect(function(input: InputObject)
+			if not cpDragSession then
+				return
+			end
+			if
+				input.UserInputType ~= Enum.UserInputType.MouseButton1
+				and input.UserInputType ~= Enum.UserInputType.Touch
+			then
+				return
+			end
+			stopColorPickerDrag(true)
+		end)
+	end
+
+	local function startColorPickerDrag(session: CpDragSession)
+		bindColorPickerDragOnce()
+		if cpDragSession then
+			stopColorPickerDrag(false)
+		end
+		cpDragSession = session
+	end
+
 	--[[ Obsidian-style 0×0 modal sink: improves camera / world input while GUI is open on mobile ]]
 	local modalSink = Instance.new("TextButton")
 	modalSink.Name = "ModalSink"
@@ -5192,18 +5265,11 @@ function Library.new(config: WindowConfig)
 			end
 
 			local popOpen = false
+			local committedHex = string.upper(col:ToHex())
 
-			local function applyColor(c: Color3)
-				local newHex = string.upper(c:ToHex())
-				local prevHex = string.upper(col:ToHex())
-				if newHex == prevHex then
-					return
-				end
-				col = c
-				reg.Value = col
-				syncSwatch()
+			local function syncPickerVisuals()
 				if hexBox then
-					hexBox.Text = newHex
+					hexBox.Text = string.upper(col:ToHex())
 				end
 				if popOpen then
 					hueN, satN, valN = col:ToHSV()
@@ -5214,13 +5280,37 @@ function Library.new(config: WindowConfig)
 						fillRgbBoxesRef()
 					end
 				end
-				--[[ Obsidian: synchronous Changed/Callback — avoids task backlog + matches ThemeManager:UpdateColorsUsingRegistry cadence. ]]
+			end
+
+			local function previewColor(c: Color3)
+				col = c
+				reg.Value = col
+				syncSwatch()
+				syncPickerVisuals()
+			end
+
+			local function commitColor(c: Color3?)
+				if c then
+					col = c
+				end
+				local newHex = string.upper(col:ToHex())
+				if newHex == committedHex then
+					return
+				end
+				committedHex = newHex
+				reg.Value = col
+				syncSwatch()
+				syncPickerVisuals()
 				for _, cb in colorCbs do
 					pcall(cb, col)
 				end
 				if o.Callback then
 					pcall(o.Callback, col)
 				end
+			end
+
+			local function applyColor(c: Color3)
+				commitColor(c)
 			end
 
 			local function tryParseHexInput()
@@ -5243,7 +5333,6 @@ function Library.new(config: WindowConfig)
 
 			--[[ Obsidian-style HSV surface (rbxassetid://4155801252 saturation map) + RGB fields ]]
 			local SATURATION_MAP_ASSET = "rbxassetid://4155801252"
-			local popCloseConn: RBXScriptConnection? = nil
 
 			local pop = Instance.new("Frame")
 			pop.Name = "ColorPickerPop"
@@ -5334,88 +5423,78 @@ function Library.new(config: WindowConfig)
 			end
 			syncHsVisualRef = syncHsVisual
 
-			--[[ Slider-style drag: InputChanged + input.Position only (no Mouse/GetMouse polling — AC-sensitive). ]]
-			local cpDragTarget: "sat" | "hue" | nil = nil
+			local function colorPickerPointer(input: InputObject): (number, number)
+				local p = input.Position
+				return p.X, p.Y
+			end
 
 			local function sampleSatValAt(px: number, py: number)
 				local ax, ay = satMap.AbsolutePosition.X, satMap.AbsolutePosition.Y
 				local sx, sy = satMap.AbsoluteSize.X, satMap.AbsoluteSize.Y
-				local oldSat, oldVal = satN, valN
 				satN = math.clamp((px - ax) / math.max(sx, 1e-4), 0, 1)
 				valN = 1 - math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
-				if satN ~= oldSat or valN ~= oldVal then
-					applyColor(Color3.fromHSV(hueN, satN, valN))
-				end
+				previewColor(Color3.fromHSV(hueN, satN, valN))
 				syncHsVisual()
 			end
 
 			local function sampleHueAt(py: number)
 				local ay = hueSel.AbsolutePosition.Y
 				local sy = hueSel.AbsoluteSize.Y
-				local oldHue = hueN
 				hueN = math.clamp((py - ay) / math.max(sy, 1e-4), 0, 1)
-				if hueN ~= oldHue then
-					applyColor(Color3.fromHSV(hueN, satN, valN))
-				end
+				previewColor(Color3.fromHSV(hueN, satN, valN))
 				syncHsVisual()
 			end
 
-			local function colorPickerPointer(input: InputObject): (number, number)
-				local p = input.Position
-				return p.X, p.Y
+			local function beginSatDrag(input: InputObject)
+				if
+					input.UserInputType ~= Enum.UserInputType.MouseButton1
+					and input.UserInputType ~= Enum.UserInputType.Touch
+				then
+					return
+				end
+				local px, py = colorPickerPointer(input)
+				sampleSatValAt(px, py)
+				startColorPickerDrag({
+					move = function(moveInput: InputObject)
+						if not popOpen then
+							stopColorPickerDrag(false)
+							return
+						end
+						local mx, my = colorPickerPointer(moveInput)
+						sampleSatValAt(mx, my)
+					end,
+					commit = function()
+						commitColor(col)
+					end,
+				})
 			end
 
-			satMap.InputBegan:Connect(function(input: InputObject)
+			local function beginHueDrag(input: InputObject)
 				if
 					input.UserInputType ~= Enum.UserInputType.MouseButton1
 					and input.UserInputType ~= Enum.UserInputType.Touch
 				then
 					return
 				end
-				cpDragTarget = "sat"
-				local px, py = colorPickerPointer(input)
-				sampleSatValAt(px, py)
-			end)
-
-			hueSel.InputBegan:Connect(function(input: InputObject)
-				if
-					input.UserInputType ~= Enum.UserInputType.MouseButton1
-					and input.UserInputType ~= Enum.UserInputType.Touch
-				then
-					return
-				end
-				cpDragTarget = "hue"
 				local _, py = colorPickerPointer(input)
 				sampleHueAt(py)
-			end)
+				startColorPickerDrag({
+					move = function(moveInput: InputObject)
+						if not popOpen then
+							stopColorPickerDrag(false)
+							return
+						end
+						local _, my = colorPickerPointer(moveInput)
+						sampleHueAt(my)
+					end,
+					commit = function()
+						commitColor(col)
+					end,
+				})
+			end
 
-			UserInputService.InputChanged:Connect(function(input: InputObject)
-				if not popOpen or not cpDragTarget then
-					return
-				end
-				if
-					input.UserInputType ~= Enum.UserInputType.MouseMovement
-					and input.UserInputType ~= Enum.UserInputType.Touch
-				then
-					return
-				end
-				local px, py = colorPickerPointer(input)
-				if cpDragTarget == "sat" then
-					sampleSatValAt(px, py)
-				elseif cpDragTarget == "hue" then
-					sampleHueAt(py)
-				end
-			end)
-
-			UserInputService.InputEnded:Connect(function(input: InputObject)
-				if
-					input.UserInputType ~= Enum.UserInputType.MouseButton1
-					and input.UserInputType ~= Enum.UserInputType.Touch
-				then
-					return
-				end
-				cpDragTarget = nil
-			end)
+			satMap.InputBegan:Connect(beginSatDrag)
+			hueSel.InputBegan:Connect(beginHueDrag)
 
 			local function rgbRow(labelText: string, layoutOrder: number): TextBox
 				local wrap = Instance.new("Frame")
@@ -5493,16 +5572,21 @@ function Library.new(config: WindowConfig)
 			corner(Theme.CornerSm).Parent = doneBtn
 
 			local function closePop()
+				stopColorPickerDrag(true)
 				popOpen = false
 				pop.Visible = false
-				if popCloseConn then
-					popCloseConn:Disconnect()
-					popCloseConn = nil
+				cpBackdrop.Visible = false
+				if cpBackdropClose == closePop then
+					cpBackdropClose = nil
 				end
 			end
 
 			local function openPop()
+				if cpBackdropClose then
+					cpBackdropClose()
+				end
 				hueN, satN, valN = col:ToHSV()
+				committedHex = string.upper(col:ToHex())
 				syncHsVisual()
 				fillRgbBoxes()
 				local ap = swBtn.AbsolutePosition
@@ -5511,26 +5595,8 @@ function Library.new(config: WindowConfig)
 				pop.Position = UDim2.fromOffset(math.floor(ap.X), math.floor(ap.Y + sz.Y + 4))
 				pop.Visible = true
 				popOpen = true
-				if popCloseConn then
-					popCloseConn:Disconnect()
-				end
-				popCloseConn = UserInputService.InputBegan:Connect(function(input: InputObject, gp: boolean)
-					if gp or not popOpen or not pop.Visible then
-						return
-					end
-					if input.UserInputType ~= Enum.UserInputType.MouseButton1 and input.UserInputType ~= Enum.UserInputType.Touch then
-						return
-					end
-					local p = Vector2.new(input.Position.X, input.Position.Y)
-					local function inside(g: GuiObject): boolean
-						local a, s = g.AbsolutePosition, g.AbsoluteSize
-						return p.X >= a.X and p.X <= a.X + s.X and p.Y >= a.Y and p.Y <= a.Y + s.Y
-					end
-					if inside(pop) or inside(swBtn) or (hexBox and inside(hexBox)) then
-						return
-					end
-					closePop()
-				end)
+				cpBackdrop.Visible = true
+				cpBackdropClose = closePop
 			end
 
 			swBtn.MouseButton1Click:Connect(function()
@@ -5573,6 +5639,7 @@ function Library.new(config: WindowConfig)
 
 			reg.SetValueRGB = function(_: any, c: Color3, trans: number?)
 				col = c
+				committedHex = string.upper(col:ToHex())
 				reg.Value = col
 				if typeof(trans) == "number" then
 					reg.Transparency = trans
@@ -5580,7 +5647,7 @@ function Library.new(config: WindowConfig)
 				end
 				syncSwatch()
 				if hexBox then
-					hexBox.Text = string.upper(col:ToHex())
+					hexBox.Text = committedHex
 				end
 				fillRgbBoxes()
 				if popOpen then
