@@ -167,6 +167,7 @@ Library._libFocusConn = nil :: RBXScriptConnection?
 Library._libFocusReleasedConn = nil :: RBXScriptConnection?
 --[[ Set after first ApplyHideUIOnLoad; toggling HideUIOnLoad mid-session does not hide the menu ]]
 Library._hideUIOnLoadApplied = false
+Library.CopiedColor = nil :: { Color3 | number }?
 
 Library.ShowCustomCursor = true
 Library.CursorImage = ""
@@ -1316,7 +1317,6 @@ function Library.new(config: WindowConfig)
 		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
 	end
 
-	--[[ Obsidian-style context menu (one dismiss listener for all color pickers). ]]
 	type ContextMenuHandle = {
 		Active: boolean,
 		Menu: Frame,
@@ -1361,15 +1361,20 @@ function Library.new(config: WindowConfig)
 		end
 	end
 
-	local function addContextMenu(holder: GuiObject, menuSize: UDim2, offset: { number }, extraHolders: { GuiObject }?): ContextMenuHandle
+	local function addContextMenu(
+		holder: GuiObject,
+		menuSize: UDim2 | (() -> UDim2),
+		offset: { number } | (() -> { number }),
+		extraHolders: { GuiObject }?
+	): ContextMenuHandle
 		local menu = Instance.new("Frame")
-		menu.Name = "ColorPickerMenu"
+		menu.Name = "Menu"
 		menu.AutomaticSize = Enum.AutomaticSize.Y
-		menu.Size = menuSize
+		menu.Size = if typeof(menuSize) == "function" then (menuSize :: () -> UDim2)() else menuSize
 		menu.BackgroundColor3 = Theme.Elevated
 		menu.BackgroundTransparency = 0.04
 		menu.Visible = false
-		menu.ZIndex = 1200
+		menu.ZIndex = 10
 		menu.Parent = screenGui
 		corner(Theme.CornerSm).Parent = menu
 		stroke(Theme.Stroke, 1, 0.45).Parent = menu
@@ -1378,7 +1383,7 @@ function Library.new(config: WindowConfig)
 			Active = false,
 			Menu = menu,
 			Holder = holder,
-			Offset = offset,
+			Offset = if typeof(offset) == "function" then { 0, 4 } else offset,
 			ExtraHolders = extraHolders or {},
 			PositionConn = nil,
 			Close = nil :: any,
@@ -1386,13 +1391,24 @@ function Library.new(config: WindowConfig)
 			Toggle = nil :: any,
 		}
 
+		local function resolveOffset(): { number }
+			if typeof(offset) == "function" then
+				return (offset :: () -> { number })()
+			end
+			return offset :: { number }
+		end
+
+		local function resolveMenuSize(): UDim2
+			if typeof(menuSize) == "function" then
+				return (menuSize :: () -> UDim2)()
+			end
+			return menuSize :: UDim2
+		end
+
 		local function refreshMenuPosition()
 			local ap = holder.AbsolutePosition
-			local asz = holder.AbsoluteSize
-			menu.Position = UDim2.fromOffset(
-				math.floor(ap.X + offset[1]),
-				math.floor(ap.Y + asz.Y + offset[2])
-			)
+			local off = resolveOffset()
+			menu.Position = UDim2.fromOffset(math.floor(ap.X + off[1]), math.floor(ap.Y + off[2]))
 		end
 
 		function handle:Close()
@@ -1414,7 +1430,7 @@ function Library.new(config: WindowConfig)
 			end
 			activeContextMenu = handle
 			handle.Active = true
-			menu.Size = menuSize
+			menu.Size = resolveMenuSize()
 			refreshMenuPosition()
 			menu.Visible = true
 			handle.PositionConn = holder:GetPropertyChangedSignal("AbsolutePosition"):Connect(refreshMenuPosition)
@@ -3708,12 +3724,14 @@ function Library.new(config: WindowConfig)
 			local colW, colH = UID.ToggleInlineColorW, UID.ToggleInlineColorH
 			local g = UID.ToggleInlineKeyGap
 			local cap = row:FindFirstChild("ToggleKeybind")
-			local sw = row:FindFirstChild("ToggleColorSwatch")
+			local sw = label:FindFirstChild("ToggleColorSwatch") or row:FindFirstChild("ToggleColorSwatch")
 			--[[ Outward from track: color swatch by the switch, then keybind (Obsidian-style). ]]
 			local cursor = TW
-			if sw and sw:IsA("GuiObject") then
+			if sw and sw:IsA("GuiObject") and sw.Parent == row then
 				cursor += g + colW
 				sw.Position = UDim2.new(1, -cursor, 0.5, -colH / 2)
+			elseif sw and sw:IsA("GuiObject") then
+				cursor += g + colW
 			end
 			if cap and cap:IsA("GuiObject") then
 				cursor += g + keyW
@@ -3735,7 +3753,7 @@ function Library.new(config: WindowConfig)
 			end
 			local parts: { GuiObject } = { tlabel, ttrack }
 			local cap = trow:FindFirstChild("ToggleKeybind")
-			local sw = trow:FindFirstChild("ToggleColorSwatch")
+			local sw = tlabel:FindFirstChild("ToggleColorSwatch") or trow:FindFirstChild("ToggleColorSwatch")
 			if cap and cap:IsA("GuiObject") then
 				table.insert(parts, cap)
 			end
@@ -4027,6 +4045,11 @@ function Library.new(config: WindowConfig)
 			label.Text = o.Text
 			label:SetAttribute("UiText", "Text")
 			label.Parent = row
+			local toggleAddonList = Instance.new("UIListLayout")
+			toggleAddonList.FillDirection = Enum.FillDirection.Horizontal
+			toggleAddonList.HorizontalAlignment = Enum.HorizontalAlignment.Right
+			toggleAddonList.Padding = UDim.new(0, 6)
+			toggleAddonList.Parent = label
 
 			local on = o.Default == true
 			local track = Instance.new("TextButton")
@@ -4109,11 +4132,14 @@ function Library.new(config: WindowConfig)
 				return reg
 			end
 
-			function reg:AddColorPicker(co: any): any
+			function reg:AddColorPicker(idxOrInfo: any, info: any?): any
 				if reg._inlineColorReg ~= nil then
 					return reg
 				end
-				co = co or {}
+				local co = if typeof(idxOrInfo) == "string" then (info or {}) else (idxOrInfo or {})
+				if typeof(idxOrInfo) == "string" then
+					co.Idx = idxOrInfo
+				end
 				local cr = mountColorPicker(co, {
 					Mode = "toggle",
 					row = row,
@@ -4124,7 +4150,7 @@ function Library.new(config: WindowConfig)
 				if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
 					refreshToggleTooltip(reg)
 				elseif typeof(co.Tooltip) == "string" and co.Tooltip ~= "" then
-					local sw = row:FindFirstChild("ToggleColorSwatch")
+					local sw = label:FindFirstChild("ToggleColorSwatch")
 					if sw and sw:IsA("GuiObject") then
 						bindTooltipToInstances({ sw }, co.Tooltip)
 					end
@@ -4904,6 +4930,13 @@ function Library.new(config: WindowConfig)
 			lab.Text = text
 			lab:SetAttribute("UiText", uiTextKey)
 			lab.Parent = bodyF
+			if not doesWrap then
+				local addonList = Instance.new("UIListLayout")
+				addonList.FillDirection = Enum.FillDirection.Horizontal
+				addonList.HorizontalAlignment = Enum.HorizontalAlignment.Right
+				addonList.Padding = UDim.new(0, 6)
+				addonList.Parent = lab
+			end
 			--[[ Wrapped labels: AutomaticSize.Y often stays 0 until AbsoluteSize.X is known (invisible text). Refit with TextService. ]]
 			if doesWrap and text ~= "" and not text:match("^%s*$") then
 				local function refitWrappedHeight()
@@ -4936,11 +4969,29 @@ function Library.new(config: WindowConfig)
 				bodyF:GetPropertyChangedSignal("AbsoluteSize"):Connect(refitWrappedHeight)
 			end
 			local reg = {
+				Type = "Label",
 				SetText = function(_: any, t: string)
 					lab.Text = t
 				end,
 			}
 			reg.Set = reg.SetText
+
+			function reg:AddColorPicker(idxOrInfo: any, info: any?): any
+				if doesWrap or reg._inlineColorReg ~= nil then
+					return reg
+				end
+				local co = if typeof(idxOrInfo) == "string" then (info or {}) else (idxOrInfo or {})
+				if typeof(idxOrInfo) == "string" then
+					co.Idx = idxOrInfo
+				end
+				local cr = mountColorPicker(co, {
+					Mode = "label",
+					label = lab,
+				})
+				reg._inlineColorReg = cr
+				return reg
+			end
+
 			if typeof(idxStr) == "string" and idxStr ~= "" then
 				Library.Options[idxStr] = reg
 			end
@@ -5215,107 +5266,74 @@ function Library.new(config: WindowConfig)
 		mountColorPicker = function(
 			o: {
 				Text: string?,
+				Title: string?,
 				Default: Color3?,
 				Transparency: number?,
 				Idx: string?,
 				Callback: ((Color3) -> ())?,
 				Tooltip: string?,
 			},
-			mount: { Mode: "section", bodyParent: Instance }
+			mount: { Mode: "label", label: TextLabel }
 				| { Mode: "toggle", row: Frame, label: TextLabel, track: TextButton }
+				| { Mode: "section", bodyParent: Instance }
 		)
 			o = o or {}
-			local col = o.Default or Color3.fromRGB(255, 255, 255)
+			local col = o.Default or Color3.new(1, 1, 1)
 			local alpha = 1 - (o.Transparency or 0)
-			local sectionMode = mount.Mode == "section"
+			local mountMode = mount.Mode
 
-			local row: Frame
-			local lbl: TextLabel?
-			local bar: Frame?
-			local hexBox: TextBox?
-			local swBtn: TextButton
+			local swParent: GuiObject
+			local sectionRow: Frame?
+			local sectionHexBox: TextBox?
 
-			if sectionMode then
-				row = Instance.new("Frame")
-				row.BackgroundTransparency = 1
-				row.Size = UDim2.new(1, 0, 0, UID.ColorRowH)
-				row.Parent = (mount :: any).bodyParent
+			local swBtn = Instance.new("TextButton")
+			swBtn.Name = "ColorSwatch"
+			swBtn.AutoButtonColor = false
+			swBtn.Size = UDim2.fromOffset(18, 18)
+			swBtn.BackgroundColor3 = col
+			swBtn.BackgroundTransparency = 1 - alpha
+			swBtn.Text = ""
+			swBtn.ZIndex = 2
 
-				lbl = Instance.new("TextLabel")
-				lbl.Size = UDim2.new(1, 0, 0, UID.ColorLblH)
-				lbl.BackgroundTransparency = 1
-				lbl.Font = Enum.Font.GothamMedium
-				lbl.TextSize = UID.InputLblText
-				lbl.TextColor3 = Theme.TextDim
-				lbl.TextXAlignment = Enum.TextXAlignment.Left
-				lbl.Text = o.Text or "Color"
-				lbl:SetAttribute("UiText", "TextDim")
-				lbl.Parent = row
-
-				bar = Instance.new("Frame")
-				bar.Name = "ColorBar"
-				bar.BackgroundTransparency = 1
-				bar.Size = UDim2.new(1, 0, 0, UID.ColorBarH)
-				bar.Position = UDim2.new(0, 0, 0, UID.ColorBarY)
-				bar.Parent = row
-
-				hexBox = Instance.new("TextBox")
-				hexBox.Size = UDim2.new(1, -(UID.ColorSwatch + 6), 1, 0)
-				hexBox.Position = UDim2.fromScale(0, 0)
-				hexBox.BackgroundColor3 = Theme.Elevated
-				hexBox.BackgroundTransparency = 0.1
-				hexBox.Text = string.upper(col:ToHex())
-				hexBox.PlaceholderText = "RRGGBB"
-				hexBox.PlaceholderColor3 = Theme.TextDim
-				hexBox.Font = Enum.Font.GothamMedium
-				hexBox.TextSize = 12
-				hexBox.TextColor3 = Theme.Text
-				hexBox.ClearTextOnFocus = false
-				hexBox:SetAttribute("UiBg", "Elevated")
-				hexBox:SetAttribute("UiText", "Text")
-				hexBox:SetAttribute("UiPlaceholder", "TextDim")
-				hexBox.Parent = bar
-				corner(Theme.CornerSm).Parent = hexBox
-				pad(6).Parent = hexBox
-
-				swBtn = Instance.new("TextButton")
-				swBtn.Name = "Swatch"
-				swBtn.AnchorPoint = Vector2.new(1, 0)
-				swBtn.Size = UDim2.fromOffset(UID.ColorSwatch, UID.ColorBarH)
-				swBtn.Position = UDim2.new(1, 0, 0, 0)
-				swBtn.BackgroundColor3 = col
-				swBtn.BackgroundTransparency = 1 - alpha
-				swBtn.Text = ""
-				swBtn.AutoButtonColor = false
-				swBtn.ZIndex = 2
-				--[[ No UiBg on swatch: theme paint would force Elevated and hide the picked color ]]
-				swBtn.Parent = bar
-				corner(Theme.CornerSm).Parent = swBtn
-				local swStroke = stroke(Theme.Stroke, 1, 0.5)
-				swStroke:SetAttribute("UiStroke", "Stroke")
-				swStroke.Parent = swBtn
-			else
-				local tm = mount :: any
-				row = tm.row
-				lbl = nil
-				bar = nil
-				hexBox = nil
-				swBtn = Instance.new("TextButton")
+			if mountMode == "label" then
+				swParent = (mount :: any).label
+				swBtn.Parent = swParent
+			elseif mountMode == "toggle" then
+				swParent = (mount :: any).label
 				swBtn.Name = "ToggleColorSwatch"
-				swBtn.AutoButtonColor = false
-				local cw, ch = UID.ToggleInlineColorW, UID.ToggleInlineColorH
-				swBtn.Size = UDim2.fromOffset(cw, ch)
-				swBtn.BackgroundColor3 = col
-				swBtn.BackgroundTransparency = 1 - alpha
-				swBtn.Text = ""
-				swBtn.ZIndex = 2
-				swBtn.Parent = row
-				corner(Theme.CornerSm).Parent = swBtn
-				local swStrokeT = stroke(Theme.Stroke, 1, 0.5)
-				swStrokeT:SetAttribute("UiStroke", "Stroke")
-				swStrokeT.Parent = swBtn
-				layoutToggleInlineExtras(row, tm.label, tm.track)
+				swBtn.Parent = swParent
+				layoutToggleInlineExtras((mount :: any).row, (mount :: any).label, (mount :: any).track)
+			else
+				sectionRow = Instance.new("Frame")
+				sectionRow.BackgroundTransparency = 1
+				sectionRow.Size = UDim2.new(1, 0, 0, 18)
+				sectionRow.Parent = (mount :: any).bodyParent
+
+				local sectionLabel = Instance.new("TextLabel")
+				sectionLabel.BackgroundTransparency = 1
+				sectionLabel.Size = UDim2.new(1, -24, 1, 0)
+				sectionLabel.Font = Enum.Font.GothamMedium
+				sectionLabel.TextSize = UID.AddLabelText
+				sectionLabel.TextColor3 = Theme.TextDim
+				sectionLabel.TextXAlignment = Enum.TextXAlignment.Left
+				sectionLabel.Text = o.Text or o.Title or "Color"
+				sectionLabel:SetAttribute("UiText", "TextDim")
+				sectionLabel.Parent = sectionRow
+
+				local addonList = Instance.new("UIListLayout")
+				addonList.FillDirection = Enum.FillDirection.Horizontal
+				addonList.HorizontalAlignment = Enum.HorizontalAlignment.Right
+				addonList.Padding = UDim.new(0, 6)
+				addonList.Parent = sectionLabel
+
+				swParent = sectionLabel
+				swBtn.Parent = swParent
 			end
+
+			local swStroke = stroke(Theme.Stroke, 1, 0.5)
+			swStroke:SetAttribute("UiStroke", "Stroke")
+			swStroke.Parent = swBtn
+			corner(Theme.CornerSm).Parent = swBtn
 
 			local colorCbs: { (Color3) -> () } = {}
 			local reg: any = {
@@ -5325,58 +5343,75 @@ function Library.new(config: WindowConfig)
 			}
 
 			local hueN, satN, valN = col:ToHSV()
-			local fillRgbBoxesRef: (() -> ())? = nil
-			local syncHsVisualRef: (() -> ())? = nil
-			local colorMenu: ContextMenuHandle
+			local SATURATION_MAP_ASSET = "rbxassetid://4155801252"
+			local TRANSPARENCY_TEXTURE = "rbxassetid://139785960036434"
 
 			local function syncSwatch()
 				swBtn.BackgroundColor3 = col
 				swBtn.BackgroundTransparency = 1 - alpha
+				local darker = Color3.new(
+					math.clamp(col.R * 0.5, 0, 1),
+					math.clamp(col.G * 0.5, 0, 1),
+					math.clamp(col.B * 0.5, 0, 1)
+				)
+				swStroke.Color = darker
 			end
 
-			--[[ Obsidian-style HSV surface (rbxassetid://4155801252 saturation map) + RGB fields ]]
-			local SATURATION_MAP_ASSET = "rbxassetid://4155801252"
-
-			local extraDismiss: { GuiObject } = {}
-			if hexBox then
-				table.insert(extraDismiss, hexBox)
-			end
-			colorMenu = addContextMenu(swBtn, UDim2.fromOffset(248, 0), { 0, 4 }, extraDismiss)
+			local colorMenu = addContextMenu(
+				swBtn,
+				function()
+					return UDim2.fromOffset(o.Transparency and 256 or 234, 0)
+				end,
+				function()
+					return { 0.5, swBtn.AbsoluteSize.Y + 1.5 }
+				end
+			)
 			local pop = colorMenu.Menu
 			local popPad = Instance.new("UIPadding")
-			popPad.PaddingLeft = UDim.new(0, 8)
-			popPad.PaddingRight = UDim.new(0, 8)
-			popPad.PaddingTop = UDim.new(0, 8)
-			popPad.PaddingBottom = UDim.new(0, 8)
+			popPad.PaddingLeft = UDim.new(0, 6)
+			popPad.PaddingRight = UDim.new(0, 6)
+			popPad.PaddingTop = UDim.new(0, 6)
+			popPad.PaddingBottom = UDim.new(0, 6)
 			popPad.Parent = pop
 			local popList = Instance.new("UIListLayout")
 			popList.SortOrder = Enum.SortOrder.LayoutOrder
 			popList.Padding = UDim.new(0, 8)
 			popList.Parent = pop
 
-			local svRow = Instance.new("Frame")
-			svRow.BackgroundTransparency = 1
-			svRow.Size = UDim2.new(1, 0, 0, 168)
-			svRow.LayoutOrder = 1
-			svRow.ZIndex = pop.ZIndex + 1
-			svRow.Parent = pop
-			local svList = Instance.new("UIListLayout")
-			svList.FillDirection = Enum.FillDirection.Horizontal
-			svList.SortOrder = Enum.SortOrder.LayoutOrder
-			svList.Padding = UDim.new(0, 8)
-			svList.VerticalAlignment = Enum.VerticalAlignment.Center
-			svList.Parent = svRow
+			if typeof(o.Title) == "string" and o.Title ~= "" then
+				local titleLbl = Instance.new("TextLabel")
+				titleLbl.BackgroundTransparency = 1
+				titleLbl.Size = UDim2.new(1, 0, 0, 14)
+				titleLbl.Font = Enum.Font.GothamMedium
+				titleLbl.TextSize = 14
+				titleLbl.TextXAlignment = Enum.TextXAlignment.Left
+				titleLbl.Text = o.Title
+				titleLbl.TextColor3 = Theme.Text
+				titleLbl.LayoutOrder = 0
+				titleLbl.ZIndex = pop.ZIndex + 1
+				titleLbl.Parent = pop
+			end
+
+			local colorHolder = Instance.new("Frame")
+			colorHolder.BackgroundTransparency = 1
+			colorHolder.Size = UDim2.new(1, 0, 0, 200)
+			colorHolder.LayoutOrder = 1
+			colorHolder.ZIndex = pop.ZIndex + 1
+			colorHolder.Parent = pop
+			local colorHolderList = Instance.new("UIListLayout")
+			colorHolderList.FillDirection = Enum.FillDirection.Horizontal
+			colorHolderList.Padding = UDim.new(0, 6)
+			colorHolderList.Parent = colorHolder
 
 			local satMap = Instance.new("ImageButton")
 			satMap.Name = "SaturationValue"
 			satMap.AutoButtonColor = false
-			satMap.Size = UDim2.fromOffset(168, 168)
+			satMap.Size = UDim2.fromOffset(200, 200)
 			satMap.BackgroundColor3 = Color3.fromHSV(hueN, 1, 1)
 			satMap.Image = SATURATION_MAP_ASSET
 			satMap.ScaleType = Enum.ScaleType.Stretch
 			satMap.ZIndex = pop.ZIndex + 2
-			satMap.LayoutOrder = 1
-			satMap.Parent = svRow
+			satMap.Parent = colorHolder
 			corner(Theme.CornerSm).Parent = satMap
 
 			local satCursor = Instance.new("Frame")
@@ -5387,16 +5422,15 @@ function Library.new(config: WindowConfig)
 			satCursor.ZIndex = pop.ZIndex + 3
 			satCursor.Parent = satMap
 			corner(UDim.new(1, 0)).Parent = satCursor
-			stroke(Theme.Stroke, 1, 0.3).Parent = satCursor
+			stroke(Color3.new(0, 0, 0), 1, 0.2).Parent = satCursor
 
 			local hueSel = Instance.new("TextButton")
 			hueSel.Name = "Hue"
 			hueSel.AutoButtonColor = false
-			hueSel.Size = UDim2.fromOffset(22, 168)
+			hueSel.Size = UDim2.fromOffset(16, 200)
 			hueSel.Text = ""
 			hueSel.ZIndex = pop.ZIndex + 2
-			hueSel.LayoutOrder = 2
-			hueSel.Parent = svRow
+			hueSel.Parent = colorHolder
 			corner(Theme.CornerSm).Parent = hueSel
 			local hueGrad = Instance.new("UIGradient")
 			hueGrad.Color = ColorPickerHueSequence
@@ -5406,38 +5440,155 @@ function Library.new(config: WindowConfig)
 			local hueCursor = Instance.new("Frame")
 			hueCursor.AnchorPoint = Vector2.new(0.5, 0.5)
 			hueCursor.BackgroundColor3 = Color3.new(1, 1, 1)
-			hueCursor.BorderSizePixel = 0
+			hueCursor.BorderSizePixel = 1
+			hueCursor.BorderColor3 = Color3.new(0, 0, 0)
 			hueCursor.Position = UDim2.new(0.5, 0, hueN, 0)
-			hueCursor.Size = UDim2.new(1, 4, 0, 3)
+			hueCursor.Size = UDim2.new(1, 2, 0, 1)
 			hueCursor.ZIndex = pop.ZIndex + 3
 			hueCursor.Parent = hueSel
-			corner(UDim.new(0, 2)).Parent = hueCursor
-			stroke(Color3.new(0, 0, 0), 1, 0.2).Parent = hueCursor
+
+			local transparencySelector: ImageButton?
+			local transparencyCursor: Frame?
+			if o.Transparency then
+				transparencySelector = Instance.new("ImageButton")
+				transparencySelector.Image = TRANSPARENCY_TEXTURE
+				transparencySelector.ScaleType = Enum.ScaleType.Tile
+				transparencySelector.Size = UDim2.fromOffset(16, 200)
+				transparencySelector.TileSize = UDim2.fromOffset(8, 8)
+				transparencySelector.ZIndex = pop.ZIndex + 2
+				transparencySelector.Parent = colorHolder
+
+				local transparencyColor = Instance.new("Frame")
+				transparencyColor.BackgroundColor3 = col
+				transparencyColor.Size = UDim2.fromScale(1, 1)
+				transparencyColor.ZIndex = pop.ZIndex + 2
+				transparencyColor.Parent = transparencySelector
+				local transparencyGrad = Instance.new("UIGradient")
+				transparencyGrad.Rotation = 90
+				transparencyGrad.Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 0),
+					NumberSequenceKeypoint.new(1, 1),
+				})
+				transparencyGrad.Parent = transparencyColor
+
+				transparencyCursor = Instance.new("Frame")
+				transparencyCursor.AnchorPoint = Vector2.new(0.5, 0.5)
+				transparencyCursor.BackgroundColor3 = Color3.new(1, 1, 1)
+				transparencyCursor.BorderSizePixel = 1
+				transparencyCursor.BorderColor3 = Color3.new(0, 0, 0)
+				transparencyCursor.Position = UDim2.new(0.5, 0, alpha, 0)
+				transparencyCursor.Size = UDim2.new(1, 2, 0, 1)
+				transparencyCursor.ZIndex = pop.ZIndex + 3
+				transparencyCursor.Parent = transparencySelector
+			end
+
+			local infoHolder = Instance.new("Frame")
+			infoHolder.BackgroundTransparency = 1
+			infoHolder.Size = UDim2.new(1, 0, 0, 20)
+			infoHolder.LayoutOrder = 2
+			infoHolder.ZIndex = pop.ZIndex + 1
+			infoHolder.Parent = pop
+			local infoList = Instance.new("UIListLayout")
+			infoList.FillDirection = Enum.FillDirection.Horizontal
+			infoList.Padding = UDim.new(0, 8)
+			infoList.Parent = infoHolder
+
+			local hueBox = Instance.new("TextBox")
+			hueBox.BackgroundColor3 = Theme.Elevated
+			hueBox.BackgroundTransparency = 0.1
+			hueBox.ClearTextOnFocus = false
+			hueBox.Size = UDim2.fromScale(0.5, 1)
+			hueBox.Font = Enum.Font.GothamMedium
+			hueBox.TextSize = 14
+			hueBox.TextColor3 = Theme.Text
+			hueBox.Text = "#" .. col:ToHex()
+			hueBox.ZIndex = pop.ZIndex + 1
+			hueBox.Parent = infoHolder
+			corner(Theme.CornerSm).Parent = hueBox
+			stroke(Theme.Stroke, 1, 0.45).Parent = hueBox
+			pad(6).Parent = hueBox
+
+			local rgbBox = Instance.new("TextBox")
+			rgbBox.BackgroundColor3 = Theme.Elevated
+			rgbBox.BackgroundTransparency = 0.1
+			rgbBox.ClearTextOnFocus = false
+			rgbBox.Size = UDim2.fromScale(0.5, 1)
+			rgbBox.Font = Enum.Font.GothamMedium
+			rgbBox.TextSize = 14
+			rgbBox.TextColor3 = Theme.Text
+			rgbBox.Text = table.concat({
+				math.floor(col.R * 255),
+				math.floor(col.G * 255),
+				math.floor(col.B * 255),
+			}, ", ")
+			rgbBox.ZIndex = pop.ZIndex + 1
+			rgbBox.Parent = infoHolder
+			corner(Theme.CornerSm).Parent = rgbBox
+			stroke(Theme.Stroke, 1, 0.45).Parent = rgbBox
+			pad(6).Parent = rgbBox
+
+			local contextMenu = addContextMenu(
+				swBtn,
+				UDim2.fromOffset(93, 0),
+				function()
+					return { swBtn.AbsoluteSize.X + 1.5, 0.5 }
+				end
+			)
+			local ctxMenu = contextMenu.Menu
+			local ctxList = Instance.new("UIListLayout")
+			ctxList.Padding = UDim.new(0, 6)
+			ctxList.Parent = ctxMenu
+
+			local function createContextButton(text: string, fn: () -> ())
+				local btn = Instance.new("TextButton")
+				btn.BackgroundTransparency = 1
+				btn.Size = UDim2.new(1, 0, 0, 21)
+				btn.Font = Enum.Font.GothamMedium
+				btn.TextSize = 14
+				btn.Text = text
+				btn.TextColor3 = Theme.Text
+				btn.ZIndex = ctxMenu.ZIndex + 1
+				btn.Parent = ctxMenu
+				btn.MouseButton1Click:Connect(function()
+					fn()
+					contextMenu:Close()
+				end)
+			end
+
+			createContextButton("Copy color", function()
+				Library.CopiedColor = { col, reg.Transparency }
+			end)
+			createContextButton("Paste color", function()
+				if Library.CopiedColor then
+					reg:SetValueRGB(Library.CopiedColor[1], Library.CopiedColor[2])
+				end
+			end)
 
 			local function syncHsVisual()
 				satMap.BackgroundColor3 = Color3.fromHSV(hueN, 1, 1)
 				satCursor.Position = UDim2.fromScale(satN, 1 - valN)
 				hueCursor.Position = UDim2.new(0.5, 0, hueN, 0)
+				if transparencyCursor then
+					transparencyCursor.Position = UDim2.new(0.5, 0, alpha, 0)
+				end
 			end
-			syncHsVisualRef = syncHsVisual
 
-			local function syncPickerVisuals()
-				if hexBox then
-					hexBox.Text = string.upper(col:ToHex())
-				end
-				if colorMenu.Active then
-					hueN, satN, valN = col:ToHSV()
-					syncHsVisual()
-					if fillRgbBoxesRef then
-						fillRgbBoxesRef()
-					end
-				end
+			local function syncDisplayFields()
+				hueBox.Text = "#" .. col:ToHex()
+				rgbBox.Text = table.concat({
+					math.floor(col.R * 255),
+					math.floor(col.G * 255),
+					math.floor(col.B * 255),
+				}, ", ")
 			end
 
 			local function pushColorChange()
 				reg.Value = col
 				syncSwatch()
-				syncPickerVisuals()
+				if colorMenu.Active then
+					syncHsVisual()
+					syncDisplayFields()
+				end
 				for _, cb in colorCbs do
 					pcall(cb, col)
 				end
@@ -5448,6 +5599,7 @@ function Library.new(config: WindowConfig)
 
 			local function applyColor(c: Color3)
 				col = c
+				hueN, satN, valN = col:ToHSV()
 				pushColorChange()
 			end
 
@@ -5461,19 +5613,15 @@ function Library.new(config: WindowConfig)
 					local minX = satMap.AbsolutePosition.X
 					local maxX = minX + satMap.AbsoluteSize.X
 					local locX = math.clamp(Mouse.X, minX, maxX)
-
 					local minY = satMap.AbsolutePosition.Y
 					local maxY = minY + satMap.AbsoluteSize.Y
 					local locY = math.clamp(Mouse.Y, minY, maxY)
-
 					local oldSat, oldVal = satN, valN
 					satN = (locX - minX) / math.max(maxX - minX, 1e-4)
 					valN = 1 - ((locY - minY) / math.max(maxY - minY, 1e-4))
-
 					if satN ~= oldSat or valN ~= oldVal then
 						updateFromHsv()
 					end
-
 					RunService.RenderStepped:Wait()
 				end
 			end)
@@ -5483,160 +5631,60 @@ function Library.new(config: WindowConfig)
 					local min = hueSel.AbsolutePosition.Y
 					local max = min + hueSel.AbsoluteSize.Y
 					local loc = math.clamp(Mouse.Y, min, max)
-
 					local oldHue = hueN
 					hueN = (loc - min) / math.max(max - min, 1e-4)
-
 					if hueN ~= oldHue then
 						updateFromHsv()
 					end
-
 					RunService.RenderStepped:Wait()
 				end
 			end)
 
-			local function rgbRow(labelText: string, layoutOrder: number): TextBox
-				local wrap = Instance.new("Frame")
-				wrap.BackgroundTransparency = 1
-				wrap.Size = UDim2.new(1, 0, 0, 26)
-				wrap.LayoutOrder = layoutOrder
-				wrap.ZIndex = pop.ZIndex + 1
-				wrap.Parent = pop
-				local lab = Instance.new("TextLabel")
-				lab.Size = UDim2.fromOffset(22, 26)
-				lab.BackgroundTransparency = 1
-				lab.Font = Enum.Font.GothamBold
-				lab.TextSize = 12
-				lab.TextColor3 = Theme.TextDim
-				lab.Text = labelText
-				lab.TextXAlignment = Enum.TextXAlignment.Left
-				lab.ZIndex = pop.ZIndex + 1
-				lab.Parent = wrap
-				local box = Instance.new("TextBox")
-				box.Size = UDim2.new(1, -28, 1, 0)
-				box.Position = UDim2.new(0, 28, 0, 0)
-				box.BackgroundColor3 = Theme.Elevated
-				box.BackgroundTransparency = 0.1
-				box.Font = Enum.Font.GothamMedium
-				box.TextSize = 12
-				box.TextColor3 = Theme.Text
-				box.ClearTextOnFocus = false
-				box.ZIndex = pop.ZIndex + 1
-				box.Parent = wrap
-				corner(Theme.CornerSm).Parent = box
-				pad(6).Parent = box
-				return box
-			end
-
-			local rBox = rgbRow("R", 2)
-			local gBox = rgbRow("G", 3)
-			local bBox = rgbRow("B", 4)
-
-			local function fillRgbBoxes()
-				rBox.Text = tostring(math.floor(col.R * 255 + 0.5))
-				gBox.Text = tostring(math.floor(col.G * 255 + 0.5))
-				bBox.Text = tostring(math.floor(col.B * 255 + 0.5))
-			end
-			fillRgbBoxesRef = fillRgbBoxes
-
-			local function tryApplyRgb()
-				local r = tonumber(rBox.Text)
-				local g = tonumber(gBox.Text)
-				local b = tonumber(bBox.Text)
-				if r and g and b then
-					applyColor(
-						Color3.fromRGB(math.clamp(math.floor(r), 0, 255), math.clamp(math.floor(g), 0, 255), math.clamp(math.floor(b), 0, 255))
-					)
-				else
-					fillRgbBoxes()
-				end
-			end
-
-			rBox.FocusLost:Connect(tryApplyRgb)
-			gBox.FocusLost:Connect(tryApplyRgb)
-			bBox.FocusLost:Connect(tryApplyRgb)
-
-			local doneBtn = Instance.new("TextButton")
-			doneBtn.Size = UDim2.new(1, 0, 0, 26)
-			doneBtn.LayoutOrder = 5
-			doneBtn.BackgroundColor3 = Theme.AccentBlue
-			doneBtn.BackgroundTransparency = 0.15
-			doneBtn.Text = "Done"
-			doneBtn.TextColor3 = Theme.Text
-			doneBtn.TextSize = 12
-			doneBtn.Font = Enum.Font.GothamBold
-			doneBtn.AutoButtonColor = false
-			doneBtn.ZIndex = pop.ZIndex + 1
-			doneBtn.Parent = pop
-			corner(Theme.CornerSm).Parent = doneBtn
-
-			local function tryParseHexInput()
-				if not hexBox then
-					return
-				end
-				local parsed = parseHexColor(hexBox.Text)
-				if parsed then
-					applyColor(parsed)
-				else
-					hexBox.Text = string.upper(col:ToHex())
-				end
-			end
-
-			if hexBox then
-				hexBox.FocusLost:Connect(function(enter: boolean)
-					if enter then
-						tryParseHexInput()
+			if transparencySelector and transparencyCursor then
+				transparencySelector.InputBegan:Connect(function(input: InputObject)
+					while isDragInput(input) do
+						local min = transparencySelector.AbsolutePosition.Y
+						local max = min + transparencySelector.AbsoluteSize.Y
+						local loc = math.clamp(Mouse.Y, min, max)
+						local oldAlpha = alpha
+						alpha = (loc - min) / math.max(max - min, 1e-4)
+						reg.Transparency = 1 - alpha
+						if alpha ~= oldAlpha then
+							syncSwatch()
+							transparencyCursor.Position = UDim2.new(0.5, 0, alpha, 0)
+						end
+						RunService.RenderStepped:Wait()
 					end
 				end)
 			end
 
-			local function refreshMenuBeforeOpen()
-				hueN, satN, valN = col:ToHSV()
-				syncHsVisual()
-				fillRgbBoxes()
-			end
-
-			swBtn.MouseButton1Click:Connect(function()
-				if colorMenu.Active then
-					colorMenu:Close()
+			hueBox.FocusLost:Connect(function(enter: boolean)
+				if not enter then
+					return
+				end
+				local ok, parsed = pcall(Color3.fromHex, hueBox.Text)
+				if ok and typeof(parsed) == "Color3" then
+					hueN, satN, valN = parsed:ToHSV()
+					updateFromHsv()
 				else
-					refreshMenuBeforeOpen()
-					colorMenu:Open()
+					syncDisplayFields()
 				end
 			end)
 
-			if hexBox then
-				do
-					local lastHexTap = 0.0
-					hexBox.InputBegan:Connect(function(input: InputObject)
-						if input.UserInputType ~= Enum.UserInputType.MouseButton1 then
-							return
-						end
-						if input.UserInputState ~= Enum.UserInputState.Begin then
-							return
-						end
-						local t = os.clock()
-						if t - lastHexTap < 0.35 then
-							lastHexTap = 0
-							if colorMenu.Active then
-								colorMenu:Close()
-							else
-								refreshMenuBeforeOpen()
-								colorMenu:Open()
-							end
-						else
-							lastHexTap = t
-						end
-					end)
+			rgbBox.FocusLost:Connect(function(enter: boolean)
+				if not enter then
+					return
 				end
-			end
-
-			doneBtn.MouseButton1Click:Connect(function()
-				tryApplyRgb()
-				colorMenu:Close()
+				local r, g, b = rgbBox.Text:match("(%d+),%s*(%d+),%s*(%d+)")
+				if r and g and b then
+					applyColor(Color3.fromRGB(r, g, b))
+				else
+					syncDisplayFields()
+				end
 			end)
 
-			reg.ColorMenu = colorMenu
+			swBtn.MouseButton1Click:Connect(colorMenu.Toggle)
+			swBtn.MouseButton2Click:Connect(contextMenu.Toggle)
 
 			reg.SetValueRGB = function(_: any, c: Color3, trans: number?)
 				col = c
@@ -5645,37 +5693,37 @@ function Library.new(config: WindowConfig)
 					reg.Transparency = trans
 					alpha = 1 - trans
 				end
-				syncSwatch()
-				if hexBox then
-					hexBox.Text = string.upper(col:ToHex())
-				end
-				fillRgbBoxes()
-				if colorMenu.Active then
-					hueN, satN, valN = col:ToHSV()
-					syncHsVisual()
-				end
+				hueN, satN, valN = col:ToHSV()
+				pushColorChange()
 			end
 			reg.SetValue = reg.SetValueRGB
 			reg.OnChanged = function(_: any, cb: (Color3) -> ())
 				table.insert(colorCbs, cb)
 			end
+			reg.ColorMenu = colorMenu
+			reg.ContextMenu = contextMenu
+
+			syncSwatch()
+			syncHsVisual()
+			syncDisplayFields()
 
 			if typeof(o.Idx) == "string" and o.Idx ~= "" then
 				Library.Options[o.Idx] = reg
 			end
 
+			if typeof(o.Tooltip) == "string" and o.Tooltip ~= "" then
+				bindTooltipToInstances({ swBtn }, o.Tooltip)
+			end
+
 			return reg
 		end
 
-		function section:AddColorPicker(o: {
-			Text: string,
-			Default: Color3?,
-			Transparency: number?,
-			Idx: string?,
-			Callback: ((Color3) -> ())?,
-			Tooltip: string?,
-		})
-			return mountColorPicker(o, { Mode = "section", bodyParent = bodyF })
+		function section:AddColorPicker(idxOrInfo: any, info: any?)
+			local co = if typeof(idxOrInfo) == "string" then (info or {}) else (idxOrInfo or {})
+			if typeof(idxOrInfo) == "string" then
+				co.Idx = idxOrInfo
+			end
+			return mountColorPicker(co, { Mode = "section", bodyParent = bodyF })
 		end
 
 		return section
