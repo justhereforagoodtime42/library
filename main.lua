@@ -2,20 +2,28 @@
 local cloneref = (cloneref or clonereference or function(instance: any)
 	return instance
 end)
-local CoreGui = cloneref(game:GetService("CoreGui"))
-local Players = cloneref(game:GetService("Players"))
-local UserInputService = cloneref(game:GetService("UserInputService"))
-local TweenService = cloneref(game:GetService("TweenService"))
-local RunService = cloneref(game:GetService("RunService"))
-local TextService = cloneref(game:GetService("TextService"))
+local Game = cloneref(game)
+local Workspace = cloneref(workspace)
+local CoreGui = cloneref(Game:GetService("CoreGui"))
+local Players = cloneref(Game:GetService("Players"))
+local UserInputService = cloneref(Game:GetService("UserInputService"))
+local TweenService = cloneref(Game:GetService("TweenService"))
+local RunService = cloneref(Game:GetService("RunService"))
+local TextService = cloneref(Game:GetService("TextService"))
+local SoundService = cloneref(Game:GetService("SoundService"))
 
 local protectgui = protectgui or (syn and syn.protect_gui) or function() end
 local gethui = gethui or function()
 	return CoreGui
 end
 
-local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
+local LocalPlayer = cloneref(Players.LocalPlayer or Players.PlayerAdded:Wait())
 local Mouse = cloneref(LocalPlayer:GetMouse())
+
+local function getCurrentCamera()
+	local cam = Workspace.CurrentCamera
+	return cam and cloneref(cam) or nil
+end
 
 -- ----------------------------------------------------------------------------- theme (mutable; ThemeManager / RefreshTheme)
 local Library = {}
@@ -506,7 +514,6 @@ function Library:Notify(payload: any, duration: number?)
 		end
 		if typeof(sid) == "string" then
 			pcall(function()
-				local SoundService = game:GetService("SoundService")
 				local s = Instance.new("Sound")
 				s.SoundId = sid
 				s.Volume = 0.35
@@ -1164,8 +1171,7 @@ local LucideModule: any = nil
 
 local function tryInitLucideModule()
 	local ok, mod = pcall(function()
-		local g: any = game
-		local src = g:HttpGet(LUCIDE_ROBLOX_DIRECT)
+		local src = Game:HttpGet(LUCIDE_ROBLOX_DIRECT)
 		if not loadchunk then
 			error("loadstring/load not available")
 		end
@@ -1286,7 +1292,7 @@ function Library.new(config: WindowConfig)
 	local minContent = config.MinSize or defaultMin
 	local size = config.Size or (if Library.IsMobile then Vector2.new(480, 360) else Vector2.new(520, 440))
 	size = Vector2.new(math.max(size.X, minContent.X), math.max(size.Y, minContent.Y))
-	local cam0 = workspace.CurrentCamera
+	local cam0 = getCurrentCamera()
 	if cam0 then
 		local vs = cam0.ViewportSize
 		local margin = 28
@@ -1313,7 +1319,7 @@ function Library.new(config: WindowConfig)
 		screenGui.Parent = gethui()
 	end)
 	if not parentOk or not screenGui.Parent then
-		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
+		screenGui.Parent = cloneref(LocalPlayer:WaitForChild("PlayerGui", math.huge))
 	end
 
 	type ContextMenuHandle = {
@@ -1625,7 +1631,7 @@ function Library.new(config: WindowConfig)
 						px = Mouse.X
 						py = Mouse.Y
 					end
-					local cam = workspace.CurrentCamera
+					local cam = getCurrentCamera()
 					local vw = if cam then cam.ViewportSize.X else 1920
 					local vh = if cam then cam.ViewportSize.Y else 1080
 					local ax = tooltipLabel.AbsoluteSize.X
@@ -2827,7 +2833,7 @@ function Library.new(config: WindowConfig)
 	end)
 
 	local function getRootMaxSize(): (number, number)
-		local cam = workspace.CurrentCamera
+		local cam = getCurrentCamera()
 		local margin = 28
 		local maxContentW = minContent.X
 		local maxContentH = minContent.Y
