@@ -2,28 +2,20 @@
 local cloneref = (cloneref or clonereference or function(instance: any)
 	return instance
 end)
-local Game = cloneref(game)
-local Workspace = cloneref(workspace)
-local CoreGui = cloneref(Game:GetService("CoreGui"))
-local Players = cloneref(Game:GetService("Players"))
-local UserInputService = cloneref(Game:GetService("UserInputService"))
-local TweenService = cloneref(Game:GetService("TweenService"))
-local RunService = cloneref(Game:GetService("RunService"))
-local TextService = cloneref(Game:GetService("TextService"))
-local SoundService = cloneref(Game:GetService("SoundService"))
+local CoreGui = cloneref(game:GetService("CoreGui"))
+local Players = cloneref(game:GetService("Players"))
+local UserInputService = cloneref(game:GetService("UserInputService"))
+local TweenService = cloneref(game:GetService("TweenService"))
+local RunService = cloneref(game:GetService("RunService"))
+local TextService = cloneref(game:GetService("TextService"))
 
 local protectgui = protectgui or (syn and syn.protect_gui) or function() end
 local gethui = gethui or function()
 	return CoreGui
 end
 
-local LocalPlayer = cloneref(Players.LocalPlayer or Players.PlayerAdded:Wait())
+local LocalPlayer = Players.LocalPlayer or Players.PlayerAdded:Wait()
 local Mouse = cloneref(LocalPlayer:GetMouse())
-
-local function getCurrentCamera()
-	local cam = Workspace.CurrentCamera
-	return cam and cloneref(cam) or nil
-end
 
 -- ----------------------------------------------------------------------------- theme (mutable; ThemeManager / RefreshTheme)
 local Library = {}
@@ -514,6 +506,7 @@ function Library:Notify(payload: any, duration: number?)
 		end
 		if typeof(sid) == "string" then
 			pcall(function()
+				local SoundService = game:GetService("SoundService")
 				local s = Instance.new("Sound")
 				s.SoundId = sid
 				s.Volume = 0.35
@@ -901,6 +894,12 @@ function Library:Unload()
 	self._watermarkDragConns = nil
 	self._watermarkOuter = nil
 	self._watermarkPaint = nil
+	if self._loadSplashGui and self._loadSplashGui.Parent then
+		pcall(function()
+			self._loadSplashGui:Destroy()
+		end)
+		self._loadSplashGui = nil
+	end
 	if self._windowDestroy then
 		self._windowDestroy()
 		self._windowDestroy = nil
@@ -1171,7 +1170,8 @@ local LucideModule: any = nil
 
 local function tryInitLucideModule()
 	local ok, mod = pcall(function()
-		local src = Game:HttpGet(LUCIDE_ROBLOX_DIRECT)
+		local g: any = game
+		local src = g:HttpGet(LUCIDE_ROBLOX_DIRECT)
 		if not loadchunk then
 			error("loadstring/load not available")
 		end
@@ -1276,7 +1276,167 @@ export type WindowConfig = {
 	UnlockMouseWhileOpen: boolean?,
 	--[[ When false, no top watermark is created (default: true / shown). ]]
 	Watermark: boolean?,
+	--[[ CompKiller-style intro splash before the menu appears (default: true) ]]
+	LoadSplash: boolean?,
+	--[[ Splash logo — defaults to AcidHub loader asset, not TitleIcon ]]
+	LoadSplashIcon: string | number?,
+	--[[ Seconds to hold splash after vignette fade-in (default 4.5) ]]
+	LoadSplashDuration: number?,
 }
+
+local LOAD_SPLASH_VIGNETTE = "rbxassetid://18720640102"
+local LOAD_SPLASH_DEFAULT_ICON = 102494723108894
+
+local function resolveSplashIcon(iconId: (string | number)?): string
+	local parsed = Library:GetCustomIcon(iconId or LOAD_SPLASH_DEFAULT_ICON)
+	if parsed and typeof(parsed.Url) == "string" then
+		return parsed.Url
+	end
+	return string.format("rbxassetid://%d", LOAD_SPLASH_DEFAULT_ICON)
+end
+
+--[[ CompKiller-style fullscreen loader; yield() unblocks early (~0.6s) for heavy init during splash ]]
+function Library.PlayLoadSplash(
+	iconId: (string | number)?,
+	duration: number?,
+	accentColor: Color3?
+): { yield: () -> (), WaitUntilDone: () -> (), Destroy: () -> () }
+	duration = if typeof(duration) == "number" then duration else 4.5
+	local accent = accentColor or Theme.AccentBlue
+	local iconImage = resolveSplashIcon(iconId)
+
+	local splashGui = Instance.new("ScreenGui")
+	splashGui.Name = "HubLoadSplash"
+	splashGui.ResetOnSpawn = false
+	splashGui.IgnoreGuiInset = true
+	splashGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
+	splashGui.DisplayOrder = 100000
+	pcall(protectgui, splashGui)
+	local parentOk = pcall(function()
+		splashGui.Parent = gethui()
+	end)
+	if not parentOk or not splashGui.Parent then
+		splashGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
+	end
+	Library._loadSplashGui = splashGui
+
+	local overlay = Instance.new("Frame")
+	overlay.Name = "Overlay"
+	overlay.AnchorPoint = Vector2.new(0.5, 0.5)
+	overlay.Position = UDim2.fromScale(0.5, 0.5)
+	overlay.Size = UDim2.fromScale(1, 1)
+	overlay.BackgroundColor3 = Color3.new(0, 0, 0)
+	overlay.BackgroundTransparency = 1
+	overlay.BorderSizePixel = 0
+	overlay.Parent = splashGui
+
+	local icon = Instance.new("ImageLabel")
+	icon.Name = "Icon"
+	icon.AnchorPoint = Vector2.new(0.5, 0.5)
+	icon.Position = UDim2.fromScale(0.5, 0.5)
+	icon.Size = UDim2.fromOffset(750, 750)
+	icon.BackgroundTransparency = 1
+	icon.BorderSizePixel = 0
+	icon.ZIndex = 2
+	icon.Image = iconImage
+	icon.ImageTransparency = 1
+	icon.Parent = overlay
+
+	local vignette = Instance.new("ImageLabel")
+	vignette.Name = "Vignette"
+	vignette.AnchorPoint = Vector2.new(0.5, 0.5)
+	vignette.Position = UDim2.fromScale(0.5, 0.5)
+	vignette.Size = UDim2.fromScale(1, 1)
+	vignette.BackgroundTransparency = 1
+	vignette.BorderSizePixel = 0
+	vignette.ZIndex = 1
+	vignette.Image = LOAD_SPLASH_VIGNETTE
+	vignette.ImageColor3 = accent
+	vignette.ImageTransparency = 1
+	vignette.Parent = overlay
+
+	local readyEvent = Instance.new("BindableEvent")
+	local doneEvent = Instance.new("BindableEvent")
+	local destroyed = false
+
+	local function destroySplash()
+		if destroyed then
+			return
+		end
+		destroyed = true
+		if Library._loadSplashGui == splashGui then
+			Library._loadSplashGui = nil
+		end
+		splashGui:Destroy()
+	end
+
+	tween(overlay, TweenInfo.new(0.55, Enum.EasingStyle.Quint), {
+		BackgroundTransparency = 0.5,
+	})
+
+	task.delay(0.5, function()
+		if destroyed then
+			return
+		end
+		tween(icon, TweenInfo.new(0.75, Enum.EasingStyle.Quint), {
+			ImageTransparency = 0.01,
+			Size = UDim2.fromOffset(200, 200),
+		})
+
+		task.delay(0.25, function()
+			if destroyed then
+				return
+			end
+			tween(vignette, TweenInfo.new(5), {
+				ImageTransparency = 0.2,
+			})
+
+			task.wait(duration)
+
+			if destroyed then
+				return
+			end
+
+			tween(vignette, TweenInfo.new(3, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+				Size = UDim2.fromScale(2, 2),
+			})
+			tween(icon, TweenInfo.new(0.75, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+				ImageTransparency = 1,
+			})
+			tween(overlay, TweenInfo.new(1.5, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+				BackgroundTransparency = 1,
+			})
+
+			task.delay(0.1, function()
+				if destroyed then
+					return
+				end
+				tween(vignette, TweenInfo.new(1, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
+					ImageTransparency = 1,
+				})
+				task.wait(0.2)
+				doneEvent:Fire()
+				task.delay(3, destroySplash)
+			end)
+		end)
+
+		task.delay(0.6, function()
+			if not destroyed then
+				readyEvent:Fire()
+			end
+		end)
+	end)
+
+	return {
+		yield = function()
+			readyEvent.Event:Wait()
+		end,
+		WaitUntilDone = function()
+			doneEvent.Event:Wait()
+		end,
+		Destroy = destroySplash,
+	}
+end
 
 function Library.new(config: WindowConfig)
 	config = config or {}
@@ -1292,7 +1452,7 @@ function Library.new(config: WindowConfig)
 	local minContent = config.MinSize or defaultMin
 	local size = config.Size or (if Library.IsMobile then Vector2.new(480, 360) else Vector2.new(520, 440))
 	size = Vector2.new(math.max(size.X, minContent.X), math.max(size.Y, minContent.Y))
-	local cam0 = getCurrentCamera()
+	local cam0 = workspace.CurrentCamera
 	if cam0 then
 		local vs = cam0.ViewportSize
 		local margin = 28
@@ -1319,7 +1479,16 @@ function Library.new(config: WindowConfig)
 		screenGui.Parent = gethui()
 	end)
 	if not parentOk or not screenGui.Parent then
-		screenGui.Parent = cloneref(LocalPlayer:WaitForChild("PlayerGui", math.huge))
+		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
+	end
+
+	local loadSplashHandle: { WaitUntilDone: () -> (), Destroy: () -> () }? = nil
+	if config.LoadSplash ~= false then
+		loadSplashHandle = Library.PlayLoadSplash(
+			config.LoadSplashIcon,
+			config.LoadSplashDuration,
+			Theme.AccentBlue
+		)
 	end
 
 	type ContextMenuHandle = {
@@ -1631,7 +1800,7 @@ function Library.new(config: WindowConfig)
 						px = Mouse.X
 						py = Mouse.Y
 					end
-					local cam = getCurrentCamera()
+					local cam = workspace.CurrentCamera
 					local vw = if cam then cam.ViewportSize.X else 1920
 					local vh = if cam then cam.ViewportSize.Y else 1080
 					local ax = tooltipLabel.AbsoluteSize.X
@@ -2559,7 +2728,7 @@ function Library.new(config: WindowConfig)
 		table.insert(Library._draggableThemeButtons, lockChip)
 	end
 
-	setRootVisible(true)
+	setRootVisible(false)
 
 	-- dragging + resize (grip uses local InputBegan — global InputBegan often has gameProcessed=true on Gui clicks)
 	local function beginDrag()
@@ -2833,7 +3002,7 @@ function Library.new(config: WindowConfig)
 	end)
 
 	local function getRootMaxSize(): (number, number)
-		local cam = getCurrentCamera()
+		local cam = workspace.CurrentCamera
 		local margin = 28
 		local maxContentW = minContent.X
 		local maxContentH = minContent.Y
@@ -5740,9 +5909,25 @@ function Library.new(config: WindowConfig)
 	end
 
 	Library.Window = window
-	if typeof(Library._cursorRefresh) == "function" then
-		Library._cursorRefresh()
+
+	local function revealWindow()
+		setRootVisible(true)
+		if typeof(Library._cursorRefresh) == "function" then
+			Library._cursorRefresh()
+		end
 	end
+
+	if loadSplashHandle then
+		task.spawn(function()
+			loadSplashHandle.WaitUntilDone()
+			if not Library.Unloaded then
+				revealWindow()
+			end
+		end)
+	else
+		revealWindow()
+	end
+
 	return window
 end
 
