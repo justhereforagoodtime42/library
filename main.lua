@@ -1295,7 +1295,7 @@ local function resolveSplashIcon(iconId: (string | number)?): string
 	return string.format("rbxassetid://%d", LOAD_SPLASH_DEFAULT_ICON)
 end
 
---[[ CompKiller-style fullscreen loader; yield() unblocks early (~0.6s) for heavy init during splash ]]
+--[[ CompKiller:Loader — fullscreen intro; yield() ~0.6s in, WaitUntilDone() after fade-out ]]
 function Library.PlayLoadSplash(
 	iconId: (string | number)?,
 	duration: number?,
@@ -1320,6 +1320,11 @@ function Library.PlayLoadSplash(
 	end
 	Library._loadSplashGui = splashGui
 
+	pcall(function()
+		local cp = cloneref(game:GetService("ContentProvider"))
+		cp:PreloadAsync({ iconImage, LOAD_SPLASH_VIGNETTE })
+	end)
+
 	local overlay = Instance.new("Frame")
 	overlay.Name = "Overlay"
 	overlay.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1330,18 +1335,6 @@ function Library.PlayLoadSplash(
 	overlay.BorderSizePixel = 0
 	overlay.Parent = splashGui
 
-	local icon = Instance.new("ImageLabel")
-	icon.Name = "Icon"
-	icon.AnchorPoint = Vector2.new(0.5, 0.5)
-	icon.Position = UDim2.fromScale(0.5, 0.5)
-	icon.Size = UDim2.fromOffset(750, 750)
-	icon.BackgroundTransparency = 1
-	icon.BorderSizePixel = 0
-	icon.ZIndex = 2
-	icon.Image = iconImage
-	icon.ImageTransparency = 1
-	icon.Parent = overlay
-
 	local vignette = Instance.new("ImageLabel")
 	vignette.Name = "Vignette"
 	vignette.AnchorPoint = Vector2.new(0.5, 0.5)
@@ -1349,11 +1342,23 @@ function Library.PlayLoadSplash(
 	vignette.Size = UDim2.fromScale(1, 1)
 	vignette.BackgroundTransparency = 1
 	vignette.BorderSizePixel = 0
-	vignette.ZIndex = 1
 	vignette.Image = LOAD_SPLASH_VIGNETTE
 	vignette.ImageColor3 = accent
 	vignette.ImageTransparency = 1
 	vignette.Parent = overlay
+
+	local icon = Instance.new("ImageLabel")
+	icon.Name = "Icon"
+	icon.AnchorPoint = Vector2.new(0.5, 0.5)
+	icon.Position = UDim2.fromScale(0.5, 0.5)
+	icon.Size = UDim2.fromOffset(750, 750)
+	icon.BackgroundTransparency = 1
+	icon.BorderSizePixel = 0
+	icon.ZIndex = 100
+	icon.ScaleType = Enum.ScaleType.Fit
+	icon.Image = iconImage
+	icon.ImageTransparency = 1
+	icon.Parent = overlay
 
 	local readyEvent = Instance.new("BindableEvent")
 	local doneEvent = Instance.new("BindableEvent")
@@ -1418,12 +1423,12 @@ function Library.PlayLoadSplash(
 				doneEvent:Fire()
 				task.delay(3, destroySplash)
 			end)
-		end)
 
-		task.delay(0.6, function()
-			if not destroyed then
-				readyEvent:Fire()
-			end
+			task.delay(0.6, function()
+				if not destroyed then
+					readyEvent:Fire()
+				end
+			end)
 		end)
 	end)
 
@@ -1438,8 +1443,15 @@ function Library.PlayLoadSplash(
 	}
 end
 
+Library.Loader = Library.PlayLoadSplash
+
 function Library.new(config: WindowConfig)
 	config = config or {}
+
+	if config.LoadSplash ~= false then
+		Library.PlayLoadSplash(config.LoadSplashIcon, config.LoadSplashDuration, Theme.AccentBlue):WaitUntilDone()
+	end
+
 	local titleText = config.Title or "UI"
 	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
 	local titleIcon = config.TitleIcon
@@ -1480,15 +1492,6 @@ function Library.new(config: WindowConfig)
 	end)
 	if not parentOk or not screenGui.Parent then
 		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
-	end
-
-	local loadSplashHandle: { WaitUntilDone: () -> (), Destroy: () -> () }? = nil
-	if config.LoadSplash ~= false then
-		loadSplashHandle = Library.PlayLoadSplash(
-			config.LoadSplashIcon,
-			config.LoadSplashDuration,
-			Theme.AccentBlue
-		)
 	end
 
 	type ContextMenuHandle = {
@@ -5909,25 +5912,10 @@ function Library.new(config: WindowConfig)
 	end
 
 	Library.Window = window
-
-	local function revealWindow()
+	if typeof(Library._cursorRefresh) == "function" then
 		setRootVisible(true)
-		if typeof(Library._cursorRefresh) == "function" then
-			Library._cursorRefresh()
-		end
+		Library._cursorRefresh()
 	end
-
-	if loadSplashHandle then
-		task.spawn(function()
-			loadSplashHandle.WaitUntilDone()
-			if not Library.Unloaded then
-				revealWindow()
-			end
-		end)
-	else
-		revealWindow()
-	end
-
 	return window
 end
 
