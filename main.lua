@@ -894,12 +894,6 @@ function Library:Unload()
 	self._watermarkDragConns = nil
 	self._watermarkOuter = nil
 	self._watermarkPaint = nil
-	if self._loadSplashGui and self._loadSplashGui.Parent then
-		pcall(function()
-			self._loadSplashGui:Destroy()
-		end)
-		self._loadSplashGui = nil
-	end
 	if self._windowDestroy then
 		self._windowDestroy()
 		self._windowDestroy = nil
@@ -1276,182 +1270,10 @@ export type WindowConfig = {
 	UnlockMouseWhileOpen: boolean?,
 	--[[ When false, no top watermark is created (default: true / shown). ]]
 	Watermark: boolean?,
-	--[[ CompKiller-style intro splash before the menu appears (default: true) ]]
-	LoadSplash: boolean?,
-	--[[ Splash logo — defaults to AcidHub loader asset, not TitleIcon ]]
-	LoadSplashIcon: string | number?,
-	--[[ Seconds to hold splash after vignette fade-in (default 4.5) ]]
-	LoadSplashDuration: number?,
 }
-
-local LOAD_SPLASH_VIGNETTE = "rbxassetid://18720640102"
-local LOAD_SPLASH_DEFAULT_ICON = 102494723108894
-
-local function resolveSplashIcon(iconId: (string | number)?): string
-	local parsed = Library:GetCustomIcon(iconId or LOAD_SPLASH_DEFAULT_ICON)
-	if parsed and typeof(parsed.Url) == "string" then
-		return parsed.Url
-	end
-	return string.format("rbxassetid://%d", LOAD_SPLASH_DEFAULT_ICON)
-end
-
---[[ CompKiller:Loader — fullscreen intro; yield() ~0.6s in, WaitUntilDone() after fade-out ]]
-function Library.PlayLoadSplash(
-	iconId: (string | number)?,
-	duration: number?,
-	accentColor: Color3?
-): { yield: () -> (), WaitUntilDone: () -> (), Destroy: () -> () }
-	duration = if typeof(duration) == "number" then duration else 4.5
-	local accent = accentColor or Theme.AccentBlue
-	local iconImage = resolveSplashIcon(iconId)
-
-	local splashGui = Instance.new("ScreenGui")
-	splashGui.Name = "HubLoadSplash"
-	splashGui.ResetOnSpawn = false
-	splashGui.IgnoreGuiInset = true
-	splashGui.ZIndexBehavior = Enum.ZIndexBehavior.Global
-	splashGui.DisplayOrder = 100000
-	pcall(protectgui, splashGui)
-	local parentOk = pcall(function()
-		splashGui.Parent = gethui()
-	end)
-	if not parentOk or not splashGui.Parent then
-		splashGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
-	end
-	Library._loadSplashGui = splashGui
-
-	pcall(function()
-		local cp = cloneref(game:GetService("ContentProvider"))
-		cp:PreloadAsync({ iconImage, LOAD_SPLASH_VIGNETTE })
-	end)
-
-	local overlay = Instance.new("Frame")
-	overlay.Name = "Overlay"
-	overlay.AnchorPoint = Vector2.new(0.5, 0.5)
-	overlay.Position = UDim2.fromScale(0.5, 0.5)
-	overlay.Size = UDim2.fromScale(1, 1)
-	overlay.BackgroundColor3 = Color3.new(0, 0, 0)
-	overlay.BackgroundTransparency = 1
-	overlay.BorderSizePixel = 0
-	overlay.Parent = splashGui
-
-	local vignette = Instance.new("ImageLabel")
-	vignette.Name = "Vignette"
-	vignette.AnchorPoint = Vector2.new(0.5, 0.5)
-	vignette.Position = UDim2.fromScale(0.5, 0.5)
-	vignette.Size = UDim2.fromScale(1, 1)
-	vignette.BackgroundTransparency = 1
-	vignette.BorderSizePixel = 0
-	vignette.Image = LOAD_SPLASH_VIGNETTE
-	vignette.ImageColor3 = accent
-	vignette.ImageTransparency = 1
-	vignette.Parent = overlay
-
-	local icon = Instance.new("ImageLabel")
-	icon.Name = "Icon"
-	icon.AnchorPoint = Vector2.new(0.5, 0.5)
-	icon.Position = UDim2.fromScale(0.5, 0.5)
-	icon.Size = UDim2.fromOffset(750, 750)
-	icon.BackgroundTransparency = 1
-	icon.BorderSizePixel = 0
-	icon.ZIndex = 100
-	icon.ScaleType = Enum.ScaleType.Fit
-	icon.Image = iconImage
-	icon.ImageTransparency = 1
-	icon.Parent = overlay
-
-	local readyEvent = Instance.new("BindableEvent")
-	local doneEvent = Instance.new("BindableEvent")
-	local destroyed = false
-
-	local function destroySplash()
-		if destroyed then
-			return
-		end
-		destroyed = true
-		if Library._loadSplashGui == splashGui then
-			Library._loadSplashGui = nil
-		end
-		splashGui:Destroy()
-	end
-
-	tween(overlay, TweenInfo.new(0.55, Enum.EasingStyle.Quint), {
-		BackgroundTransparency = 0.5,
-	})
-
-	task.delay(0.5, function()
-		if destroyed then
-			return
-		end
-		tween(icon, TweenInfo.new(0.75, Enum.EasingStyle.Quint), {
-			ImageTransparency = 0.01,
-			Size = UDim2.fromOffset(200, 200),
-		})
-
-		task.delay(0.25, function()
-			if destroyed then
-				return
-			end
-			tween(vignette, TweenInfo.new(5), {
-				ImageTransparency = 0.2,
-			})
-
-			task.wait(duration)
-
-			if destroyed then
-				return
-			end
-
-			tween(vignette, TweenInfo.new(3, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
-				Size = UDim2.fromScale(2, 2),
-			})
-			tween(icon, TweenInfo.new(0.75, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
-				ImageTransparency = 1,
-			})
-			tween(overlay, TweenInfo.new(1.5, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
-				BackgroundTransparency = 1,
-			})
-
-			task.delay(0.1, function()
-				if destroyed then
-					return
-				end
-				tween(vignette, TweenInfo.new(1, Enum.EasingStyle.Quint, Enum.EasingDirection.InOut), {
-					ImageTransparency = 1,
-				})
-				task.wait(0.2)
-				doneEvent:Fire()
-				task.delay(3, destroySplash)
-			end)
-
-			task.delay(0.6, function()
-				if not destroyed then
-					readyEvent:Fire()
-				end
-			end)
-		end)
-	end)
-
-	return {
-		yield = function()
-			readyEvent.Event:Wait()
-		end,
-		WaitUntilDone = function()
-			doneEvent.Event:Wait()
-		end,
-		Destroy = destroySplash,
-	}
-end
-
-Library.Loader = Library.PlayLoadSplash
 
 function Library.new(config: WindowConfig)
 	config = config or {}
-
-	if config.LoadSplash ~= false then
-		Library.PlayLoadSplash(config.LoadSplashIcon, config.LoadSplashDuration, Theme.AccentBlue):WaitUntilDone()
-	end
-
 	local titleText = config.Title or "UI"
 	local subtitleText = config.Subtitle or "https://example.com | discord.gg/example"
 	local titleIcon = config.TitleIcon
@@ -2731,7 +2553,7 @@ function Library.new(config: WindowConfig)
 		table.insert(Library._draggableThemeButtons, lockChip)
 	end
 
-	setRootVisible(false)
+	setRootVisible(true)
 
 	-- dragging + resize (grip uses local InputBegan — global InputBegan often has gameProcessed=true on Gui clicks)
 	local function beginDrag()
@@ -5913,7 +5735,6 @@ function Library.new(config: WindowConfig)
 
 	Library.Window = window
 	if typeof(Library._cursorRefresh) == "function" then
-		setRootVisible(true)
 		Library._cursorRefresh()
 	end
 	return window
