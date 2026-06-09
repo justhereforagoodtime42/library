@@ -5319,9 +5319,9 @@ function Library.new(config: WindowConfig)
 				swBtn.BackgroundTransparency = 1 - alpha
 			end
 
-			--[[ Obsidian-style HSV surface (rbxassetid://4155801252 saturation map) + RGB fields ]]
-			local SATURATION_MAP_ASSET = "rbxassetid://4155801252"
-
+			--[[ HSV surface built procedurally (white->transparent + transparent->black gradients).
+			     Avoids loading rbxassetid://4155801252, a known UI-lib saturation map that games can
+			     fingerprint via ContentProvider:PreloadAsync/GetAssetFetchStatus. ]]
 			local extraDismiss: { GuiObject } = {}
 			if hexBox then
 				table.insert(extraDismiss, hexBox)
@@ -5357,12 +5357,46 @@ function Library.new(config: WindowConfig)
 			satMap.AutoButtonColor = false
 			satMap.Size = UDim2.fromOffset(168, 168)
 			satMap.BackgroundColor3 = Color3.fromHSV(hueN, 1, 1)
-			satMap.Image = SATURATION_MAP_ASSET
-			satMap.ScaleType = Enum.ScaleType.Stretch
+			satMap.Image = ""
 			satMap.ZIndex = pop.ZIndex + 2
 			satMap.LayoutOrder = 1
 			satMap.Parent = svRow
 			corner(Theme.CornerSm).Parent = satMap
+
+			--[[ White overlay: opaque white (left) -> transparent (right) = saturation ]]
+			local satWhite = Instance.new("Frame")
+			satWhite.Name = "SatWhite"
+			satWhite.BackgroundColor3 = Color3.new(1, 1, 1)
+			satWhite.BorderSizePixel = 0
+			satWhite.Size = UDim2.fromScale(1, 1)
+			satWhite.ZIndex = satMap.ZIndex
+			satWhite.Active = false
+			satWhite.Parent = satMap
+			corner(Theme.CornerSm).Parent = satWhite
+			local satWhiteGrad = Instance.new("UIGradient")
+			satWhiteGrad.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 0),
+				NumberSequenceKeypoint.new(1, 1),
+			})
+			satWhiteGrad.Parent = satWhite
+
+			--[[ Black overlay: transparent (top) -> opaque black (bottom) = value ]]
+			local satBlack = Instance.new("Frame")
+			satBlack.Name = "SatBlack"
+			satBlack.BackgroundColor3 = Color3.new(0, 0, 0)
+			satBlack.BorderSizePixel = 0
+			satBlack.Size = UDim2.fromScale(1, 1)
+			satBlack.ZIndex = satMap.ZIndex
+			satBlack.Active = false
+			satBlack.Parent = satMap
+			corner(Theme.CornerSm).Parent = satBlack
+			local satBlackGrad = Instance.new("UIGradient")
+			satBlackGrad.Rotation = 90
+			satBlackGrad.Transparency = NumberSequence.new({
+				NumberSequenceKeypoint.new(0, 1),
+				NumberSequenceKeypoint.new(1, 0),
+			})
+			satBlackGrad.Parent = satBlack
 
 			local satCursor = Instance.new("Frame")
 			satCursor.AnchorPoint = Vector2.new(0.5, 0.5)
