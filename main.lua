@@ -1167,6 +1167,49 @@ end
 
 tryInitLucideModule()
 
+-- ----------------------------------------------------------------------------- Saturation map (Obsidian-style getcustomasset)
+--[[ The color picker SV square uses Roblox asset 4155801252. Loading it directly is fingerprintable
+     (games can PreloadAsync + GetAssetFetchStatus it). Like Obsidian, download the PNG once and serve it
+     through getcustomasset so the recognizable asset id never hits Roblox's content pipeline.
+     Never falls back to the raw asset id — if the local load fails, the picker uses a procedural gradient. ]]
+local SATURATION_MAP_URL =
+	"https://raw.githubusercontent.com/deividcomsono/Obsidian/refs/heads/main/assets/SaturationMap.png"
+local cachedSaturationMap: string? = nil
+local saturationMapResolved = false
+
+local function resolveSaturationMap(): string?
+	if saturationMapResolved then
+		return cachedSaturationMap
+	end
+	saturationMapResolved = true
+
+	if typeof(getcustomasset) == "function" and typeof(writefile) == "function" and typeof(isfile) == "function" then
+		local path = "AcidHub/assets/SaturationMap.png"
+		local ok = pcall(function()
+			if not isfile(path) then
+				if typeof(makefolder) == "function" and typeof(isfolder) == "function" then
+					if not isfolder("AcidHub") then
+						makefolder("AcidHub")
+					end
+					if not isfolder("AcidHub/assets") then
+						makefolder("AcidHub/assets")
+					end
+				end
+				local g: any = game
+				writefile(path, g:HttpGet(SATURATION_MAP_URL))
+			end
+		end)
+		if ok then
+			local okAsset, id = pcall(getcustomasset, path)
+			if okAsset and typeof(id) == "string" and id ~= "" then
+				cachedSaturationMap = id
+			end
+		end
+	end
+
+	return cachedSaturationMap
+end
+
 function Library:GetIcon(IconName: string): any
 	if not LucideFetchOk or LucideModule == nil then
 		return nil
@@ -5319,9 +5362,9 @@ function Library.new(config: WindowConfig)
 				swBtn.BackgroundTransparency = 1 - alpha
 			end
 
-			--[[ HSV surface built procedurally (white->transparent + transparent->black gradients).
-			     Avoids loading rbxassetid://4155801252, a known UI-lib saturation map that games can
-			     fingerprint via ContentProvider:PreloadAsync/GetAssetFetchStatus. ]]
+			--[[ HSV surface uses the saturation map asset loaded locally via getcustomasset (see resolveSaturationMap)
+			     so the recognizable asset id isn't fetched from Roblox's content pipeline. If the local load is
+			     unavailable, it falls back to a procedural white/black gradient (no asset fetch at all). ]]
 			local extraDismiss: { GuiObject } = {}
 			if hexBox then
 				table.insert(extraDismiss, hexBox)
@@ -5357,46 +5400,52 @@ function Library.new(config: WindowConfig)
 			satMap.AutoButtonColor = false
 			satMap.Size = UDim2.fromOffset(168, 168)
 			satMap.BackgroundColor3 = Color3.fromHSV(hueN, 1, 1)
-			satMap.Image = ""
+			satMap.ScaleType = Enum.ScaleType.Stretch
 			satMap.ZIndex = pop.ZIndex + 2
 			satMap.LayoutOrder = 1
 			satMap.Parent = svRow
 			corner(Theme.CornerSm).Parent = satMap
 
-			--[[ White overlay: opaque white (left) -> transparent (right) = saturation ]]
-			local satWhite = Instance.new("Frame")
-			satWhite.Name = "SatWhite"
-			satWhite.BackgroundColor3 = Color3.new(1, 1, 1)
-			satWhite.BorderSizePixel = 0
-			satWhite.Size = UDim2.fromScale(1, 1)
-			satWhite.ZIndex = satMap.ZIndex
-			satWhite.Active = false
-			satWhite.Parent = satMap
-			corner(Theme.CornerSm).Parent = satWhite
-			local satWhiteGrad = Instance.new("UIGradient")
-			satWhiteGrad.Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 0),
-				NumberSequenceKeypoint.new(1, 1),
-			})
-			satWhiteGrad.Parent = satWhite
+			local satMapAsset = resolveSaturationMap()
+			if satMapAsset then
+				satMap.Image = satMapAsset
+			else
+				--[[ Procedural fallback: white (left->right) + black (top->bottom) gradients = SV map, no asset fetch ]]
+				satMap.Image = ""
 
-			--[[ Black overlay: transparent (top) -> opaque black (bottom) = value ]]
-			local satBlack = Instance.new("Frame")
-			satBlack.Name = "SatBlack"
-			satBlack.BackgroundColor3 = Color3.new(0, 0, 0)
-			satBlack.BorderSizePixel = 0
-			satBlack.Size = UDim2.fromScale(1, 1)
-			satBlack.ZIndex = satMap.ZIndex
-			satBlack.Active = false
-			satBlack.Parent = satMap
-			corner(Theme.CornerSm).Parent = satBlack
-			local satBlackGrad = Instance.new("UIGradient")
-			satBlackGrad.Rotation = 90
-			satBlackGrad.Transparency = NumberSequence.new({
-				NumberSequenceKeypoint.new(0, 1),
-				NumberSequenceKeypoint.new(1, 0),
-			})
-			satBlackGrad.Parent = satBlack
+				local satWhite = Instance.new("Frame")
+				satWhite.Name = "SatWhite"
+				satWhite.BackgroundColor3 = Color3.new(1, 1, 1)
+				satWhite.BorderSizePixel = 0
+				satWhite.Size = UDim2.fromScale(1, 1)
+				satWhite.ZIndex = satMap.ZIndex
+				satWhite.Active = false
+				satWhite.Parent = satMap
+				corner(Theme.CornerSm).Parent = satWhite
+				local satWhiteGrad = Instance.new("UIGradient")
+				satWhiteGrad.Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 0),
+					NumberSequenceKeypoint.new(1, 1),
+				})
+				satWhiteGrad.Parent = satWhite
+
+				local satBlack = Instance.new("Frame")
+				satBlack.Name = "SatBlack"
+				satBlack.BackgroundColor3 = Color3.new(0, 0, 0)
+				satBlack.BorderSizePixel = 0
+				satBlack.Size = UDim2.fromScale(1, 1)
+				satBlack.ZIndex = satMap.ZIndex
+				satBlack.Active = false
+				satBlack.Parent = satMap
+				corner(Theme.CornerSm).Parent = satBlack
+				local satBlackGrad = Instance.new("UIGradient")
+				satBlackGrad.Rotation = 90
+				satBlackGrad.Transparency = NumberSequence.new({
+					NumberSequenceKeypoint.new(0, 1),
+					NumberSequenceKeypoint.new(1, 0),
+				})
+				satBlackGrad.Parent = satBlack
+			end
 
 			local satCursor = Instance.new("Frame")
 			satCursor.AnchorPoint = Vector2.new(0.5, 0.5)
