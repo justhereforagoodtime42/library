@@ -358,33 +358,35 @@ function Library:_paintThemeContentHost(host: Instance)
 		self:_subscribeThemePaintHost(host)
 		self:_rebuildThemePaintList(host)
 	end
-	for _, e in self._themePaintTagged do
-		local kind, d, k = e[1], e[2], e[3]
-		pcall(function()
-			if kind == "stroke" and d:IsA("UIStroke") then
-				d.Color = T[k]
-			elseif kind == "bg" and d:IsA("GuiObject") then
-				d.BackgroundColor3 = T[k]
-			elseif kind == "text" and (d:IsA("TextLabel") or d:IsA("TextButton") or d:IsA("TextBox")) then
-				d.TextColor3 = T[k]
-			elseif kind == "ph" and d:IsA("TextBox") then
-				d.PlaceholderColor3 = T[k]
-			elseif kind == "img" and (d:IsA("ImageLabel") or d:IsA("ImageButton")) then
-				d.ImageColor3 = T[k]
-			end
-		end)
-	end
+	--[[ Hot path during theme-color drags: set properties directly (kind already validated at rebuild),
+	     one pcall around the whole loop instead of one per instance. If a cached instance went stale,
+	     invalidate so the next paint rebuilds the list. ]]
 	local gbt = T.GroupboxTrans
 	local acc = T.AccentBlue
-	for _, f in self._themePaintGroupbox do
-		pcall(function()
+	local ok = pcall(function()
+		for _, e in self._themePaintTagged do
+			local kind, d, k = e[1], e[2], e[3]
+			if kind == "bg" then
+				d.BackgroundColor3 = T[k]
+			elseif kind == "text" then
+				d.TextColor3 = T[k]
+			elseif kind == "stroke" then
+				d.Color = T[k]
+			elseif kind == "img" then
+				d.ImageColor3 = T[k]
+			elseif kind == "ph" then
+				d.PlaceholderColor3 = T[k]
+			end
+		end
+		for _, f in self._themePaintGroupbox do
 			f.BackgroundTransparency = gbt
-		end)
-	end
-	for _, sf in self._themePaintDropdownScroll do
-		pcall(function()
+		end
+		for _, sf in self._themePaintDropdownScroll do
 			sf.ScrollBarImageColor3 = acc
-		end)
+		end
+	end)
+	if not ok then
+		self._themePaintValid = false
 	end
 end
 
