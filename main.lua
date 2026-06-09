@@ -24,11 +24,8 @@ local Library = {}
 Library.Theme = {
 	Background = Color3.new(0, 0, 0),
 	Panel = Color3.new(0, 0, 0),
-	--[[ Main panel + scroll columns; 0 = fully opaque (Obsidian-style solid UI) ]]
 	PanelTrans = 0,
-	--[[ Groupbox shell fill — panel washed with accent (recomputed after AccentBlue is set below) ]]
 	Groupbox = Color3.new(0, 0, 0),
-	--[[ Section wrap transparency; lower = more solid accent tint on the box ]]
 	GroupboxTrans = 0.68,
 	Elevated = Color3.fromRGB(20, 20, 26),
 	Stroke = Color3.fromRGB(70, 130, 255),
@@ -47,7 +44,7 @@ Library.Theme = {
 local Theme = Library.Theme
 Theme.Groupbox = Theme.Panel:Lerp(Theme.AccentBlue, 0.16)
 
------------------------------------------------------------------------------ helpers (must be above Library:Notify — it uses corner/stroke)
+----------------------------------------------------------------------------- helpers
 local function tween(inst: Instance, ti: TweenInfo, props: { [string]: any })
 	return TweenService:Create(inst, ti, props)
 end
@@ -76,7 +73,7 @@ local function pad(p: number)
 	return x
 end
 
---[[ Section / groupbox widget density (Obsidian-style: ~14px text, ~18–21px controls) ]]
+--[[ Section / groupbox widget density ]]
 local UID = {
 	SectionHeaderH = 26,
 	SectionOuterPad = 6,
@@ -91,11 +88,11 @@ local UID = {
 	ToggleTrackH = 16,
 	ToggleKnob = 12,
 	ToggleLabelReserve = 38,
-	--[[ Inline keybind cap (Obsidian-style), sits between label and toggle track ]]
+	--[[ Inline keybind cap, sits between label and toggle track ]]
 	ToggleInlineKeyW = 52,
 	ToggleInlineKeyH = 18,
 	ToggleInlineKeyGap = 6,
-	--[[ Inline color swatch on toggle row (same band as key cap) ]]
+	--[[ Inline color swatch on toggle row]]
 	ToggleInlineColorW = 18,
 	ToggleInlineColorH = 18,
 	FontWidget = 14,
