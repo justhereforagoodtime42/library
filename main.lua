@@ -5440,12 +5440,24 @@ function Library.new(config: WindowConfig)
 			end
 			syncHsVisualRef = syncHsVisual
 
+			--[[ Color3:ToHSV() returns hue 0 for grayscale and loses sat at value 0.
+			     Preserve the previous H/S so dragging to an edge doesn't snap the hue (e.g. green -> red). ]]
+			local function deriveHsvFromColor()
+				local h, s, v = col:ToHSV()
+				if s > 0 and v > 0 then
+					hueN = h
+				end
+				if v > 0 then
+					satN = s
+				end
+				valN = v
+			end
+
 			local function syncPickerVisuals()
 				if hexBox then
 					hexBox.Text = string.upper(col:ToHex())
 				end
 				if colorMenu.Active then
-					hueN, satN, valN = col:ToHSV()
 					syncHsVisual()
 					if fillRgbBoxesRef then
 						fillRgbBoxesRef()
@@ -5467,6 +5479,7 @@ function Library.new(config: WindowConfig)
 
 			local function applyColor(c: Color3)
 				col = c
+				deriveHsvFromColor()
 				pushColorChange()
 			end
 
@@ -5610,7 +5623,7 @@ function Library.new(config: WindowConfig)
 			end
 
 			local function refreshMenuBeforeOpen()
-				hueN, satN, valN = col:ToHSV()
+				deriveHsvFromColor()
 				syncHsVisual()
 				fillRgbBoxes()
 			end
@@ -5670,7 +5683,7 @@ function Library.new(config: WindowConfig)
 				end
 				fillRgbBoxes()
 				if colorMenu.Active then
-					hueN, satN, valN = col:ToHSV()
+					deriveHsvFromColor()
 					syncHsVisual()
 				end
 			end
