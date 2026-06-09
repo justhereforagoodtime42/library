@@ -8,6 +8,7 @@ local UserInputService = cloneref(game:GetService("UserInputService"))
 local TweenService = cloneref(game:GetService("TweenService"))
 local RunService = cloneref(game:GetService("RunService"))
 local TextService = cloneref(game:GetService("TextService"))
+local HttpService = cloneref(game:GetService("HttpService"))
 
 local protectgui = protectgui or (syn and syn.protect_gui) or function() end
 local gethui = gethui or function()
@@ -176,7 +177,7 @@ Library._cursorHBar = nil :: Frame?
 Library._cursorVBar = nil :: Frame?
 Library._cursorImage = nil :: ImageLabel?
 Library._cursorRenderBound = false
-Library._cursorRenderName = "AcidHubCustomCursor"
+Library._cursorRenderName = HttpService:GenerateGUID(false)
 Library._cursorPrevMouseIcon = nil :: boolean?
 Library._cursorRefresh = nil :: (() -> ())?
 
@@ -472,14 +473,12 @@ function Library:Notify(payload: any, duration: number?)
 	local persist = false
 	local stepsTotal: number? = nil
 	local timeInstance: Instance? = nil
-	local soundId: any = nil
 
 	if typeof(payload) == "table" then
 		title = tostring(payload.Title or title)
 		desc = tostring(payload.Description or payload.Text or "")
 		persist = payload.Persist == true
 		stepsTotal = if typeof(payload.Steps) == "number" then payload.Steps else nil
-		soundId = payload.SoundId
 		if typeof(payload.Time) == "Instance" then
 			timeInstance = payload.Time :: Instance
 			dur = 0
@@ -497,24 +496,6 @@ function Library:Notify(payload: any, duration: number?)
 	local list = self._notifyList
 	if not list or not list.Parent then
 		return
-	end
-
-	if soundId ~= nil and soundId ~= "" then
-		local sid = soundId
-		if typeof(sid) == "number" then
-			sid = string.format("rbxassetid://%d", sid)
-		end
-		if typeof(sid) == "string" then
-			pcall(function()
-				local SoundService = game:GetService("SoundService")
-				local s = Instance.new("Sound")
-				s.SoundId = sid
-				s.Volume = 0.35
-				s.PlayOnRemove = true
-				s.Parent = SoundService
-				s:Destroy()
-			end)
-		end
 	end
 
 	self._notifyOrder += 1
@@ -1303,17 +1284,16 @@ function Library.new(config: WindowConfig)
 	Library.MultiDropdownByDefault = dropdownMultiDefault
 
 	local screenGui = Instance.new("ScreenGui")
-	screenGui.Name = "HubUI"
+	screenGui.Name = HttpService:GenerateGUID(false)
 	screenGui.ResetOnSpawn = false
 	screenGui.ZIndexBehavior = Enum.ZIndexBehavior.Sibling
 	screenGui.IgnoreGuiInset = true
-	--[[ Obsidian-style: protect before parenting, then gethui with PlayerGui fallback ]]
 	pcall(protectgui, screenGui)
 	local parentOk = pcall(function()
 		screenGui.Parent = gethui()
 	end)
 	if not parentOk or not screenGui.Parent then
-		screenGui.Parent = LocalPlayer:WaitForChild("PlayerGui", math.huge)
+		screenGui.Parent = CoreGui
 	end
 
 	type ContextMenuHandle = {
