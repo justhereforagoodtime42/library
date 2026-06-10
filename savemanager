@@ -34,9 +34,9 @@ if typeof(clonefunction) == "function" then
 	end
 end
 
+-- ----------------------------------------------------------------------------- SaveManager
 local SaveManager = {}
 
---[[ Basename of path "folder/name.json" or "name.json" -> "name" ]]
 local function jsonBasename(path: string): string?
 	if path:sub(-5) ~= ".json" then
 		return nil
@@ -72,7 +72,7 @@ do
 	SaveManager.SubFolder = ""
 	SaveManager.Ignore = {}
 	SaveManager.Library = nil
-	--[[ Set while parsing a loaded config; used by Library:ApplyHideUIOnLoad before the toggle exists ]]
+
 	SaveManager._configHideUIOnLoad = false
 	SaveManager.Parser = {
 		Toggle = {
@@ -276,6 +276,7 @@ do
 		self:BuildFolderTree()
 	end
 
+	-- Config IO
 	function SaveManager:Save(name)
 		if not name then
 			return false, "no config file is selected"
@@ -543,6 +544,7 @@ do
 		return true, ""
 	end
 
+	-- UI
 	function SaveManager:BuildConfigSection(tab)
 		assert(self.Library, "Must set SaveManager.Library")
 
