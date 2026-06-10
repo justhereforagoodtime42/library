@@ -34,6 +34,7 @@ if typeof(clonefunction) == "function" then
 	end
 end
 
+-- ----------------------------------------------------------------------------- ThemeManager
 local ThemeManager = {}
 
 local function jsonBasename(path: string): string?
@@ -63,12 +64,12 @@ do
 	ThemeManager.Library = nil
 	ThemeManager.AppliedToTab = false
 	ThemeManager.DefaultTheme = "Default"
-	--[[ Min seconds between full Library:RefreshTheme() while dragging theme pickers (avoids walking huge UIs every RenderStepped). ]]
+
 	ThemeManager.ThemeRefreshThrottleSec = 0.055
 	ThemeManager._themeRefreshBlockedUntil = 0.0
 	ThemeManager._pendingThemeRefresh = false
 	ThemeManager._themeRefreshFlushTask = nil
-	--[[ Last theme picker fingerprint (ordered hexes); skips ThemeUpdate when Library color pickers match (same idea as library applyColor hex dedupe). ]]
+
 	ThemeManager._lastThemePickerSignature = nil :: string?
 
 	local function themePickerSignature(lib: any): string
@@ -199,8 +200,6 @@ do
 		return Color3.new(1, 1, 1)
 	end
 
-	--[[ Keep theme Idx pickers (BackgroundColor, MainColor, …) in sync with Library.Theme after ApplyScheme.
-		Previously only SetValueRGB when that key existed in scheme — partial JSON / order bugs left swatches on stale Panel. ]]
 	function ThemeManager:SyncThemeColorPickersFromTheme()
 		local Lib = self.Library
 		if not Lib or not Lib.Theme or not Lib.Options then
@@ -224,7 +223,7 @@ do
 		end
 	end
 
-	--[[ Coalesces Library:RefreshTheme while theme colors change (picker uses while+RenderStepped:Wait + hex dedupe; this caps repaint rate). ]]
+	-- Theme apply
 	function ThemeManager:ScheduleThrottledThemeRefresh()
 		local Lib = self.Library
 		if not Lib or not Lib.RefreshTheme then
@@ -261,9 +260,6 @@ do
 		end)
 	end
 
-	--[[ Maps Obsidian-style scheme keys onto Library.Theme.
-		opts.skipPickerSync: when colors already match Options (live picker drag).
-		opts.throttleRefresh: cap Library:RefreshTheme rate (use with ThemeUpdate). ]]
 	function ThemeManager:ApplyScheme(
 		scheme: { [string]: string },
 		opts: { skipPickerSync: boolean?, throttleRefresh: boolean? }?
@@ -293,7 +289,7 @@ do
 		if scheme.OutlineColor then
 			T.Stroke = self:HexToColor(scheme.OutlineColor)
 		end
-		--[[ Groupbox shell: panel + accent (not window Background — matches AccentColor picker) ]]
+
 		T.Groupbox = T.Panel:Lerp(T.AccentBlue, 0.16)
 		T.TextDim = T.Text:Lerp(T.Background, 0.42)
 		T.ToggleOff = T.Panel:Lerp(Color3.new(0, 0, 0), 0.25)
@@ -435,6 +431,7 @@ do
 		return out
 	end
 
+	-- UI
 	function ThemeManager:CreateThemeManager(section)
 		local T = self.Library.Theme
 
