@@ -74,6 +74,8 @@ do
 	SaveManager.Library = nil
 
 	SaveManager._configHideUIOnLoad = false
+	SaveManager.UseLoadingOrder = false
+	SaveManager.LoadingOrder = {}
 	SaveManager.Parser = {
 		Toggle = {
 			Save = function(idx, object)
@@ -81,10 +83,9 @@ do
 			end,
 			Load = function(idx, data)
 				local object = SaveManager.Library.Toggles[idx]
-				if not object then
-					return
+				if object and object.Value ~= data.value then
+					object:SetValue(data.value)
 				end
-				object:SetValue(data.value == true)
 			end,
 		},
 		Slider = {
@@ -93,10 +94,7 @@ do
 			end,
 			Load = function(idx, data)
 				local object = SaveManager.Library.Options[idx]
-				if not object then
-					return
-				end
-				if tonumber(data.value) ~= nil then
+				if object and object.Value ~= data.value then
 					object:SetValue(data.value)
 				end
 			end,
@@ -107,10 +105,9 @@ do
 			end,
 			Load = function(idx, data)
 				local object = SaveManager.Library.Options[idx]
-				if not object then
-					return
+				if object and object.Value ~= data.value then
+					object:SetValue(data.value)
 				end
-				object:SetValue(data.value)
 			end,
 		},
 		ColorPicker = {
@@ -163,7 +160,7 @@ do
 			end,
 			Load = function(idx, data)
 				local object = SaveManager.Library.Options[idx]
-				if object and type(data.text) == "string" then
+				if object and object.Value ~= data.text and type(data.text) == "string" then
 					object:SetValue(data.text)
 				end
 			end,
@@ -173,6 +170,14 @@ do
 	function SaveManager:SetLibrary(library)
 		self.Library = library
 		library.SaveManager = self
+	end
+
+	function SaveManager:SetLoadingOrder(enabled, order)
+		self.UseLoadingOrder = enabled == true
+
+		if typeof(order) == "table" then
+			self.LoadingOrder = order
+		end
 	end
 
 	function SaveManager:IgnoreThemeSettings()
@@ -369,7 +374,15 @@ do
 
 		local objs = decoded.objects
 		if typeof(objs) == "table" then
-			for _, option in pairs(objs) do
+			if self.UseLoadingOrder == true and typeof(self.LoadingOrder) == "table" then
+				table.sort(objs, function(a, b)
+					local aIndex = table.find(self.LoadingOrder, a.type) or math.huge
+					local bIndex = table.find(self.LoadingOrder, b.type) or math.huge
+					return aIndex < bIndex
+				end)
+			end
+
+			for _, option in objs do
 				if not option.type then
 					continue
 				end
@@ -388,7 +401,7 @@ do
 					self._configHideUIOnLoad = true
 				end
 
-				self.Parser[option.type].Load(option.idx, option)
+				task.spawn(self.Parser[option.type].Load, option.idx, option)
 			end
 		end
 
@@ -492,9 +505,28 @@ do
 
 		if isfile(autoLoadPath) then
 			local successRead, name = pcall(readfile, autoLoadPath)
-			if successRead then
-				name = tostring(name):gsub("^%s+", ""):gsub("%s+$", ""):gsub("\r", ""):gsub("\n", "")
-				self:Load(name)
+			if not successRead then
+				if self.Library then
+					self.Library:Notify({ Title = "Autoload", Description = "Failed to read autoload config", Time = 3 })
+				end
+				return
+			end
+
+			name = tostring(name):gsub("^%s+", ""):gsub("%s+$", ""):gsub("\r", ""):gsub("\n", "")
+			if name == "" then
+				return
+			end
+
+			local success, err = self:Load(name)
+			if not success then
+				if self.Library then
+					self.Library:Notify({ Title = "Autoload", Description = "Load failed: " .. tostring(err), Time = 4 })
+				end
+				return
+			end
+
+			if self.Library then
+				self.Library:Notify({ Title = "Autoload", Description = string.format("Auto loaded config %q", name), Time = 2 })
 			end
 		end
 
