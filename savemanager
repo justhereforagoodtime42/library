@@ -105,7 +105,7 @@ do
 			end,
 			Load = function(idx, data)
 				local object = SaveManager.Library.Options[idx]
-				if object and object.Value ~= data.value then
+				if object then
 					object:SetValue(data.value)
 				end
 			end,
@@ -177,6 +177,41 @@ do
 
 		if typeof(order) == "table" then
 			self.LoadingOrder = order
+		end
+	end
+
+	function SaveManager:RefreshLoadedCallbacks()
+		if not self.Library then
+			return
+		end
+
+		for _, toggle in pairs(self.Library.Toggles) do
+			if toggle.Type == "Toggle" and toggle.SetValue then
+				pcall(function()
+					toggle:SetValue(toggle.Value)
+				end)
+			end
+		end
+
+		for _, opt in pairs(self.Library.Options) do
+			if not opt.Type then
+				continue
+			end
+			pcall(function()
+				if opt.Type == "Dropdown" and opt.FireChanged then
+					opt:FireChanged()
+				elseif opt.Type == "Slider" and opt.FireChanged then
+					opt:FireChanged()
+				elseif opt.Type == "Slider" and opt.SetValue then
+					opt:SetValue(tostring(opt.Value))
+				elseif opt.Type == "Input" and opt.FireChanged then
+					opt:FireChanged()
+				elseif opt.Type == "Input" and opt.SetValue then
+					opt:SetValue(opt.Value)
+				elseif opt.Type == "ColorPicker" and opt.SetValueRGB and typeof(opt.Value) == "Color3" then
+					opt:SetValueRGB(opt.Value, opt.Transparency or 0)
+				end
+			end)
 		end
 	end
 
@@ -401,8 +436,12 @@ do
 					self._configHideUIOnLoad = true
 				end
 
-				task.spawn(self.Parser[option.type].Load, option.idx, option)
+				self.Parser[option.type].Load(option.idx, option)
 			end
+
+			task.defer(function()
+				self:RefreshLoadedCallbacks()
+			end)
 		end
 
 		return true
