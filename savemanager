@@ -84,10 +84,7 @@ do
 				if not object then
 					return
 				end
-				local want = data.value == true
-				if object.Value ~= want then
-					object:SetValue(want)
-				end
+				object:SetValue(data.value == true)
 			end,
 		},
 		Slider = {
@@ -99,9 +96,7 @@ do
 				if not object then
 					return
 				end
-				local n = tonumber(data.value)
-				local cur = tonumber(object.Value)
-				if n ~= nil and cur ~= nil and math.abs(cur - n) > 1e-6 then
+				if tonumber(data.value) ~= nil then
 					object:SetValue(data.value)
 				end
 			end,
@@ -115,11 +110,7 @@ do
 				if not object then
 					return
 				end
-				if object.Multi ~= true and object.Value ~= data.value then
-					object:SetValue(data.value)
-				elseif object.Multi == true then
-					object:SetValue(data.value)
-				end
+				object:SetValue(data.value)
 			end,
 		},
 		ColorPicker = {
@@ -172,7 +163,7 @@ do
 			end,
 			Load = function(idx, data)
 				local object = SaveManager.Library.Options[idx]
-				if object and object.Value ~= data.text and type(data.text) == "string" then
+				if object and type(data.text) == "string" then
 					object:SetValue(data.text)
 				end
 			end,
