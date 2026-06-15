@@ -210,6 +210,13 @@ do
 					opt:SetValue(opt.Value)
 				elseif opt.Type == "ColorPicker" and opt.SetValueRGB and typeof(opt.Value) == "Color3" then
 					opt:SetValueRGB(opt.Value, opt.Transparency or 0)
+				elseif opt.Type == "KeyPicker" and opt.SetValue then
+					local k = opt.Value
+					local keyStr = ""
+					if typeof(k) == "EnumItem" and k.EnumType == Enum.KeyCode then
+						keyStr = if k == Enum.KeyCode.Unknown then "" else k.Name
+					end
+					opt:SetValue({ keyStr, opt.Mode, opt.Modifiers or {} })
 				end
 			end)
 		end
