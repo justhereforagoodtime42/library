@@ -4326,6 +4326,14 @@ function Library.new(config: WindowConfig)
 			reg.OnChanged = function(_: any, cb: (number) -> ())
 				table.insert(sliderCbs, cb)
 			end
+			reg.FireChanged = function()
+				for _, cb in sliderCbs do
+					task.spawn(cb, val)
+				end
+				if o.Callback then
+					o.Callback(val)
+				end
+			end
 
 			if typeof(o.Idx) == "string" and o.Idx ~= "" then
 				Library.Options[o.Idx] = reg
@@ -4696,9 +4704,11 @@ function Library.new(config: WindowConfig)
 					selected[k] = nil
 				end
 				if multi and type(v) == "table" then
-					for _, s in v do
+					for k, s in v do
 						if typeof(s) == "string" and s ~= "" then
 							selected[s] = true
+						elseif s == true and typeof(k) == "string" and k ~= "" then
+							selected[k] = true
 						end
 					end
 				elseif not multi and (v == nil or v == "") and allowNull then
@@ -4708,9 +4718,10 @@ function Library.new(config: WindowConfig)
 				end
 				btn.Text = "  " .. summary()
 				refreshOptionVisuals()
-				syncReg()
+				fire()
 			end
 			reg.SetValue = reg.Set
+			reg.FireChanged = fire
 			reg.Get = function()
 				return computeValue()
 			end
@@ -4823,6 +4834,14 @@ function Library.new(config: WindowConfig)
 				sync()
 			end
 			reg.SetValue = reg.Set
+			reg.FireChanged = function()
+				for _, cb in inputCbs do
+					task.spawn(cb, box.Text)
+				end
+				if o.Callback then
+					o.Callback(box.Text)
+				end
+			end
 			reg.Get = function()
 				return box.Text
 			end
